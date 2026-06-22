@@ -515,9 +515,15 @@ ui <- tagList(
                                   choices  = NULL,
                                   selected = NULL,
                                   options  = list(
-                                    placeholder    = "Suchen oder ausw\u00e4hlen...",
+                                    placeholder    = "Suchen, tippen oder ausw\u00e4hlen...",
                                     maxOptions     = 200,
-                                    create         = FALSE
+                                    # create = TRUE: getippte MASTER_ID wird auch
+                                    # ohne Klick auf einen Listeneintrag uebernommen
+                                    # (sonst verwirft selectize den Text beim Blur,
+                                    #  das Feld leert sich und der Button tut nichts).
+                                    create         = TRUE,
+                                    createOnBlur   = TRUE,
+                                    selectOnTab    = TRUE
                                   ),
                                   width = "100%"),
                    actionButton("sa_load_from_sel", "Diesen Standort laden",
