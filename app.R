@@ -2285,12 +2285,36 @@ server <- function(input, output, session) {
   
   observeEvent(input$sa_load_from_sel, {
     req(input$sa_master_id_sel)
+    mid   <- input$sa_master_id_sel
     is_nr <- isTRUE(input$sa_region_filter == "NR")
     sa_manual_trigger(list(
-      MASTER_ID = input$sa_master_id_sel,
+      MASTER_ID = mid,
       region    = if (is_nr) "NR" else "BWI",
       nr_id     = if (is_nr) (input$sa_nr_filter %||% "NR01") else NULL,
       ts        = Sys.time()   # Timestamp damit gleiche ID erneut triggerbar
+    ))
+
+    # Bodendaten + Minimal-Punkt analog zum Kartenklick laden, damit
+    # Boden-Kontext und Standortblatt-PDF auch ohne Kartenklick funktionieren.
+    # (handle_punkt_click() kann hier nicht genutzt werden, da sie auf
+    # filtered() der Karte basiert, die unabhaengig von dieser Auswahl ist.)
+    boden_region_val <- if (is_nr) "NR" else "BWI"
+    if (is.null(boden_cache$data[[mid]])) {
+      withProgress(message = paste0("Lade Bodendaten: ", mid), value = 0.5, {
+        boden_cache$data[[mid]] <- tryCatch(
+          get_boden(mid, region = boden_region_val),
+          error = function(e) { message("Bodendaten Fehler: ", e$message); NULL }
+        )
+      })
+    }
+    selected_punkt(list(
+      punkt = data.frame(MASTER_ID = mid, Baumart = NA_character_,
+                         TV = NA_character_, Kat = NA_character_,
+                         Szenario = NA_character_, Modell = NA_character_,
+                         Zeitraum = NA_character_, stringsAsFactors = FALSE),
+      boden = boden_cache$data[[mid]],
+      wm    = NULL,
+      bzt   = NULL
     ))
   })
   
