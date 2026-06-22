@@ -523,7 +523,8 @@ ui <- tagList(
                                     #  das Feld leert sich und der Button tut nichts).
                                     create         = TRUE,
                                     createOnBlur   = TRUE,
-                                    selectOnTab    = TRUE
+                                    selectOnTab    = TRUE,
+                                    openOnFocus    = TRUE
                                   ),
                                   width = "100%"),
                    actionButton("sa_load_from_sel", "Diesen Standort laden",
