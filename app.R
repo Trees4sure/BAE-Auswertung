@@ -2198,13 +2198,25 @@ server <- function(input, output, session) {
   sa_active_mid <- reactiveVal(NULL)   # list(mid, region, nr_id)
   
   observeEvent(input$sa_run, {
-    req(selected_punkt())
-    is_nr <- isTRUE(input$datenquelle == "NR")
-    sa_active_mid(list(
-      mid    = as.character(selected_punkt()$punkt$MASTER_ID),
-      region = if (is_nr) "NR" else "BWI",
-      nr_id  = if (is_nr) input$nr_sel else NULL
-    ))
+    sel <- selected_punkt()
+    if (!is.null(sel)) {
+      # Kartenpunkt aktiv -> bisheriges Verhalten unveraendert
+      is_nr <- isTRUE(input$datenquelle == "NR")
+      sa_active_mid(list(
+        mid    = as.character(sel$punkt$MASTER_ID),
+        region = if (is_nr) "NR" else "BWI",
+        nr_id  = if (is_nr) input$nr_sel else NULL
+      ))
+    } else {
+      # Kein Kartenpunkt -> manuell gewaehlte MASTER_ID verwenden
+      req(input$sa_master_id_sel)
+      is_nr <- isTRUE(input$sa_region_filter == "NR")
+      sa_active_mid(list(
+        mid    = input$sa_master_id_sel,
+        region = if (is_nr) "NR" else "BWI",
+        nr_id  = if (is_nr) (input$sa_nr_filter %||% "NR01") else NULL
+      ))
+    }
   })
   
   observeEvent(sa_manual_trigger(), {
