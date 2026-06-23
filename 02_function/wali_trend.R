@@ -152,15 +152,15 @@ plot_wali_trend <- function(year, temp, prec,
 
   # Achsen: links Temperatur, rechts Niederschlag
   p <- p + ggplot2::scale_y_continuous(
-    name = "Jahresmitteltemperatur [°C]",
+    name = "Jahresmitteltemperatur [\u00b0C]",
     sec.axis = ggplot2::sec_axis(~ temp_to_prec(.),
                                  name = "Jahresniederschlag [mm]"))
 
   # Beschriftung + Stil
   untertitel <- paste(c(
-    sprintf("Ø %.1f °C  |  %d mm/a", mean(temp), round(mean(prec))),
+    sprintf("\u00d8 %.1f \u00b0C  |  %d mm/a", mean(temp), round(mean(prec))),
     if (nzchar(period)) period
-  ), collapse = "   ·   ")
+  ), collapse = "   \u00b7   ")
 
   p <- p +
     ggplot2::labs(title = name, subtitle = untertitel, x = "Jahr") +

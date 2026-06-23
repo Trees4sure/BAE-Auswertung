@@ -57,18 +57,18 @@ plot_walther_lieth_facets <- function(df, id_val, runs = NULL, ncol = NULL) {
     ggplot2::facet_wrap(~ Zeitlauf, ncol = ncol) +
     ggplot2::scale_x_continuous(breaks = 1:12, labels = MONATE) +
     ggplot2::scale_y_continuous(
-      name = "Temperatur [°C]", limits = c(ymin, ymax),
+      name = "Temperatur [\u00b0C]", limits = c(ymin, ymax),
       sec.axis = ggplot2::sec_axis(~ wl_t2p(.), name = "Niederschlag [mm]",
                                    breaks = c(seq(0, 100, 20),
                                               if (ymax > 50) seq(200, wl_t2p(ymax), 100)))) +
-    ggplot2::labs(title = paste0("Walther-Lieth-Vergleich · Punkt ", id_val),
+    ggplot2::labs(title = paste0("Walther-Lieth-Vergleich \u00b7 Punkt ", id_val),
                   x = "Monat") +
     wl_compare_theme()
 }
 
 
 # ---- 2. Delta-WL: Vergleichslauf minus Referenz -----------------------------
-# Zeigt ΔT (rote Linie) und ΔP (Balken: blau feuchter / braun trockener) je
+# Zeigt \u0394T (rote Linie) und \u0394P (Balken: blau feuchter / braun trockener) je
 # Monat um die Null-Linie. Monatsdeltas sind klein -> echte 1:2-Kopplung.
 plot_walther_lieth_delta <- function(df, id_val, run_ref, run_cmp) {
   a <- df[df$id == id_val & df$Zeitlauf == run_ref, ]
@@ -96,11 +96,11 @@ plot_walther_lieth_delta <- function(df, id_val, run_ref, run_cmp) {
                                name = NULL) +
     ggplot2::scale_x_continuous(breaks = 1:12, labels = MONATE) +
     ggplot2::scale_y_continuous(
-      name = "ΔTemperatur [°C]",
-      sec.axis = ggplot2::sec_axis(~ . * 2, name = "ΔNiederschlag [mm]")) +
+      name = "\u0394Temperatur [\u00b0C]",
+      sec.axis = ggplot2::sec_axis(~ . * 2, name = "\u0394Niederschlag [mm]")) +
     ggplot2::labs(
-      title = paste0("ΔWL · Punkt ", id_val),
-      subtitle = sprintf("%s  −  %s   ·   Ø %+.1f °C  |  %+d mm/a",
+      title = paste0("\u0394WL \u00b7 Punkt ", id_val),
+      subtitle = sprintf("%s  -  %s   \u00b7   \u00d8 %+.1f \u00b0C  |  %+d mm/a",
                          run_cmp, run_ref, mean(delta$dT), round(sum(delta$dP))),
       x = "Monat") +
     wl_compare_theme()

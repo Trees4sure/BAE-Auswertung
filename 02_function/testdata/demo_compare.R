@@ -2,19 +2,19 @@
 # Demo: Differenz-Diagramme + Empfehlungs-Leiste auf den Verschiebungsdaten.
 #
 # Voraussetzung: Pakete ggplot2, dplyr, patchwork.
-# Aufruf:  source("functions/testdata/demo_compare.R")
+# Aufruf:  source("02_function/testdata/demo_compare.R")
 # =============================================================================
 
 # ---- Funktionen laden -------------------------------------------------------
-source("functions/walther_lieth_helpers.R")
-source("functions/walther_lieth_compare.R")
-source("functions/wali_trend_compare.R")
-source("functions/recommendation_strip.R")
+source("02_function/walther_lieth_helpers.R")
+source("02_function/walther_lieth_compare.R")
+source("02_function/wali_trend_compare.R")
+source("02_function/recommendation_strip.R")
 
 # ---- Testdaten einlesen -----------------------------------------------------
-wl  <- read.csv("functions/testdata/shift_monthly_test.csv")
-ts  <- read.csv("functions/testdata/shift_wali_trend_test.csv")
-rec <- read.csv("functions/testdata/recommendation_test.csv")
+wl  <- read.csv("02_function/testdata/shift_monthly_test.csv")
+ts  <- read.csv("02_function/testdata/shift_wali_trend_test.csv")
+rec <- read.csv("02_function/testdata/recommendation_test.csv")
 
 pid  <- 70041234
 runs <- c("Referenz_1991-2020", "RCP45_2071-2100", "RCP85_2071-2100")

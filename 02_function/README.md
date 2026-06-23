@@ -28,8 +28,8 @@ cdo -b F32 ymonmean -monsum  -mulc,0.1 -mergetime 1114_*.nc 1157_run.nc
 ## Nutzung
 
 ```r
-source("functions/walther_lieth_input.R")
-source("functions/plot_walther_lieth.R")
+source("02_function/walther_lieth_input.R")
+source("02_function/plot_walther_lieth.R")
 
 # rast_list: benannte Liste (Name = Zeitlauf) mit je 24-Layer-SpatRaster
 #            (12x 1155 Temp + 12x 1157 Niederschlag) ODER list(temp, prec).
@@ -43,6 +43,12 @@ wl <- build_walther_lieth_input(rast_list, geom = geom)
 plot_walther_lieth_from_long(wl, id_val = 70041234,
                              run = "RCP45_MPIWRF_2071-2100")
 ```
+
+`plot_walther_lieth()` zeichnet ein klassisches Walther-Lieth-Diagramm
+(4-Ecken-Kopf, humide Senkrechtschraffur, aride Punktschraffur, perhumide
+Füllung > 100 mm, Frostbalken). Der Kopf wird mit **patchwork** gesetzt;
+fehlt es, gibt es einen Titel-Fallback. Sonderzeichen liegen als `\u`-Escapes
+im Quelltext → kein Mojibake, egal welches Encoding beim `source()`.
 
 ## 30-Jahres-Verlauf (Jahresparameter 1049 / 1050)
 
@@ -59,8 +65,8 @@ Kopplung ergibt nur bei Monatswerten Sinn). Gezeigt: Temperatur (rot, links)
 und Niederschlag (blau, rechts) über die ~30 Jahre, mit linearen Trendlinien.
 
 ```r
-source("functions/walther_lieth_input.R")      # fuer .wl_detect_scale()
-source("functions/wali_trend.R")
+source("02_function/walther_lieth_input.R")      # fuer .wl_detect_scale()
+source("02_function/wali_trend.R")
 
 # rast_list hier mit den JAHRES-Rastern (1049 + 1050) je Lauf,
 # Reihenfolge erste Haelfte Temp, zweite Haelfte Niederschlag.
@@ -88,21 +94,28 @@ im WL-Stil. Drei Bausteine:
   `combine_climate_recommendation()` stapelt Klimasignal über die Leiste.
 
 ```r
-source("functions/walther_lieth_helpers.R")
-source("functions/walther_lieth_compare.R")
-source("functions/wali_trend_compare.R")
-source("functions/recommendation_strip.R")
+source("02_function/walther_lieth_helpers.R")
+source("02_function/walther_lieth_compare.R")
+source("02_function/wali_trend_compare.R")
+source("02_function/recommendation_strip.R")
 
-wl  <- read.csv("functions/testdata/shift_monthly_test.csv")
-rec <- read.csv("functions/testdata/recommendation_test.csv")
+wl  <- read.csv("02_function/testdata/shift_monthly_test.csv")
+rec <- read.csv("02_function/testdata/recommendation_test.csv")
 runs <- c("Referenz_1991-2020", "RCP45_2071-2100", "RCP85_2071-2100")
 
 compare_walther_lieth(wl, 70041234, runs = runs, mode = "both")
+
+# Empfehlungs-Leiste deckungsgleich UNTER die Klima-Small-Multiples (aligned):
 combine_climate_recommendation(
-  plot_walther_lieth_facets(wl, 70041234, runs = runs), rec, 70041234, runs = runs)
+  plot_walther_lieth_facets(wl, 70041234, runs = runs),
+  rec, 70041234, runs = runs, aligned = TRUE)
 ```
 
-Komplettes Beispiel: `source("functions/testdata/demo_compare.R")`.
+`aligned = TRUE` rendert die Empfehlung als **facettierte** Leiste (ein Kachel-
+Panel je Lauf), sodass jede Lauf-Spalte exakt unter ihrem Klimadiagramm sitzt;
+`aligned = FALSE` legt eine kompakte Matrix (Läufe als Spalten) darunter.
+
+Komplettes Beispiel: `source("02_function/testdata/demo_compare.R")`.
 
 ## Hinweise
 
@@ -117,7 +130,7 @@ Komplettes Beispiel: `source("functions/testdata/demo_compare.R")`.
 
 ## Testdaten
 
-Unter `functions/testdata/` liegen fertige Beispiel-CSVs im Long-Format
+Unter `02_function/testdata/` liegen fertige Beispiel-CSVs im Long-Format
 (3 Punkte, realistische Zufallswerte) – direkt von den `*_from_long()`-
 Funktionen lesbar, ohne Raster:
 
@@ -131,16 +144,16 @@ für Differenz-Diagramme und Empfehlungswechsel):
 - `recommendation_test.csv` – `id | Zeitlauf | Baumart | Empfehlung`
 
 ```r
-wl <- read.csv("functions/testdata/walther_lieth_monthly_test.csv")
+wl <- read.csv("02_function/testdata/walther_lieth_monthly_test.csv")
 plot_walther_lieth_from_long(wl, id_val = 70041234, run = "OBS_DWD_1961-1990")
 
-ts <- read.csv("functions/testdata/wali_trend_test.csv")
+ts <- read.csv("02_function/testdata/wali_trend_test.csv")
 plot_wali_trend_from_long(ts, id_val = 70041234, run = "RCP85_HADWRF_2071-2100")
 ```
 
 Neu erzeugen:
-- `source("functions/testdata/make_test_data.R")` – Einzeldiagramm-Daten
-- `source("functions/testdata/make_shift_test_data.R")` – Verschiebungs-Szenario
+- `source("02_function/testdata/make_test_data.R")` – Einzeldiagramm-Daten
+- `source("02_function/testdata/make_shift_test_data.R")` – Verschiebungs-Szenario
 
 ## Pakete
 

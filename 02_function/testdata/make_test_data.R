@@ -5,12 +5,12 @@
 # build_walther_lieth_input() bzw. build_wali_trend_input() liefern),
 # schreibt sie als CSV und zeichnet zur Kontrolle Beispiel-Diagramme.
 #
-# Aufruf:  source("functions/testdata/make_test_data.R")
+# Aufruf:  source("02_function/testdata/make_test_data.R")
 # =============================================================================
 
 set.seed(42)
 
-out_dir <- "functions/testdata"
+out_dir <- "02_function/testdata"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ---- Punkt-Metadaten (id, Hoehe m, Lon, Lat) -------------------------------
@@ -106,9 +106,9 @@ message("CSV geschrieben: ", out_dir,
 # ---- 3. Beispiel: CSV einlesen und Diagramme zeichnen ----------------------
 # (nur ausfuehren, wenn die Funktionen geladen sind)
 if (interactive()) {
-  source("functions/walther_lieth_input.R")
-  source("functions/plot_walther_lieth.R")
-  source("functions/wali_trend.R")
+  source("02_function/walther_lieth_input.R")
+  source("02_function/plot_walther_lieth.R")
+  source("02_function/wali_trend.R")
 
   wl <- read.csv(file.path(out_dir, "walther_lieth_monthly_test.csv"))
   ts <- read.csv(file.path(out_dir, "wali_trend_test.csv"))
