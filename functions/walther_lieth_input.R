@@ -58,23 +58,27 @@ wl_extract_run <- function(r, geom = NULL, scale = NULL,
     stop("SpatRaster hat ", terra::nlyr(r),
          " Layer, erwartet werden mindestens 24 (12 Temp + 12 Niederschlag).")
 
-  df <- terra::as.data.frame(r, xy = FALSE)
-  Tm <- as.matrix(df[, temp_idx, drop = FALSE])
-  Pm <- as.matrix(df[, prec_idx, drop = FALSE])
+  if (!requireNamespace("dplyr", quietly = TRUE))
+    stop("Paket 'dplyr' wird benoetigt.")
+  `%>%` <- dplyr::`%>%`
 
-  fac <- .wl_detect_scale(Tm, scale)
-  Tm <- Tm * fac
-  Pm <- Pm * fac
+  df  <- dplyr::as_tibble(terra::as.data.frame(r, xy = FALSE))
+  fac <- .wl_detect_scale(as.matrix(df[, temp_idx]), scale)
 
-  colnames(Tm) <- sprintf("T_%02d", 1:12)
-  colnames(Pm) <- sprintf("P_%02d", 1:12)
-  out <- cbind(as.data.frame(Tm), as.data.frame(Pm))
+  out <- dplyr::bind_cols(
+    df[, temp_idx] %>%
+      dplyr::mutate(dplyr::across(dplyr::everything(), ~ .x * fac)) %>%
+      stats::setNames(sprintf("T_%02d", 1:12)),
+    df[, prec_idx] %>%
+      dplyr::mutate(dplyr::across(dplyr::everything(), ~ .x * fac)) %>%
+      stats::setNames(sprintf("P_%02d", 1:12))
+  )
 
   if (!is.null(geom)) {
     if (nrow(geom) != nrow(out))
       stop("geom hat ", nrow(geom), " Zeilen, Werte haben ", nrow(out),
            " - cellweises cbind nicht moeglich.")
-    out <- cbind(geom, out)
+    out <- dplyr::bind_cols(dplyr::as_tibble(geom), out)
   }
   out
 }
@@ -94,20 +98,22 @@ build_walther_lieth_input <- function(rast_list, geom = NULL, scale = NULL,
                                       id_cols = NULL) {
   if (is.null(names(rast_list)) || any(names(rast_list) == ""))
     stop("rast_list muss benannt sein (Name = Zeitlauf).")
-  if (!requireNamespace("tidyr", quietly = TRUE) ||
-      !requireNamespace("dplyr", quietly = TRUE))
-    stop("Pakete 'tidyr' und 'dplyr' werden benoetigt.")
+  for (pkg in c("tidyr", "dplyr", "purrr"))
+    if (!requireNamespace(pkg, quietly = TRUE))
+      stop("Paket '", pkg, "' wird benoetigt.")
+  `%>%` <- dplyr::`%>%`
 
   if (is.null(id_cols)) id_cols <- if (!is.null(geom)) names(geom) else character(0)
 
-  per_run <- lapply(names(rast_list), function(nm) {
-    wide <- wl_extract_run(rast_list[[nm]], geom = geom, scale = scale)
-    wide$Zeitlauf <- nm
-    # Falls keine id vorhanden: Zellindex als Ersatz-id
-    if (!"id" %in% names(wide)) wide$id <- seq_len(nrow(wide))
-    wide
-  })
-  wide_all <- dplyr::bind_rows(per_run)
+  wide_all <- rast_list %>%
+    purrr::imap(function(r, nm) {
+      wl_extract_run(r, geom = geom, scale = scale) %>%
+        dplyr::mutate(Zeitlauf = nm) %>%
+        # Falls keine id vorhanden: Zellindex als Ersatz-id
+        { if (!"id" %in% names(.)) dplyr::mutate(., id = dplyr::row_number())
+          else . }
+    }) %>%
+    purrr::list_rbind()
 
   keep <- unique(c(id_cols, "id", "Zeitlauf"))
   keep <- keep[keep %in% names(wide_all)]

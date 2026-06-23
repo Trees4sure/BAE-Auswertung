@@ -51,5 +51,11 @@ plot_walther_lieth_from_long(wl, id_val = 70041234,
   explizit überschreiben.
 - Layer-Reihenfolge muss Jan→Dez sein – bei `ymonmean` der Fall, vorab
   per `terra::time()` / Layer-Namen kurz kontrollieren.
-- `plot_walther_lieth()` ist dependency-frei (Base R). Alternative mit
-  identischer Konvention: `climatol::diagwl()`.
+- `plot_walther_lieth()` liefert ein **ggplot-Objekt** zurück (mit `print()`
+  zeichnen, mit `ggplot2::ggsave()` speichern). Alternative mit identischer
+  Konvention: `climatol::diagwl()`.
+
+## Pakete
+
+- Aufbereitung: `terra`, `dplyr`, `tidyr`, `purrr`
+- Plot: `ggplot2`, `dplyr` (optional `scales`)
