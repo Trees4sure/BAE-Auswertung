@@ -2,21 +2,21 @@
 # Demo: Differenz-Diagramme + Empfehlungs-Leiste auf den Verschiebungsdaten.
 #
 # Voraussetzung: Pakete ggplot2, dplyr, patchwork.
-# Aufruf:  source("02_function/testdata/demo_compare.R")
+# Aufruf:  source("02_function/WL_Diagramme/testdata/demo_compare.R")
 # =============================================================================
 
 # ---- Funktionen laden -------------------------------------------------------
-source("02_function/walther_lieth_helpers.R")
-source("02_function/plot_walther_lieth.R")
-source("02_function/walther_lieth_compare.R")
-source("02_function/wali_trend_compare.R")
-source("02_function/recommendation_strip.R")
-source("02_function/compose_overview.R")
+source("02_function/WL_Diagramme/walther_lieth_helpers.R")
+source("02_function/WL_Diagramme/plot_walther_lieth.R")
+source("02_function/WL_Diagramme/walther_lieth_compare.R")
+source("02_function/WL_Diagramme/wali_trend_compare.R")
+source("02_function/WL_Diagramme/recommendation_strip.R")
+source("02_function/WL_Diagramme/compose_overview.R")
 
 # ---- Testdaten einlesen -----------------------------------------------------
-wl  <- read.csv("02_function/testdata/shift_monthly_test.csv")
-ts  <- read.csv("02_function/testdata/shift_wali_trend_test.csv")
-rec <- read.csv("02_function/testdata/recommendation_test.csv")
+wl  <- read.csv("02_function/WL_Diagramme/testdata/shift_monthly_test.csv")
+ts  <- read.csv("02_function/WL_Diagramme/testdata/shift_wali_trend_test.csv")
+rec <- read.csv("02_function/WL_Diagramme/testdata/recommendation_test.csv")
 
 pid  <- 70041234
 runs <- c("Referenz_1991-2020", "RCP45_2071-2100", "RCP85_2071-2100")

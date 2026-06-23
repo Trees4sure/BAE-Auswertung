@@ -28,8 +28,8 @@ cdo -b F32 ymonmean -monsum  -mulc,0.1 -mergetime 1114_*.nc 1157_run.nc
 ## Nutzung
 
 ```r
-source("02_function/walther_lieth_input.R")
-source("02_function/plot_walther_lieth.R")
+source("02_function/WL_Diagramme/walther_lieth_input.R")
+source("02_function/WL_Diagramme/plot_walther_lieth.R")
 
 # rast_list: benannte Liste (Name = Zeitlauf) mit je 24-Layer-SpatRaster
 #            (12x 1155 Temp + 12x 1157 Niederschlag) ODER list(temp, prec).
@@ -64,18 +64,30 @@ Hier sind die zwei Achsen **unabhängig** skaliert (die strikte 1 °C : 2 mm-
 Kopplung ergibt nur bei Monatswerten Sinn). Gezeigt: Temperatur (rot, links)
 und Niederschlag (blau, rechts) über die ~30 Jahre, mit linearen Trendlinien.
 
-```r
-source("02_function/walther_lieth_input.R")      # fuer .wl_detect_scale()
-source("02_function/wali_trend.R")
+`rast_list` ist genau deine bestehende Liste `nc.grep.variables_BWI_KS`
+(je Lauf ein SpatRaster mit 60 Layern: 30× `tadm`/1049 + 30× `rrds`/1050).
+**Wichtig: KEIN `tapp`** – das mittelt die 30 Jahre weg; der Builder braucht die
+Jahres-Layer.
 
-# rast_list hier mit den JAHRES-Rastern (1049 + 1050) je Lauf,
-# Reihenfolge erste Haelfte Temp, zweite Haelfte Niederschlag.
-ts <- build_wali_trend_input(rast_list, geom = geom)
-# -> id | Zeitlauf | Jahr | Kalenderjahr | T_year | P_year
+```r
+source("02_function/WL_Diagramme/walther_lieth_input.R")  # .wl_detect_scale()
+source("02_function/WL_Diagramme/wali_trend.R")
+
+# 1) Geometrie je Rasterzelle (wie in deinem cbind, nur ohne Variablen-Spalten)
+geom_bwi <- cbind(nc.BWI.rw.df, nc.BWI.hw.df, nc.BWI.el.df, nc.BWI.id.df)
+geom_bwi <- dplyr::rename(geom_bwi, Lon = x_25832, Lat = y_25832,
+                          altitude = elevation_250m, id = id)
+
+# 2) WaLi-Trend Long-Format DIREKT aus den 60-Layer-Rastern (kein tapp!)
+ts <- build_wali_trend_input(nc.grep.variables_BWI_KS, geom = geom_bwi)
+# -> id | Lon | Lat | altitude | Jahr | Kalenderjahr | T_year | P_year | Zeitlauf
 
 plot_wali_trend_from_long(ts, id_val = 70041234,
-                             run = "RCP45_MPIWRF_2071-2100")
+                          run = "RCP45_MPIWRF_2071-2100")
 ```
+
+Layer-Erkennung läuft über `1049/MAT/tadm` bzw. `1050/MAP/rrds`; Läufe mit
+21/29 Jahren (statt 30) werden automatisch korrekt getrennt.
 
 ## Klimaläufe vergleichen (Differenz sichtbar machen)
 
@@ -94,13 +106,13 @@ im WL-Stil. Drei Bausteine:
   `combine_climate_recommendation()` stapelt Klimasignal über die Leiste.
 
 ```r
-source("02_function/walther_lieth_helpers.R")
-source("02_function/walther_lieth_compare.R")
-source("02_function/wali_trend_compare.R")
-source("02_function/recommendation_strip.R")
+source("02_function/WL_Diagramme/walther_lieth_helpers.R")
+source("02_function/WL_Diagramme/walther_lieth_compare.R")
+source("02_function/WL_Diagramme/wali_trend_compare.R")
+source("02_function/WL_Diagramme/recommendation_strip.R")
 
-wl  <- read.csv("02_function/testdata/shift_monthly_test.csv")
-rec <- read.csv("02_function/testdata/recommendation_test.csv")
+wl  <- read.csv("02_function/WL_Diagramme/testdata/shift_monthly_test.csv")
+rec <- read.csv("02_function/WL_Diagramme/testdata/recommendation_test.csv")
 runs <- c("Referenz_1991-2020", "RCP45_2071-2100", "RCP85_2071-2100")
 
 compare_walther_lieth(wl, 70041234, runs = runs, mode = "both")
@@ -124,14 +136,14 @@ Szenario das Δ-Diagramm. Die Zeilen sind ausgerichtet (Referenz-WL ↔ Empfehlu
 Szenario-WL ↔ sein Δ-Plot).
 
 ```r
-source("02_function/plot_walther_lieth.R")   # wl_panel
-source("02_function/compose_overview.R")
+source("02_function/WL_Diagramme/plot_walther_lieth.R")   # wl_panel
+source("02_function/WL_Diagramme/compose_overview.R")
 compose_scenario_overview(wl, rec, 70041234,
   ref = "Referenz_1991-2020",
   scenarios = c("RCP45_2071-2100", "RCP85_2071-2100"))
 ```
 
-Komplettes Beispiel: `source("02_function/testdata/demo_compare.R")`.
+Komplettes Beispiel: `source("02_function/WL_Diagramme/testdata/demo_compare.R")`.
 
 ## Hinweise
 
@@ -146,7 +158,7 @@ Komplettes Beispiel: `source("02_function/testdata/demo_compare.R")`.
 
 ## Testdaten
 
-Unter `02_function/testdata/` liegen fertige Beispiel-CSVs im Long-Format
+Unter `02_function/WL_Diagramme/testdata/` liegen fertige Beispiel-CSVs im Long-Format
 (3 Punkte, realistische Zufallswerte) – direkt von den `*_from_long()`-
 Funktionen lesbar, ohne Raster:
 
@@ -160,16 +172,16 @@ für Differenz-Diagramme und Empfehlungswechsel):
 - `recommendation_test.csv` – `id | Zeitlauf | Baumart | Empfehlung`
 
 ```r
-wl <- read.csv("02_function/testdata/walther_lieth_monthly_test.csv")
+wl <- read.csv("02_function/WL_Diagramme/testdata/walther_lieth_monthly_test.csv")
 plot_walther_lieth_from_long(wl, id_val = 70041234, run = "OBS_DWD_1961-1990")
 
-ts <- read.csv("02_function/testdata/wali_trend_test.csv")
+ts <- read.csv("02_function/WL_Diagramme/testdata/wali_trend_test.csv")
 plot_wali_trend_from_long(ts, id_val = 70041234, run = "RCP85_HADWRF_2071-2100")
 ```
 
 Neu erzeugen:
-- `source("02_function/testdata/make_test_data.R")` – Einzeldiagramm-Daten
-- `source("02_function/testdata/make_shift_test_data.R")` – Verschiebungs-Szenario
+- `source("02_function/WL_Diagramme/testdata/make_test_data.R")` – Einzeldiagramm-Daten
+- `source("02_function/WL_Diagramme/testdata/make_shift_test_data.R")` – Verschiebungs-Szenario
 
 ## Pakete
 

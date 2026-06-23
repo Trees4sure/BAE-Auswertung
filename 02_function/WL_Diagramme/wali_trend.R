@@ -23,27 +23,32 @@ wali_trend_start_year <- function(run) {
 
 
 # ---- 2. Einen Lauf in Long-Format bringen -----------------------------------
-# r: SpatRaster mit 2*n Layern. Erste Haelfte = Temp (1049), zweite = Nied. (1050).
-#    (Falls die Layernamen "1049"/"1050" bzw. "MAT"/"MAP" enthalten, wird danach
-#     getrennt; sonst Annahme erste/zweite Haelfte.)
-# Rueckgabe: id | Zeitlauf | Jahr | Kalenderjahr | T_year | P_year
+# r: SpatRaster mit 2*n Layern: n Temp-Layer (1049) + n Niederschlags-Layer (1050).
+#    Erkennung ueber die Layer-/Varnamen: 1049/MAT/tadm = Temp, 1050/MAP/rrds =
+#    Niederschlag. Greift das nicht, gilt: erste Haelfte Temp, zweite Niederschlag.
+#    (Deine BWI-Raster haben z.B. names tadm_1..tadm_30, rrds_1..rrds_30.)
+# geom: data.frame mit einer Zeile JE RASTERZELLE (gleiche Reihenfolge wie
+#    terra::as.data.frame), inkl. Spalte id sowie optional Lon/Lat/altitude -
+#    diese Spalten werden ins Ergebnis durchgereicht.
+# Rueckgabe: <geom-Spalten> | Jahr | Kalenderjahr | T_year | P_year | Zeitlauf
 wali_trend_one_run <- function(r, run, geom = NULL, scale = NULL) {
   n_layer <- terra::nlyr(r)
   layer_names <- names(r)
 
-  # Temp- und Niederschlags-Layer bestimmen
-  is_temp <- grepl("1049|MAT", layer_names)
-  is_prec <- grepl("1050|MAP", layer_names)
+  # Temp- und Niederschlags-Layer bestimmen (Parameter-ID oder Varname)
+  is_temp <- grepl("1049|MAT|tadm", layer_names, ignore.case = TRUE)
+  is_prec <- grepl("1050|MAP|rrds", layer_names, ignore.case = TRUE)
   if (any(is_temp) && any(is_prec)) {
     idx_temp <- which(is_temp)
     idx_prec <- which(is_prec)
   } else {
-    n_years  <- n_layer / 2
-    idx_temp <- seq_len(n_years)
-    idx_prec <- seq.int(n_years + 1, n_layer)
+    n2       <- n_layer / 2
+    idx_temp <- seq_len(n2)
+    idx_prec <- seq.int(n2 + 1, n_layer)
   }
   if (length(idx_temp) != length(idx_prec))
-    stop("Lauf ", run, ": unterschiedlich viele Temp-/Niederschlags-Layer.")
+    stop("Lauf ", run, ": unterschiedlich viele Temp-/Niederschlags-Layer (",
+         length(idx_temp), " vs. ", length(idx_prec), ").")
   n_years <- length(idx_temp)
 
   # Werte je Zelle (Punkt) auslesen
@@ -59,21 +64,31 @@ wali_trend_one_run <- function(r, run, geom = NULL, scale = NULL) {
   colnames(temp_vals) <- seq_len(n_years)
   colnames(prec_vals) <- seq_len(n_years)
 
-  # Punkt-id ergaenzen (aus geom, sonst Zellindex)
-  if (!is.null(geom) && "id" %in% names(geom)) {
-    punkt_id <- geom$id
+  # Metadaten je Zelle (id + alles aus geom). Ohne geom: Zellindex als id.
+  if (is.null(geom)) {
+    meta <- data.frame(id = seq_len(nrow(temp_vals)))
   } else {
-    punkt_id <- seq_len(nrow(temp_vals))
+    meta <- as.data.frame(geom)
+    if (nrow(meta) != nrow(temp_vals))
+      stop("Lauf ", run, ": geom hat ", nrow(meta), " Zeilen, Raster hat ",
+           nrow(temp_vals), " Zellen - passt nicht zusammen.")
+    if (!"id" %in% names(meta)) meta$id <- seq_len(nrow(meta))
   }
-  temp_vals$id <- punkt_id
-  prec_vals$id <- punkt_id
 
-  # in Long-Format und beide zusammenfuehren
-  temp_long <- tidyr::pivot_longer(temp_vals, -id,
+  # Zell-Schluessel zum Zusammenfuehren von Temp, Niederschlag und Metadaten
+  cell_idx <- seq_len(nrow(temp_vals))
+  temp_vals$cell_idx <- cell_idx
+  prec_vals$cell_idx <- cell_idx
+  meta$cell_idx      <- cell_idx
+
+  temp_long <- tidyr::pivot_longer(temp_vals, -"cell_idx",
                                    names_to = "Jahr", values_to = "T_year")
-  prec_long <- tidyr::pivot_longer(prec_vals, -id,
+  prec_long <- tidyr::pivot_longer(prec_vals, -"cell_idx",
                                    names_to = "Jahr", values_to = "P_year")
-  out <- dplyr::inner_join(temp_long, prec_long, by = c("id", "Jahr"))
+
+  out <- dplyr::inner_join(temp_long, prec_long, by = c("cell_idx", "Jahr"))
+  out <- dplyr::inner_join(meta, out, by = "cell_idx")
+  out$cell_idx <- NULL
 
   # Jahr als Zahl + echtes Kalenderjahr aus dem Laufnamen
   out$Jahr        <- as.integer(out$Jahr)

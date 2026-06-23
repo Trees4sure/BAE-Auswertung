@@ -11,11 +11,11 @@
 #   shift_wali_trend_test.csv (WaLi-Trend, 30 Jahreswerte)
 #   recommendation_test.csv   (Empfehlungsstufe je Baumart x Lauf)
 #
-# Aufruf:  source("02_function/testdata/make_shift_test_data.R")
+# Aufruf:  source("02_function/WL_Diagramme/testdata/make_shift_test_data.R")
 # =============================================================================
 
 set.seed(7)
-out_dir <- "02_function/testdata"
+out_dir <- "02_function/WL_Diagramme/testdata"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ---- Standort + Klima-Grundwerte -------------------------------------------
