@@ -98,6 +98,11 @@ ts <- build_wali_trend_input(
 - [ ] Optional: 1155/1157 für alle Läufe vorhanden? Sonst aus 1112/1114 via CDO
       (`ymonmean`/`monsum`) nachgenerieren.
 - [ ] Optional: Warnung in `compare_wali_trend()` bei sehr großem (ungefiltertem) ts.
+- [ ] OFFEN (entscheiden): Beispiel-`id_val` in `demo_compare.R` und in der Doku
+      von `70041234` auf einen gültigen `id_bwi_bze` (z. B. `1`) umstellen, damit
+      die Beispiele **ohne `geom`** direkt laufen. Hintergrund: ohne `geom` ist
+      `id == id_bwi_bze` (1..92123); `70041234` existiert nur, wenn `geom` mit der
+      echten BWI-id mitgegeben wird.
 
 ## Branch
 Entwicklung auf `claude/kind-hopper-30mip3`.
