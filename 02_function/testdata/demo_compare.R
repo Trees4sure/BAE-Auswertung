@@ -7,9 +7,11 @@
 
 # ---- Funktionen laden -------------------------------------------------------
 source("02_function/walther_lieth_helpers.R")
+source("02_function/plot_walther_lieth.R")
 source("02_function/walther_lieth_compare.R")
 source("02_function/wali_trend_compare.R")
 source("02_function/recommendation_strip.R")
+source("02_function/compose_overview.R")
 
 # ---- Testdaten einlesen -----------------------------------------------------
 wl  <- read.csv("02_function/testdata/shift_monthly_test.csv")
@@ -35,14 +37,19 @@ p_ts_both <- compare_wali_trend(ts, pid, runs = runs, mode = "both",
 p_strip   <- plot_recommendation_strip(rec, pid, runs = runs)
 p_combined <- combine_climate_recommendation(p_wl_facets, rec, pid, runs = runs)
 
+# ---- 4. Gesamtuebersicht (links WL untereinander, rechts Empfehlung + Delta) -
+p_overview <- compose_scenario_overview(
+  wl, rec, pid,
+  ref = "Referenz_1991-2020",
+  scenarios = c("RCP45_2071-2100", "RCP85_2071-2100"))
+
 # ---- Anzeigen (im interaktiven Betrieb) -------------------------------------
 if (interactive()) {
   print(p_wl_both)     # Monats-WL-Vergleich (Facets + Delta)
   print(p_ts_both)     # WaLi-Trend-Vergleich (Facets + Mittel-Shift)
   print(p_combined)    # Klima-Small-Multiples ueber der Empfehlungs-Leiste
+  print(p_overview)    # Gesamtuebersicht (das neue Layout)
 }
 
 # ---- Optional als Datei speichern -------------------------------------------
-# ggplot2::ggsave("vergleich_monats_wl.png",  p_wl_both,   width = 9, height = 7)
-# ggplot2::ggsave("vergleich_wali_trend.png", p_ts_both,   width = 9, height = 6)
-# ggplot2::ggsave("klima_und_empfehlung.png", p_combined,  width = 9, height = 7)
+# ggplot2::ggsave("uebersicht_standort.png", p_overview, width = 11, height = 8)

@@ -115,6 +115,22 @@ combine_climate_recommendation(
 Panel je Lauf), sodass jede Lauf-Spalte exakt unter ihrem Klimadiagramm sitzt;
 `aligned = FALSE` legt eine kompakte Matrix (Läufe als Spalten) darunter.
 
+### Standort-Gesamtübersicht (eine Grafik)
+
+`compose_overview.R` → `compose_scenario_overview()` baut die zusammengesetzte
+Übersicht: **links** alle WL-Diagramme klein untereinander (Referenz oben, dann
+Szenarien), **rechts oben** die Empfehlungswechsel, **rechts darunter** je
+Szenario das Δ-Diagramm. Die Zeilen sind ausgerichtet (Referenz-WL ↔ Empfehlung,
+Szenario-WL ↔ sein Δ-Plot).
+
+```r
+source("02_function/plot_walther_lieth.R")   # wl_panel
+source("02_function/compose_overview.R")
+compose_scenario_overview(wl, rec, 70041234,
+  ref = "Referenz_1991-2020",
+  scenarios = c("RCP45_2071-2100", "RCP85_2071-2100"))
+```
+
 Komplettes Beispiel: `source("02_function/testdata/demo_compare.R")`.
 
 ## Hinweise

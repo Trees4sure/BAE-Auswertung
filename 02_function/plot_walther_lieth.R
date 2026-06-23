@@ -82,22 +82,27 @@ wl_panel <- function(temp, prec, t_abs_max = NA, t_abs_min = NA) {
   rechts_breaks <- c(seq(0, 100, 20),
                      if (ymax > 50) seq(200, wl_t2p(ymax), 100) else NULL)
 
-  p <- ggplot2::ggplot() +
-    # perhumide Flaeche zuerst (liegt hinten)
-    ggplot2::geom_ribbon(data = wet,
+  farben <- c("Lufttemperatur" = ROT, "Niederschlag" = BLAU,
+              "humide Periode" = BLAU, "aride Periode" = ROT)
+
+  p <- ggplot2::ggplot()
+  # perhumide Flaeche (nur falls es Monate > 100 mm gibt)
+  if (nrow(wet) > 0)
+    p <- p + ggplot2::geom_ribbon(data = wet,
       ggplot2::aes(x = x, ymin = 50, ymax = ptf, group = grp,
-                   fill = "perhumide Periode (> 100 mm)")) +
-    # humide Senkrechtschraffur (blau)
-    ggplot2::geom_segment(data = humid_h,
-      ggplot2::aes(x = x, xend = x, y = tf, yend = ptf,
-                   colour = "humide Periode")) +
-    # aride Punktschraffur (rot, gepunktet)
-    ggplot2::geom_segment(data = arid_h,
-      ggplot2::aes(x = x, xend = x, y = ptf, yend = tf,
-                   colour = "aride Periode"), linetype = "dotted") +
-    # 100-mm-/1:20-Bruchlinie
+                   fill = "perhumide Periode (> 100 mm)"))
+  # humide Senkrechtschraffur (blau)
+  if (nrow(humid_h) > 0)
+    p <- p + ggplot2::geom_segment(data = humid_h,
+      ggplot2::aes(x = x, xend = x, y = tf, yend = ptf, colour = "humide Periode"))
+  # aride Punktschraffur (rot, gepunktet)
+  if (nrow(arid_h) > 0)
+    p <- p + ggplot2::geom_segment(data = arid_h,
+      ggplot2::aes(x = x, xend = x, y = ptf, yend = tf, colour = "aride Periode"),
+      linetype = "dotted")
+  # Bruchlinie + Kurven + Punkte
+  p <- p +
     ggplot2::geom_hline(yintercept = 50, colour = "grey75", linetype = "dashed") +
-    # Kurven
     ggplot2::geom_line(data = monthly,
       ggplot2::aes(month, pt, colour = "Niederschlag"), linewidth = 0.8) +
     ggplot2::geom_line(data = monthly,
@@ -123,15 +128,18 @@ wl_panel <- function(temp, prec, t_abs_max = NA, t_abs_min = NA) {
               vjust = 1, size = 3, colour = BLAU,
               label = sprintf("Min: %.1f %s", t_abs_min, GRAD))
 
-  p +
-    ggplot2::scale_colour_manual(name = NULL,
-      breaks = c("Lufttemperatur", "Niederschlag", "humide Periode", "aride Periode"),
-      values = c("Lufttemperatur" = ROT, "Niederschlag" = BLAU,
-                 "humide Periode" = BLAU, "aride Periode" = ROT)) +
-    ggplot2::scale_fill_manual(name = NULL,
-      values = c("perhumide Periode (> 100 mm)" = BLAU)) +
-    ggplot2::guides(colour = ggplot2::guide_legend(override.aes = list(
-      linetype = c("solid", "solid", "solid", "dotted")))) +
+  # Legende dynamisch: nur tatsaechlich vorhandene Kategorien (sonst Fehler,
+  # weil override.aes sonst mehr Eintraege als Legenden-Keys haette)
+  present <- c("Lufttemperatur", "Niederschlag")
+  if (nrow(humid_h) > 0) present <- c(present, "humide Periode")
+  if (nrow(arid_h)  > 0) present <- c(present, "aride Periode")
+  linientyp <- ifelse(present == "aride Periode", "dotted", "solid")
+
+  p <- p +
+    ggplot2::scale_colour_manual(name = NULL, limits = present, breaks = present,
+                                 values = farben) +
+    ggplot2::guides(colour = ggplot2::guide_legend(
+      override.aes = list(linetype = linientyp))) +
     ggplot2::scale_x_continuous(breaks = 1:12, labels = MLABEL,
                                 expand = c(0.01, 0.01)) +
     ggplot2::scale_y_continuous(
@@ -151,6 +159,12 @@ wl_panel <- function(temp, prec, t_abs_max = NA, t_abs_min = NA) {
       axis.title.y.right = ggplot2::element_text(colour = BLAU),
       axis.text.y.right  = ggplot2::element_text(colour = BLAU),
       legend.position    = "bottom")
+
+  # perhumide Fuellung nur skalieren, wenn sie vorkommt (sonst Warnung)
+  if (nrow(wet) > 0)
+    p <- p + ggplot2::scale_fill_manual(name = NULL,
+              values = c("perhumide Periode (> 100 mm)" = BLAU))
+  p
 }
 
 
