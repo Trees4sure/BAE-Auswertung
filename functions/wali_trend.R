@@ -1,5 +1,5 @@
 # =============================================================================
-# "Walther-Lieth"-artiges 30-Jahres-Verlaufsdiagramm
+# WaLi-Trend: "Walther-Lieth"-artiges 30-Jahres-Verlaufsdiagramm
 #
 # Nutzt die JAHRES-Parameter (nicht Monate):
 #   1049 = Jahresmitteltemperatur  [degC]  (ein Wert je Jahr)
@@ -16,7 +16,7 @@
 
 # ---- 1. Hilfsfunktion: Startjahr aus dem Laufnamen lesen --------------------
 # z.B. "RCP45_MPIWRF_2071-2100" -> 2071 ; ohne Treffer NA
-wl_start_year <- function(run) {
+wali_trend_start_year <- function(run) {
   treffer <- regmatches(run, regexpr("[0-9]{4}", run))
   if (length(treffer) == 0) NA_integer_ else as.integer(treffer)
 }
@@ -27,7 +27,7 @@ wl_start_year <- function(run) {
 #    (Falls die Layernamen "1049"/"1050" bzw. "MAT"/"MAP" enthalten, wird danach
 #     getrennt; sonst Annahme erste/zweite Haelfte.)
 # Rueckgabe: id | Zeitlauf | Jahr | Kalenderjahr | T_year | P_year
-wl_timeseries_one_run <- function(r, run, geom = NULL, scale = NULL) {
+wali_trend_one_run <- function(r, run, geom = NULL, scale = NULL) {
   n_layer <- terra::nlyr(r)
   layer_names <- names(r)
 
@@ -77,7 +77,7 @@ wl_timeseries_one_run <- function(r, run, geom = NULL, scale = NULL) {
 
   # Jahr als Zahl + echtes Kalenderjahr aus dem Laufnamen
   out$Jahr        <- as.integer(out$Jahr)
-  start_year      <- wl_start_year(run)
+  start_year      <- wali_trend_start_year(run)
   out$Kalenderjahr <- if (!is.na(start_year)) start_year + out$Jahr - 1L else NA_integer_
   out$Zeitlauf    <- run
   out
@@ -85,15 +85,15 @@ wl_timeseries_one_run <- function(r, run, geom = NULL, scale = NULL) {
 
 
 # ---- 3. Alle Laeufe zusammenbauen -------------------------------------------
-# rast_list: benannte Liste (Name = Zeitlauf), Elemente wie in wl_timeseries_one_run.
+# rast_list: benannte Liste (Name = Zeitlauf), Elemente wie in wali_trend_one_run.
 # Rueckgabe: ein langes data.frame ueber alle Laeufe und Punkte.
-build_wl_timeseries_input <- function(rast_list, geom = NULL, scale = NULL) {
+build_wali_trend_input <- function(rast_list, geom = NULL, scale = NULL) {
   if (is.null(names(rast_list)) || any(names(rast_list) == ""))
     stop("rast_list muss benannt sein (Name = Zeitlauf).")
 
   ergebnisse <- list()
   for (run in names(rast_list)) {
-    ergebnisse[[run]] <- wl_timeseries_one_run(rast_list[[run]], run,
+    ergebnisse[[run]] <- wali_trend_one_run(rast_list[[run]], run,
                                                geom = geom, scale = scale)
   }
   dplyr::bind_rows(ergebnisse)
@@ -103,7 +103,7 @@ build_wl_timeseries_input <- function(rast_list, geom = NULL, scale = NULL) {
 # ---- 4. Diagramm aus Werten zeichnen ----------------------------------------
 # year, temp, prec: gleich lange Vektoren (ein Eintrag je Jahr).
 # Rueckgabe: ggplot-Objekt.
-plot_wl_timeseries <- function(year, temp, prec,
+plot_wali_trend <- function(year, temp, prec,
                                name = "", period = "",
                                trend = TRUE,
                                col_temp = "#c0392b", col_prec = "#2c5fa8") {
@@ -178,7 +178,7 @@ plot_wl_timeseries <- function(year, temp, prec,
 
 # ---- 5. Bequemer Wrapper auf das Long-Format --------------------------------
 # Zeichnet den 30-Jahres-Verlauf fuer einen Punkt + Lauf (Klick im Plot).
-plot_wl_timeseries_from_long <- function(df, id_val, run, ...) {
+plot_wali_trend_from_long <- function(df, id_val, run, ...) {
   sub <- df[df$id == id_val & df$Zeitlauf == run, , drop = FALSE]
   sub <- sub[order(sub$Jahr), ]
   if (nrow(sub) == 0)
@@ -191,7 +191,7 @@ plot_wl_timeseries_from_long <- function(df, id_val, run, ...) {
     x_jahr <- sub$Jahr
   }
 
-  plot_wl_timeseries(
+  plot_wali_trend(
     year = x_jahr, temp = sub$T_year, prec = sub$P_year,
     name = paste0("BWI-Punkt ", id_val), period = run, ...
   )

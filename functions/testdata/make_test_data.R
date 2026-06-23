@@ -2,7 +2,7 @@
 # Test-/Beispieldaten fuer die Walther-Lieth-Funktionen erzeugen.
 #
 # Legt realistische Zufallsdaten im Long-Format an (so, wie sie
-# build_walther_lieth_input() bzw. build_wl_timeseries_input() liefern),
+# build_walther_lieth_input() bzw. build_wali_trend_input() liefern),
 # schreibt sie als CSV und zeichnet zur Kontrolle Beispiel-Diagramme.
 #
 # Aufruf:  source("functions/testdata/make_test_data.R")
@@ -95,7 +95,7 @@ for (i in seq_len(nrow(punkte))) {
 }
 timeseries <- do.call(rbind, ts_rows)
 row.names(timeseries) <- NULL
-write.csv(timeseries, file.path(out_dir, "walther_lieth_timeseries_test.csv"),
+write.csv(timeseries, file.path(out_dir, "wali_trend_test.csv"),
           row.names = FALSE)
 
 message("CSV geschrieben: ", out_dir,
@@ -108,14 +108,14 @@ message("CSV geschrieben: ", out_dir,
 if (interactive()) {
   source("functions/walther_lieth_input.R")
   source("functions/plot_walther_lieth.R")
-  source("functions/walther_lieth_timeseries.R")
+  source("functions/wali_trend.R")
 
   wl <- read.csv(file.path(out_dir, "walther_lieth_monthly_test.csv"))
-  ts <- read.csv(file.path(out_dir, "walther_lieth_timeseries_test.csv"))
+  ts <- read.csv(file.path(out_dir, "wali_trend_test.csv"))
 
   print(plot_walther_lieth_from_long(
     wl, id_val = 70041234, run = "OBS_DWD_1961-1990"))
 
-  print(plot_wl_timeseries_from_long(
+  print(plot_wali_trend_from_long(
     ts, id_val = 70041234, run = "RCP85_HADWRF_2071-2100"))
 }
