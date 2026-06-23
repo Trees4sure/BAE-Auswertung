@@ -31,7 +31,7 @@ wali_trend_start_year <- function(run) {
 #    terra::as.data.frame), inkl. Spalte id sowie optional Lon/Lat/altitude -
 #    diese Spalten werden ins Ergebnis durchgereicht.
 # Rueckgabe: <geom-Spalten> | Jahr | Kalenderjahr | T_year | P_year | Zeitlauf
-wali_trend_one_run <- function(r, run, geom = NULL, scale = NULL) {
+wali_trend_one_run <- function(r, run, geom = NULL, scale = NULL, ids = NULL) {
   n_layer <- terra::nlyr(r)
   layer_names <- names(r)
 
@@ -75,6 +75,17 @@ wali_trend_one_run <- function(r, run, geom = NULL, scale = NULL) {
     if (!"id" %in% names(meta)) meta$id <- seq_len(nrow(meta))
   }
 
+  # Nur gewuenschte Punkte behalten (fuer Klick-Diagramme) - spart enorm Speicher
+  if (!is.null(ids)) {
+    keep <- which(meta$id %in% ids)
+    if (length(keep) == 0)
+      stop("Lauf ", run, ": keine der ids (", paste(ids, collapse = ", "),
+           ") gefunden.")
+    temp_vals <- temp_vals[keep, , drop = FALSE]
+    prec_vals <- prec_vals[keep, , drop = FALSE]
+    meta      <- meta[keep, , drop = FALSE]
+  }
+
   # Zell-Schluessel zum Zusammenfuehren von Temp, Niederschlag und Metadaten
   cell_idx <- seq_len(nrow(temp_vals))
   temp_vals$cell_idx <- cell_idx
@@ -101,15 +112,26 @@ wali_trend_one_run <- function(r, run, geom = NULL, scale = NULL) {
 
 # ---- 3. Alle Laeufe zusammenbauen -------------------------------------------
 # rast_list: benannte Liste (Name = Zeitlauf), Elemente wie in wali_trend_one_run.
-# Rueckgabe: ein langes data.frame ueber alle Laeufe und Punkte.
-build_wali_trend_input <- function(rast_list, geom = NULL, scale = NULL) {
+# runs: optionale Auswahl der Laeufe (Default: alle). ids: optionale Auswahl der
+#       Punkte (Default: alle). Fuer ein Klick-Diagramm IMMER beides setzen -
+#       sonst entstehen schnell >100 Mio. Zeilen (alle Punkte x Jahre x Laeufe).
+# Rueckgabe: ein langes data.frame.
+build_wali_trend_input <- function(rast_list, geom = NULL, scale = NULL,
+                                   runs = NULL, ids = NULL) {
   if (is.null(names(rast_list)) || any(names(rast_list) == ""))
     stop("rast_list muss benannt sein (Name = Zeitlauf).")
+
+  if (!is.null(runs)) {
+    fehlt <- setdiff(runs, names(rast_list))
+    if (length(fehlt))
+      stop("Unbekannte Laeufe: ", paste(fehlt, collapse = ", "))
+    rast_list <- rast_list[runs]
+  }
 
   ergebnisse <- list()
   for (run in names(rast_list)) {
     ergebnisse[[run]] <- wali_trend_one_run(rast_list[[run]], run,
-                                               geom = geom, scale = scale)
+                                            geom = geom, scale = scale, ids = ids)
   }
   dplyr::bind_rows(ergebnisse)
 }
