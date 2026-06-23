@@ -82,6 +82,26 @@ plot_wl_timeseries_from_long(ts, id_val = 70041234,
   zeichnen, mit `ggplot2::ggsave()` speichern). Alternative mit identischer
   Konvention: `climatol::diagwl()`.
 
+## Testdaten
+
+Unter `functions/testdata/` liegen fertige Beispiel-CSVs im Long-Format
+(3 Punkte, realistische Zufallswerte) – direkt von den `*_from_long()`-
+Funktionen lesbar, ohne Raster:
+
+- `walther_lieth_monthly_test.csv` – `id | Zeitlauf | altitude | Lon | Lat | Monat | T_mean | P_sum`
+- `walther_lieth_timeseries_test.csv` – `… | Jahr | Kalenderjahr | T_year | P_year`
+
+```r
+wl <- read.csv("functions/testdata/walther_lieth_monthly_test.csv")
+plot_walther_lieth_from_long(wl, id_val = 70041234, run = "OBS_DWD_1961-1990")
+
+ts <- read.csv("functions/testdata/walther_lieth_timeseries_test.csv")
+plot_wl_timeseries_from_long(ts, id_val = 70041234, run = "RCP85_HADWRF_2071-2100")
+```
+
+Neu erzeugen (legt die CSVs an und zeichnet Beispielplots):
+`source("functions/testdata/make_test_data.R")`
+
 ## Pakete
 
 - Aufbereitung: `terra`, `dplyr`, `tidyr`, `purrr`
