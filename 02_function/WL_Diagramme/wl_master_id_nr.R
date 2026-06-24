@@ -31,7 +31,8 @@ load_nr_polygons <- function(shp_path, master_col = "MASTER_ID") {
   poly <- sf::st_read(shp_path, quiet = TRUE)
   if (!master_col %in% names(poly))
     stop("Spalte '", master_col, "' fehlt in ", basename(shp_path), ".")
-  # nbrg aus MASTER_ID "NR_010_07_133397" -> Stellen 8-9 = "07" -> "NR-07"
+  # nbrg aus MASTER_ID: Stellen 6-7 = "nr", Stellen 8-9 = Regionsnummer 01..11
+  # (z.B. "...nr07..." -> "07" -> "NR-07").
   poly$nbrg <- paste0("NR-", substring(poly[[master_col]], 8, 9))
   if (master_col != "MASTER_ID") poly$MASTER_ID <- poly[[master_col]]
   poly[, c("MASTER_ID", "nbrg")]
@@ -131,6 +132,16 @@ wl_long_nr_from_tables <- function(temp_df, prec_df, polygons,
   }
   tmeta <- key(temp_df); pmeta <- key(prec_df)
   is_nr <- grepl("^NR-", tmeta$quelle)
+  if (!any(is_nr)) stop("Keine NR-Dateien in temp_df (name-Spalte) erkannt.")
+
+  # Sicherheitsnetz: Datei-Regionen muessen sich mit den Polygon-Regionen (nbrg)
+  # ueberschneiden - sonst lieber lauter Abbruch als stille Leer-CSVs.
+  file_regs <- sort(unique(tmeta$quelle[is_nr]))
+  poly_regs <- sort(unique(polygons$nbrg))
+  if (length(intersect(file_regs, poly_regs)) == 0)
+    stop("Region-Mismatch: Dateien -> {", paste(file_regs, collapse = ", "),
+         "}, Polygone(nbrg) -> {", paste(poly_regs, collapse = ", "),
+         "}. nbrg-Ableitung in load_nr_polygons (Stellen 8-9) pruefen.")
 
   fac <- if (exists(".wl_detect_scale", mode = "function"))
     .wl_detect_scale(as.matrix(temp_df[is_nr, month_cols, drop = FALSE]), scale) else
@@ -168,6 +179,89 @@ wl_long_nr_from_tables <- function(temp_df, prec_df, polygons,
 }
 
 
+# ---- Treiber: NR-TREND (Jahre, 1049/1050) -> MASTER_ID-Long -----------------
+#' NR-Jahresdaten ins MASTER_ID-Trend-Long-Format (alle NR-Regionen + Laeufe).
+#'
+#' Pendant zu wl_long_nr_from_tables() fuer die JAHRES-Produkte (1049 Temp /
+#' 1050 Niederschlag). Da Laeufe unterschiedlich viele Jahre haben (21/29/30),
+#' werden die Dateien EINZELN gelesen (kein gemeinsames rbind) und je
+#' (Region, Lauf) ueber die Region-Polygone gemittelt. Das Kalenderjahr kommt
+#' aus den Jahres-Spaltennamen (NC-Zeitstempel).
+#'
+#' @param temp_files,prec_files NR-Dateilisten (1049 bzw. 1050).
+#' @param polygons   sf-Polygone aus load_nr_polygons() (Spalten MASTER_ID,nbrg).
+#' @param read_temp,read_prec  Lesefunktionen (Default nc.1049_/nc.1050_function).
+#' @param scale      NULL = Auto (.wl_detect_scale je Datei), sonst 1/0.1.
+#' @return tibble: MASTER_ID|quelle|Zeitlauf|Jahr|Kalenderjahr|T_year|P_year
+wl_trend_nr_from_tables <- function(temp_files, prec_files, polygons,
+                                    read_temp = nc.1049_function,
+                                    read_prec = nc.1050_function,
+                                    scale = NULL) {
+  `%>%` <- dplyr::`%>%`
+
+  stem   <- function(f) sub("\\.nc$", "", sub("^[0-9]+_", "", basename(f)))
+  reg_of <- function(f) sprintf("NR-%02d", suppressWarnings(as.integer(
+    sub("^nr-?0*([0-9]+)_.*$", "\\1", stem(f), ignore.case = TRUE))))
+  run_of <- function(f) sub("^(nr-?[0-9]{2}|bwi[-_]bze)_", "", stem(f),
+                            ignore.case = TRUE)
+
+  is_nr <- function(v) v[grepl("nr-?[0-9]{2}", basename(v), ignore.case = TRUE)]
+  temp_files <- is_nr(temp_files); prec_files <- is_nr(prec_files)
+  if (!length(temp_files)) stop("Keine NR-Temp-Dateien (1049) uebergeben.")
+
+  file_regs <- sort(unique(vapply(temp_files, reg_of, "")))
+  poly_regs <- sort(unique(polygons$nbrg))
+  if (length(intersect(file_regs, poly_regs)) == 0)
+    stop("Region-Mismatch (Trend): Dateien -> {", paste(file_regs, collapse = ", "),
+         "}, Polygone(nbrg) -> {", paste(poly_regs, collapse = ", "), "}.")
+
+  pkey <- paste(vapply(prec_files, reg_of, ""), vapply(prec_files, run_of, ""))
+
+  ergebnisse <- list()
+  for (tf in temp_files) {
+    region <- reg_of(tf); run <- run_of(tf)
+    pf <- prec_files[match(paste(region, run), pkey)]
+    if (is.na(pf)) { warning("Kein 1050 zu ", basename(tf), call. = FALSE); next }
+
+    poly_r <- polygons[polygons$nbrg == region, ]
+    if (nrow(poly_r) == 0) {
+      warning("Keine Polygone fuer ", region, ". Uebersprungen.", call. = FALSE); next
+    }
+
+    t_wide <- read_temp(tf, assign_global = FALSE)
+    p_wide <- read_prec(pf, assign_global = FALSE)
+    yc_t <- setdiff(names(t_wide), c("cell_id", "x", "y", "name"))
+    yc_p <- setdiff(names(p_wide), c("cell_id", "x", "y", "name"))
+
+    fac <- if (exists(".wl_detect_scale", mode = "function"))
+      .wl_detect_scale(as.matrix(t_wide[, yc_t, drop = FALSE]), scale) else
+      if (is.null(scale)) 1 else scale
+
+    r_t <- nr_build_raster(t_wide, yc_t)
+    r_p <- nr_build_raster(p_wide, yc_p)
+    t_long <- nr_extract_long(r_t, poly_r, "T_year", period_name = "Jahr")
+    p_long <- nr_extract_long(r_p, poly_r, "P_year", period_name = "Jahr")
+
+    # Kalenderjahr aus den Spaltennamen (Position -> Jahr); nur echte Jahre (>1900)
+    kj <- suppressWarnings(as.integer(yc_t)); kj[kj < 1900] <- NA_integer_
+
+    ergebnisse[[basename(tf)]] <-
+      dplyr::inner_join(t_long, p_long, by = c("MASTER_ID", "Jahr")) %>%
+      dplyr::mutate(quelle = region, Zeitlauf = run,
+                    Kalenderjahr = kj[.data$Jahr],
+                    T_year = .data$T_year * fac, P_year = .data$P_year * fac)
+    message(sprintf("[%s] %s: %d MASTER_ID x %d Jahre.", region, run,
+                    dplyr::n_distinct(ergebnisse[[basename(tf)]]$MASTER_ID),
+                    length(yc_t)))
+  }
+
+  dplyr::bind_rows(ergebnisse) %>%
+    dplyr::select("MASTER_ID", "quelle", "Zeitlauf", "Jahr", "Kalenderjahr",
+                  "T_year", "P_year") %>%
+    dplyr::arrange(.data$quelle, .data$Zeitlauf, .data$MASTER_ID, .data$Jahr)
+}
+
+
 # ---- Beispiel (auskommentiert) ---------------------------------------------
 # source("02_function/WL_Diagramme/nc_monthly_tables.R")
 # source("02_function/WL_Diagramme/walther_lieth_input.R")   # .wl_detect_scale()
@@ -184,3 +278,8 @@ wl_long_nr_from_tables <- function(temp_df, prec_df, polygons,
 # wl_nr <- wl_long_nr_from_tables(temp_df, prec_df, polygons)
 # write_region_csvs(wl_nr, out_dir = "WL_CSV/monthly", prefix = "WL_monthly")
 # # -> WL_CSV/monthly/WL_monthly_NR-01.csv ... NR-11.csv
+#
+# # --- Trend (Jahre 1049/1050): Dateien EINZELN, da unterschiedlich viele Jahre:
+# tr_nr <- wl_trend_nr_from_tables(liste("1049"), liste("1050"), polygons)
+# write_region_csvs(tr_nr, out_dir = "WL_CSV/trend", prefix = "WL_trend")
+# # -> WL_CSV/trend/WL_trend_NR-01.csv ... NR-11.csv

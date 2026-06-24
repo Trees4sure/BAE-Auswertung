@@ -26,7 +26,9 @@ invisible(lapply(c(
   "walther_lieth_helpers.R",  # geteilte Skalierung/Theme/Palette
   "walther_lieth_compare.R",  # Monats-WL-Vergleich
   "wali_trend_compare.R",     # WaLi-Trend-Vergleich
-  "recommendation_strip.R"    # Empfehlungs-Leiste
+  "recommendation_strip.R",   # Empfehlungs-Leiste
+  "wl_master_id.R",           # MASTER_ID-Anbindung + write_region_csvs (BWI)
+  "wl_master_id_nr.R"         # NR-Pfad: Polygon-Mittel -> MASTER_ID (NR)
 ), function(f) source(file.path(wl_dir, f))))
 
 
@@ -160,6 +162,30 @@ nrow(ts)   # erwartet ~30 je Lauf
 
 plot_wali_trend_from_long(ts, id_val = 1, run = runs_auswahl[1])
 compare_wali_trend(ts, id_val = 1, runs = runs_auswahl, mode = "both")
+
+
+## 6.8  NR-Pfad: Polygon-Mittel je MASTER_ID -> Region-CSVs --------------------
+# NR-.nc sind bereits korrekt georeferenziert (EPSG:25832, echte Meter) -> die
+# x/y aus .nc_layer_table reichen; je Datei wird ein Raster gebaut und ueber die
+# StoKa/Boden-Polygone (GEO_NR.shp) gemittelt. quelle = "NR-01".."NR-11".
+geo_nr_shp <- file.path(data_raw, "Grundlagen/Bodendatenbank/NR/Geodaten/GEO_NR.shp")
+polygons   <- load_nr_polygons(geo_nr_shp)   # Spalten MASTER_ID, nbrg
+
+# -- Monat (1155/1157): die schon gestapelten temp_df/prec_df enthalten BWI+NR;
+#    wl_long_nr_from_tables verarbeitet nur die NR-Dateien.
+wl_nr_month <- wl_long_nr_from_tables(temp_df, prec_df, polygons)
+write_region_csvs(wl_nr_month, out_dir = "WL_CSV/monthly", prefix = "WL_monthly")
+
+# -- Trend (1049/1050): Dateien EINZELN lesen (Laeufe haben 21/29/30 Jahre).
+#    Quelle sind die NR-Jahres-Rasters unter dir_klima (nr_var_files aus 6.4),
+#    "alt"-Varianten ausgeschlossen.
+nr_var_files_use <- grep("alt", nr_var_files, value = TRUE, invert = TRUE)
+nr_1049 <- grep("1049", nr_var_files_use, value = TRUE)
+nr_1050 <- grep("1050", nr_var_files_use, value = TRUE)
+
+wl_nr_trend <- wl_trend_nr_from_tables(nr_1049, nr_1050, polygons)
+write_region_csvs(wl_nr_trend, out_dir = "WL_CSV/trend", prefix = "WL_trend")
+# -> WL_CSV/{monthly,trend}/WL_*_NR-01.csv ... NR-11.csv
 
 
 # =============================================================================
