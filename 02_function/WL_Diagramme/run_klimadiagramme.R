@@ -52,8 +52,8 @@ geo_nr_shp <- file.path("01_data", "Grundlagen/Bodendatenbank/NR/Geodaten/GEO_NR
 liste    <- function(id) list.files(file.path(dir_extra, id),
                                     pattern = paste0("^", id, "_.*\\.nc$"),
                                     full.names = TRUE, recursive = TRUE)
-read_all <- function(files, fun)
-  do.call(rbind, lapply(files, function(f) fun(f, assign_global = FALSE)))
+read_all <- function(files, fun){
+  do.call(rbind, lapply(files, function(f) fun(f, assign_global = FALSE)))}
 
 # BWI laeuft ueber den Tabellen-Pfad (synthetische .nc-Koordinaten -> MASTER_ID
 # spaeter via geom_bwi/7001-7002). NR NICHT hier stapeln - das gaebe eine
@@ -65,21 +65,22 @@ bwi_1157 <- grep("bwi[-_]bze", liste("1157"), value = TRUE, ignore.case = TRUE)
 # separat aufheben (muessen lt. Notiz noch nachprediziert werden; betrifft auch
 # den Niederschlag). ACHTUNG Muster "_v[23]" - NICHT "[_v23]": letzteres ist eine
 # Zeichenklasse und matcht das '_' in JEDEM Dateinamen.
-bwi_1155_v23 <- grep("_v[23]", bwi_1155, value = TRUE)
 bwi_1157_v23 <- grep("_v[23]", bwi_1157, value = TRUE)
-bwi_1155     <- grep("_v[23]", bwi_1155, value = TRUE, invert = TRUE)   # ohne v2/v3
 bwi_1157     <- grep("_v[23]", bwi_1157, value = TRUE, invert = TRUE)
 
 temp_df  <- read_all(bwi_1155, nc.1155_function)
 prec_df  <- read_all(bwi_1157, nc.1157_function)
 wl_month <- wl_long_from_tables(temp_df, prec_df)   # id|quelle|Zeitlauf|Monat|T_mean|P_sum (+x,y)
+wl_month %>% glimpse
 
 # Zeitlauf ist jetzt BEREINIGT (ohne "bwi-bze_") -> Laeufe direkt benennbar.
 # Optional nur EINEN Lauf erzeugen (spart die Millionen Zeilen der anderen):
 #   wl_month_one <- wl_long_from_tables(temp_df, prec_df, runs = "OBS_DWD_1991-2020")
 
 # Schnellcheck: ein Punkt, FESTER Lauf-Name (nicht wl_month$Zeitlauf[1] - bei
-# Millionen Zeilen muesste man den Index erst raten). Kopf-Metadaten folgen 6.5.
+# Millionen Zeilen muesste man den Index erst raten). 
+
+# Kopf-Metadaten folgen 6.5 !!
 plot_walther_lieth_from_long(wl_month, id_val = 1, run = "OBS_DWD_1991-2020")
 
 
@@ -92,6 +93,19 @@ var_filter          <- paste(KS_model_vars, collapse = "|")
 nc_files.nc <- list.files(dir_klima, pattern = "\\.nc$", recursive = TRUE, full.names = TRUE)
 nc_files.nc <- nc_files.nc[!grepl("\\.aux\\.xml$", nc_files.nc)]
 
+# v2/v3 (RCP45: ECECMO=v2, MPICLM=v3) sind die NACHPREDIZIERTEN Niederschlaege.
+# Statt zu filtern werden sie als EIGENE Laeufe gefuehrt: pro Lauf wird die Temp
+# (1049, nur v1) mit JEDER vorhandenen 1050-Version zu einem eigenen Listen-
+# Element gekoppelt. Original -> "<run>", korrigiert -> "<run>_v2"/"_v3". So
+# bleibt das (fehlerbehaftete) Original-1050 erhalten - mit ihm wurde ja weiter
+# gerechnet - und v2/v3 liegen direkt vergleichbar daneben. Jeder Lauf 30/30.
+expand_precip_versions <- function(files, run) {
+  temp   <- grep("1049", files, value = TRUE)
+  precip <- grep("1050", files, value = TRUE)
+  suffix <- ifelse(grepl("_v[23]", precip), sub(".*(_v[23]).*", "\\1", precip), "")
+  setNames(lapply(precip, function(p) c(temp, p)), paste0(run, suffix))
+}
+
 # -- BWI: je Klimalauf ein Multi-Layer-Raster (Layer = Jahre x MAT/MAP) --------
 nc_BWI_dir    <- list.files(dir_klima, pattern = "BWI_BZE", full.names = TRUE)
 run_names     <- list.files(nc_BWI_dir)[20:57]                 # Laufnamen (Ordner)
@@ -99,17 +113,24 @@ bwi_var_files <- grep(var_filter, grep("BWI_BZE", nc_files.nc, value = TRUE), va
 
 bwi_files_split <- setNames(
   lapply(run_names, function(r) grep(r, bwi_var_files, value = TRUE)), run_names)
-nc.grep.variables_BWI_KS <- setNames(lapply(bwi_files_split, terra::rast), run_names)
+bwi_files_split <- do.call(c, unname(
+  Map(expand_precip_versions, bwi_files_split, names(bwi_files_split))))
+nc.grep.variables_BWI_KS <- lapply(bwi_files_split, terra::rast)
 
 # -- NR: Nachbarschaftsregionen NR-01 .. NR-11 --------------------------------
-nr_seq       <- sprintf("NR-%02d", 1:11)
-nr_var_files <- grep(var_filter, grep("NR-", nc_files.nc, value = TRUE), value = TRUE)
-nr_files_split <- setNames(
-  lapply(nr_seq, function(r) grep(r, nr_var_files, value = TRUE)), nr_seq)
-nc_NR_select_data <- lapply(nr_files_split, terra::rast)
+# nr_var_files bleibt OHNE v2/v3 (so nutzt es der NR-Trend in 6.8); die 6.4-
+# Rasterliste wird dagegen aus ALLEN Versionen (mit Suffix) aufgebaut.
+nr_seq          <- sprintf("NR-%02d", 1:11)
+nr_var_files    <- grep(var_filter, grep("NR-", nc_files.nc, value = TRUE), value = TRUE)
+nr_var_files_v2 <- grep("_v[23]", nr_var_files, value = TRUE)                 # nachprediziert
+nr_var_files    <- grep("_v[23]", nr_var_files, value = TRUE, invert = TRUE)  # ohne v2/v3 -> 6.8
 
-# Hinweis: v2/v3-Laeufe (ECECMO, MPICLM) muessen lt. Notiz noch separat
-# nachprediziert werden -> ggf. hier mit grep("_v2|_v3", invert = TRUE) filtern.
+nr_files_split <- setNames(
+  lapply(nr_seq, function(r)
+    grep(r, c(nr_var_files, nr_var_files_v2), value = TRUE)), nr_seq)
+nr_files_split <- do.call(c, unname(
+  Map(expand_precip_versions, nr_files_split, names(nr_files_split))))
+nc_NR_select_data <- lapply(nr_files_split, terra::rast)
 
 
 ## 6.5  BWI-Geometrie (eine Zeile je Rasterzelle) + Schluesseltabelle ----------
@@ -139,11 +160,16 @@ plot_walther_lieth_from_long(wl_month, id_val = 1, run = wl_month$Zeitlauf[1])
 MRS_Bod_Klima_Schl <- read.csv2(file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv")) %>%
   dplyr::mutate(unique_plo_SCHL = paste0(traktnummer, "_", traktecke))
 
+#  Test
+# wl_month_join <- left_join(wl_month, MRS_Bod_Klima_Schl, by = c("id" = "id_bwi_bze"))
+# plot_walther_lieth_from_long(wl_month_join, id_val = 1, run = "OBS_DWD_1991-2020")
+
 
 ## 6.6  Lauf-Mittelwerte (MAT/MAP) -> Long-Format -> RDS -----------------------
 # Jahres-Layer je Lauf zu einem Mittelwert je Variable aggregieren. Achtung:
 # einige Laeufe haben nur 21 bzw. 29 Jahre -> var_index entsprechend setzen.
 n_years_for <- function(nm) {
+  nm <- sub("_v[23]$", "", nm)        # Versions-Suffix ignorieren (_v2/_v3)
   if (nm %in% c("RCP85_MPIWRF_1970-1990", "RCP85_HADWRF_1970-1990")) 21L
   else if (nm == "RCP85_HADWRF_2071-2099")                           29L
   else                                                               30L
@@ -205,6 +231,13 @@ ts_all <- build_wali_trend_input(nc.grep.variables_BWI_KS, geom = geom_bwi, ids 
 plot_wali_timeline(ts_all, id_val = 1)
 plot_wali_timeline(ts_all, id_val = 1, prec_mode = "diff",
                    ref_run = "OBS_DWD_1961-1990")
+
+# ---- HIER HIER HIER HIER ----
+cat("ts_all <- build_wali_trend_input(nc.grep.variables_BWI_KS, geom = geom_bwi, ids = 1)
+Error in wali_trend_one_run(rast_list[[run]], run, geom = geom, scale = scale,  :
+                              Lauf RCP45_ECECMO_1961-1990: unterschiedlich viele Temp-/Niederschlags-Layer (30 vs. 60).
+                            Called from: wali_trend_one_run(rast_list[[run]], run, geom = geom, scale = scale,
+                                                            ids = ids)")
 
 
 ## 6.8  NR-Pfad: Polygon-Mittel je MASTER_ID -> Region-CSVs --------------------
