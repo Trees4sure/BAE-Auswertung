@@ -373,7 +373,7 @@ for (rn in unique(wl_month$Zeitlauf)) {
 # Lon/Lat liefert der Wrapper bei Bedarf aus X_Centroid/Y_Centroid (stokpolyshp).
 wl_region  <- "NR-08"
 wl_ids     <- c("NR_130_08_6189", "NR_130_08_66519")
-wl_png_dir <- file.path("04_output", "WL_PNG", wl_region)   # Zielordner
+wl_png_dir <- file.path("04_results", "WL_diagrams", wl_region)   # Zielordner
 dir.create(wl_png_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Alle Lauf-CSVs der Region einsammeln (38 erwartet).
@@ -396,7 +396,7 @@ for (csv in wl_csvs) {
       plot = p, width = 8, height = 6, dpi = 300)   # 2400x1800 px
   }
 }
-# -> 2 MASTER_IDs x 38 Laeufe = 76 PNG in 04_output/WL_PNG/NR-08/
+# -> 2 MASTER_IDs x 38 Laeufe = 76 PNG in 04_results/WL_diagrams/NR-08/
 
 
 # =============================================================================
