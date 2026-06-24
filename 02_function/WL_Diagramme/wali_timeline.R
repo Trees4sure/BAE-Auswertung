@@ -61,7 +61,7 @@ plot_wali_timeline <- function(df, id_val, id_col = "id", runs = NULL,
       sub$Zeitlauf[which.min(sub$Kalenderjahr)]
     ref_mean   <- mean(sub$P_year[sub$Zeitlauf == ref], na.rm = TRUE)
     sub$P_show <- sub$P_year - ref_mean
-    p_lab <- "Delta Jahresniederschlag [mm]"
+    p_lab <- "Δ Jahresniederschlag [mm]"
   } else {
     sub$P_show <- sub$P_year
     p_lab <- "Jahresniederschlag [mm]"

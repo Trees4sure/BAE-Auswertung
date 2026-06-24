@@ -94,9 +94,9 @@ plot_wali_trend_delta <- function(df, id_val, run_ref, runs = NULL) {
 
   # lange Form fuer gruppierte Balken (Temp + Niederschlag nebeneinander)
   lang <- dplyr::bind_rows(
-    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "DeltaTemperatur",
+    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "ΔTemperatur",
                   wert = delta$dT, y = delta$dT),
-    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "DeltaNiederschlag",
+    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "ΔNiederschlag",
                   wert = delta$dP, y = delta$dP_auf_temp)
   )
 
@@ -104,16 +104,16 @@ plot_wali_trend_delta <- function(df, id_val, run_ref, runs = NULL) {
     ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.7),
                       width = 0.6, alpha = 0.85) +
     ggplot2::geom_hline(yintercept = 0, colour = "grey50") +
-    ggplot2::geom_text(ggplot2::aes(label = ifelse(groesse == "DeltaTemperatur",
+    ggplot2::geom_text(ggplot2::aes(label = ifelse(groesse == "ΔTemperatur",
                                                    sprintf("%+.1f \u00b0C", wert),
                                                    sprintf("%+d mm", round(wert)))),
                        position = ggplot2::position_dodge(width = 0.7),
                        vjust = -0.3, size = 3) +
-    ggplot2::scale_fill_manual(values = c("DeltaTemperatur" = COL_TEMP,
-                                          "DeltaNiederschlag" = COL_PREC), name = NULL) +
+    ggplot2::scale_fill_manual(values = c("ΔTemperatur" = COL_TEMP,
+                                          "ΔNiederschlag" = COL_PREC), name = NULL) +
     ggplot2::scale_y_continuous(
-      name = "DeltaTemperatur [\u00b0C]",
-      sec.axis = ggplot2::sec_axis(~ . * faktor, name = "DeltaNiederschlag [mm/a]")) +
+      name = "ΔTemperatur [\u00b0C]",
+      sec.axis = ggplot2::sec_axis(~ . * faktor, name = "ΔNiederschlag [mm/a]")) +
     ggplot2::labs(title = paste0("WaLi-Trend Mittel-Shift \u00b7 Punkt ", id_val),
                   subtitle = paste0("Differenz zur Referenz: ", run_ref),
                   x = NULL) +
