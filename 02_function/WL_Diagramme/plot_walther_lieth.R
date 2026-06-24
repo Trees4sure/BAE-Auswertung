@@ -204,6 +204,11 @@ plot_walther_lieth <- function(temp, prec, name = "",
 #' @param id_col Schluesselspalte fuer id_val (Default "id"). Die abgelegten
 #'   App-Daten sind nach MASTER_ID gekeyt -> dann id_col = "MASTER_ID".
 #' @param name   optionaler Diagramm-Titel; NULL = "Punkt <id_val>".
+#'
+#' Lon/Lat werden aus den Spalten Lon/Lat gezogen; fehlen diese (NA), greift der
+#' Wrapper auf die StoKa-Polygon-Zentroide X_Centroid/Y_Centroid (aus stokpolyshp)
+#' zurueck. So bekommt der Plot-Kopf auch dann Koordinaten, wenn nur die Zentroid-
+#' Spalten in der CSV stehen.
 plot_walther_lieth_from_long <- function(df, id_val, run, id_col = "id",
                                          name = NULL, ...) {
   if (!id_col %in% names(df))
@@ -216,11 +221,19 @@ plot_walther_lieth_from_long <- function(df, id_val, run, id_col = "id",
     stop("Erwarte 12 Monatszeilen, gefunden: ", nrow(sub),
          " (", id_col, "=", id_val, ", Lauf=", run, ").")
 
-  hole <- function(spalte) if (spalte %in% names(sub)) sub[[spalte]][1] else NA
+  # Erste vorhandene, nicht-leere Spalte aus den Kandidaten ziehen (NA-Fallback).
+  hole <- function(...) {
+    for (spalte in c(...)) if (spalte %in% names(sub)) {
+      v <- sub[[spalte]][1]
+      if (!is.na(v)) return(v)
+    }
+    NA
+  }
   plot_walther_lieth(
     temp = sub$T_mean, prec = sub$P_sum,
     name = if (is.null(name)) paste0("Punkt ", id_val) else name,
-    elevation = hole("altitude"), lon = hole("Lon"), lat = hole("Lat"),
+    elevation = hole("altitude"),
+    lon = hole("Lon", "X_Centroid"), lat = hole("Lat", "Y_Centroid"),
     period = run, ...
   )
 }

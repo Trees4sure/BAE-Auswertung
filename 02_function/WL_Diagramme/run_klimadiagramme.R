@@ -367,6 +367,38 @@ for (rn in unique(wl_month$Zeitlauf)) {
 #                                run = "OBS_DWD_1991-2020", id_col = "MASTER_ID")
 
 
+## 6.10  NR Walther-Lieth-PNGs je MASTER_ID ueber ALLE Laeufe -----------------
+# Aus den fertigen Region-CSVs (out_base/<Region>/<Lauf>.csv): je MASTER_ID und
+# je Lauf EIN WL-Diagramm als PNG. Jede CSV = ein Lauf -> Dateistamm == Zeitlauf.
+# Lon/Lat liefert der Wrapper bei Bedarf aus X_Centroid/Y_Centroid (stokpolyshp).
+wl_region  <- "NR-08"
+wl_ids     <- c("NR_130_08_6189", "NR_130_08_66519")
+wl_png_dir <- file.path("04_output", "WL_PNG", wl_region)   # Zielordner
+dir.create(wl_png_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Alle Lauf-CSVs der Region einsammeln (38 erwartet).
+wl_csvs <- list.files(file.path(out_base, wl_region),
+                      pattern = "\\.csv$", full.names = TRUE)
+
+for (csv in wl_csvs) {
+  run <- sub("\\.csv$", "", basename(csv))   # Lauf = Dateistamm = Zeitlauf
+  d   <- read.csv2(csv)
+  for (id in wl_ids) {
+    # Fehlt eine ID/Kombination in einer CSV, nur warnen statt den Loop abbrechen.
+    p <- tryCatch(
+      plot_walther_lieth_from_long(d, id_val = id, run = run,
+                                   id_col = "MASTER_ID"),
+      error = function(e) { warning(id, " / ", run, ": ", conditionMessage(e),
+                                    call. = FALSE); NULL })
+    if (is.null(p)) next
+    ggplot2::ggsave(
+      filename = file.path(wl_png_dir, paste0(id, "_", run, ".png")),
+      plot = p, width = 8, height = 6, dpi = 300)   # 2400x1800 px
+  }
+}
+# -> 2 MASTER_IDs x 38 Laeufe = 76 PNG in 04_output/WL_PNG/NR-08/
+
+
 # =============================================================================
 # Optional / Demos (mit Testdaten) -- bei Bedarf einkommentieren
 # =============================================================================
