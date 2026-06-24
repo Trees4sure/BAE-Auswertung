@@ -102,7 +102,8 @@ nc_files.nc <- nc_files.nc[!grepl("\\.aux\\.xml$", nc_files.nc)]
 expand_precip_versions <- function(files, run) {
   temp   <- grep("1049", files, value = TRUE)
   precip <- grep("1050", files, value = TRUE)
-  suffix <- ifelse(grepl("_v[23]", precip), sub(".*(_v[23]).*", "\\1", precip), "")
+  # BWI legt "_v2" ab, NR "-v2" -> [_-] deckt beide Schreibweisen ab.
+  suffix <- ifelse(grepl("[_-]v[23]", precip), sub(".*([_-]v[23]).*", "\\1", precip), "")
   setNames(lapply(precip, function(p) c(temp, p)), paste0(run, suffix))
 }
 
@@ -122,8 +123,8 @@ nc.grep.variables_BWI_KS <- lapply(bwi_files_split, terra::rast)
 # Rasterliste wird dagegen aus ALLEN Versionen (mit Suffix) aufgebaut.
 nr_seq          <- sprintf("NR-%02d", 1:11)
 nr_var_files    <- grep(var_filter, grep("NR-", nc_files.nc, value = TRUE), value = TRUE)
-nr_var_files_v2 <- grep("_v[23]", nr_var_files, value = TRUE)                 # nachprediziert
-nr_var_files    <- grep("_v[23]", nr_var_files, value = TRUE, invert = TRUE)  # ohne v2/v3 -> 6.8
+nr_var_files_v2 <- grep("[_-]v[23]", nr_var_files, value = TRUE)                 # nachprediziert
+nr_var_files    <- grep("[_-]v[23]", nr_var_files, value = TRUE, invert = TRUE)  # ohne v2/v3 -> 6.8
 
 nr_files_split <- setNames(
   lapply(nr_seq, function(r)
@@ -169,7 +170,7 @@ MRS_Bod_Klima_Schl <- read.csv2(file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.c
 # Jahres-Layer je Lauf zu einem Mittelwert je Variable aggregieren. Achtung:
 # einige Laeufe haben nur 21 bzw. 29 Jahre -> var_index entsprechend setzen.
 n_years_for <- function(nm) {
-  nm <- sub("_v[23]$", "", nm)        # Versions-Suffix ignorieren (_v2/_v3)
+  nm <- sub("[_-]v[23]$", "", nm)     # Versions-Suffix ignorieren (_v2/_v3, -v2/-v3)
   if (nm %in% c("RCP85_MPIWRF_1970-1990", "RCP85_HADWRF_1970-1990")) 21L
   else if (nm == "RCP85_HADWRF_2071-2099")                           29L
   else                                                               30L
