@@ -23,9 +23,10 @@
 #' Output: cell_id | x | y | <n Layer-Spalten> | name
 #'
 #' @param nc.file  Pfad zur NetCDF-Datei.
-#' @param varname  Name der Datenvariable (z.B. "tadm"/"rrds"). Existiert sie
-#'                 nicht, wird automatisch die erste 3-dimensionale Variable
-#'                 (x, y, time) verwendet.
+#' @param varname  Name(n) der Datenvariable - darf mehrere Kandidaten sein,
+#'                 z.B. c("rrds","rain") (BWI/NR); der erste vorhandene wird
+#'                 genommen. Passt keiner und gibt es genau EINE 3D-Variable
+#'                 (x, y, time), wird diese automatisch verwendet.
 #' @param label_fun Funktion Datum -> Spaltenlabel je Layer. Default Monatskuerzel
 #'                 (\code{format(zeit, "%b")}); fuer Jahresprodukte \code{"%Y"}.
 #' @param expected_n  erwartete Layer-Zahl (z.B. 12 fuer Monate); NULL = beliebig.
@@ -54,20 +55,32 @@
   easting  <- ncvar_get(nc, "easting")
   northing <- ncvar_get(nc, "northing")
 
-  # Datenvariable: strikt verlangen. Nur mit auto_var=TRUE Ersatz aus erster
-  # 3D-Variable - sonst lauter Abbruch (falsche Parameter-Datei in der Liste?).
-  if (!varname %in% names(nc$var)) {
+  # Datenvariable bestimmen. 'varname' darf mehrere Kandidaten enthalten
+  # (z.B. c("rrds","rain")) - der erste vorhandene wird genommen. Das deckt
+  # regionale Benennung ab (BWI: rrds/tadm, NR: rain/temp). Fehlen alle:
+  #  - genau EINE 3D-Variable (x,y,time) im File -> die IST die Datenvariable
+  #    (nur anders benannt) -> automatisch nehmen.
+  #  - mehrere 3D-Variablen -> nur mit auto_var=TRUE die erste, sonst Abbruch
+  #    (schuetzt vor stiller Daten-Verwechslung).
+  hit <- varname[varname %in% names(nc$var)]
+  if (length(hit) >= 1) {
+    varname <- hit[1]
+  } else {
     vorhanden <- names(nc$var)
-    if (!isTRUE(auto_var))
-      stop("[", datei, "] Variable '", varname, "' nicht enthalten (gefunden: ",
-           paste(vorhanden, collapse = ", "),
-           "). Falsche Parameter-Datei? Mit varname= oder auto_var=TRUE uebersteuern.")
     dims3 <- vapply(nc$var, function(v) v$ndims == 3, logical(1))
     if (!any(dims3))
-      stop("[", datei, "] weder '", varname, "' noch eine 3D-Variable gefunden.")
+      stop("[", datei, "] keine der Variablen '", paste(varname, collapse = "/"),
+           "' und keine 3D-Variable gefunden (vorhanden: ",
+           paste(vorhanden, collapse = ", "), ").")
+    if (sum(dims3) > 1 && !isTRUE(auto_var))
+      stop("[", datei, "] keine der Variablen '", paste(varname, collapse = "/"),
+           "' enthalten und mehrere 3D-Variablen vorhanden (",
+           paste(names(nc$var)[dims3], collapse = ", "),
+           "). Mit varname= oder auto_var=TRUE eindeutig waehlen.")
     alt <- names(nc$var)[dims3][1]
-    message("[", datei, "] Variable '", varname, "' fehlt - '", alt,
-            "' (3D) automatisch gewaehlt (auto_var=TRUE).")
+    message("[", datei, "] Variable(n) '", paste(varname, collapse = "/"),
+            "' nicht vorhanden - '", alt,
+            "' (einzige/erste 3D-Variable) automatisch gewaehlt.")
     varname <- alt
   }
   vals <- ncvar_get(nc, varname)        # [x, y, time]
@@ -122,7 +135,7 @@
 #' @inheritParams .nc_layer_table
 #' @return data.frame: cell_id | x | y | <12 Monatsspalten> | name
 nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
-                             varname = "tadm",
+                             varname = c("tadm", "temp"),       # BWI / NR
                              auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
@@ -135,7 +148,7 @@ nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
 #' @inheritParams .nc_layer_table
 #' @return data.frame: cell_id | x | y | <12 Monatsspalten> | name
 nc.1157_function <- function(nc.file = nc.1157_list.files[2],   # MAP
-                             varname = "rrds",
+                             varname = c("rrds", "rain"),       # BWI / NR
                              auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
@@ -150,7 +163,7 @@ nc.1157_function <- function(nc.file = nc.1157_list.files[2],   # MAP
 #' Spaltenlabels sind die Kalenderjahre. @inheritParams .nc_layer_table
 #' @return data.frame: cell_id | x | y | <n Jahresspalten> | name
 nc.1049_function <- function(nc.file = nc.1049_list.files[2],   # MAT/Jahr
-                             varname = "tadm",
+                             varname = c("tadm", "temp"),       # BWI / NR
                              auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
@@ -163,7 +176,7 @@ nc.1049_function <- function(nc.file = nc.1049_list.files[2],   # MAT/Jahr
 #' Spaltenlabels sind die Kalenderjahre. @inheritParams .nc_layer_table
 #' @return data.frame: cell_id | x | y | <n Jahresspalten> | name
 nc.1050_function <- function(nc.file = nc.1050_list.files[2],   # MAP/Jahr
-                             varname = "rrds",
+                             varname = c("rrds", "rain"),       # BWI / NR
                              auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
