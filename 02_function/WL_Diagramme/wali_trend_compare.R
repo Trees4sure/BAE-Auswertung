@@ -122,8 +122,11 @@ plot_wali_trend_delta <- function(df, id_val, run_ref, runs = NULL) {
 
 
 # ---- 3. Wrapper -------------------------------------------------------------
+# Default "facets": die Mittel-Shift-Leiste (delta) ist redundant - die Δ-Info
+# liest man direkt aus dem Vergleich bzw. dem Zeitstrahl (plot_wali_timeline()).
+# delta bleibt per mode="delta"/"both" verfuegbar.
 compare_wali_trend <- function(df, id_val, runs = NULL,
-                               mode = c("both", "facets", "delta"),
+                               mode = c("facets", "both", "delta"),
                                ref = NULL) {
   mode <- match.arg(mode)
   d_runs <- if (is.null(runs)) unique(df$Zeitlauf[df$id == id_val]) else runs

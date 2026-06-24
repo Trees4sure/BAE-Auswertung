@@ -280,6 +280,42 @@ write_region_csvs <- function(long_df, out_dir, prefix) {
 }
 
 
+# ---- Je (Region, Lauf) eine CSV: out_dir/<Region>/<Lauf>.csv ----------------
+#' Long-df nach Region UND Lauf splitten -> Ordner je Region, darin eine CSV je
+#' Lauf. Genau das App-Layout: Klick waehlt Region + Lauf -> es wird direkt die
+#' passende, schon vorgefilterte Datei geladen.
+#'
+#'   out_dir/
+#'     BWI-BZE/ OBS_DWD_1961-1990.csv ... (je Lauf eine)
+#'     NR-01/   ...
+#'
+#' @param long_df    Long mit Region- und Lauf-Spalte (+ MASTER_ID, Werte).
+#' @param out_dir    Basisordner (wird angelegt).
+#' @param region_col Spalte mit der Region (Default "quelle").
+#' @param run_col    Spalte mit dem Lauf (Default "Zeitlauf").
+#' @return (unsichtbar) Vektor der geschriebenen Pfade.
+write_run_csvs <- function(long_df, out_dir, region_col = "quelle",
+                           run_col = "Zeitlauf") {
+  for (cc in c(region_col, run_col))
+    if (!cc %in% names(long_df)) stop("long_df braucht Spalte '", cc, "'.")
+  pfade <- character(0)
+  for (rg in unique(long_df[[region_col]])) {
+    d_rg   <- long_df[long_df[[region_col]] == rg, , drop = FALSE]
+    dir_rg <- file.path(out_dir, as.character(rg))
+    if (!dir.exists(dir_rg)) dir.create(dir_rg, recursive = TRUE)
+    laeufe <- unique(d_rg[[run_col]])
+    for (rn in laeufe) {
+      d <- d_rg[d_rg[[run_col]] == rn, , drop = FALSE]
+      f <- file.path(dir_rg, paste0(rn, ".csv"))
+      utils::write.csv2(d, f, row.names = FALSE)
+      pfade <- c(pfade, f)
+    }
+    message(sprintf("%s: %d Lauf-CSVs -> %s", rg, length(laeufe), dir_rg))
+  }
+  invisible(pfade)
+}
+
+
 # ---- Beispiel: BWI-Monats-CSV erzeugen (auskommentiert) --------------------
 # source("02_function/WL_Diagramme/nc_monthly_tables.R")
 # source("02_function/WL_Diagramme/walther_lieth_input.R")   # .wl_detect_scale()

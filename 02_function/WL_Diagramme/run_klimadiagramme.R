@@ -23,6 +23,7 @@ invisible(lapply(c(
   "walther_lieth_input.R",    # .wl_detect_scale(), build_walther_lieth_input()
   "plot_walther_lieth.R",     # Monats-WL-Plot
   "wali_trend.R",             # WaLi-Trend (Jahresverlauf)
+  "wali_timeline.R",          # WaLi-Zeitstrahl 1961-2100 (Szenario-Vergleich)
   "walther_lieth_helpers.R",  # geteilte Skalierung/Theme/Palette
   "walther_lieth_compare.R",  # Monats-WL-Vergleich
   "wali_trend_compare.R",     # WaLi-Trend-Vergleich
@@ -36,6 +37,12 @@ invisible(lapply(c(
 data_raw  <- "../../../data/data_raw"
 dir_extra <- file.path(data_raw, "extra_downloads")   # Monats-/Jahres-Klimatologien
 dir_klima <- file.path(data_raw, "Klimaparameter")    # MRS BWI/NR Jahres-Rasters
+
+# Ausgabe-Basis (im Projekt). Layout: <out_base>/<Region>/<Lauf>.csv
+# -> 12 Ordner (BWI-BZE, NR-01..NR-11), darin je Lauf eine CSV.
+out_base       <- "03_parameters/WL_diagrams"          # Monats-WL (App)
+out_base_trend <- "03_parameters/WL_diagrams_trend"    # WaLi-Trend (Jahre)
+geo_nr_shp <- file.path("01_data", "Grundlagen/Bodendatenbank/NR/Geodaten/GEO_NR.shp")
 
 
 ## 6.3  Monats-Klima (1155 Temp / 1157 Niederschlag) -> WL-Long-Format --------
@@ -174,7 +181,9 @@ nc.grep.variables_df_KS_long <- nc.cbind.variables_df_KS %>%
   dplyr::mutate(Zeitlauf = gsub("\\.", "-", Zeitlauf)) %>%
   tidyr::pivot_wider(names_from = Variable, values_from = Value)
 
-saveRDS(nc.grep.variables_df_KS_long, "BWI_Klimadaten_long_RCP45v2.RDS")
+if (!dir.exists(out_base)) dir.create(out_base, recursive = TRUE)
+saveRDS(nc.grep.variables_df_KS_long,
+        file.path(out_base, "BWI_Klimadaten_MATMAP.RDS"))
 
 
 ## 6.7  Diagramme -------------------------------------------------------------
@@ -187,21 +196,30 @@ ts <- build_wali_trend_input(nc.grep.variables_BWI_KS, geom = geom_bwi,
 nrow(ts)   # erwartet ~30 je Lauf
 
 plot_wali_trend_from_long(ts, id_val = 1, run = runs_auswahl[1])
-compare_wali_trend(ts, id_val = 1, runs = runs_auswahl, mode = "both")
+compare_wali_trend(ts, id_val = 1, runs = runs_auswahl)   # facets (ohne Delta-Leiste)
+
+# -- Zeitstrahl 1961-2100: ALLE Laeufe EINES Punktes ueberlagert (Szenario-Pfade)
+# Achtung ids=1 setzen (sonst alle Punkte x Jahre x Laeufe). Differenzen direkt
+# sichtbar -> ersetzt die separate Mittel-Shift-Leiste.
+ts_all <- build_wali_trend_input(nc.grep.variables_BWI_KS, geom = geom_bwi, ids = 1)
+plot_wali_timeline(ts_all, id_val = 1)
+plot_wali_timeline(ts_all, id_val = 1, prec_mode = "diff",
+                   ref_run = "OBS_DWD_1961-1990")
 
 
 ## 6.8  NR-Pfad: Polygon-Mittel je MASTER_ID -> Region-CSVs --------------------
 # NR-.nc sind bereits korrekt georeferenziert (EPSG:25832, echte Meter) -> die
 # x/y aus .nc_layer_table reichen; je Datei wird ein Raster gebaut und ueber die
 # StoKa/Boden-Polygone (GEO_NR.shp) gemittelt. quelle = "NR-01".."NR-11".
-geo_nr_shp <- file.path(data_raw, "Grundlagen/Bodendatenbank/NR/Geodaten/GEO_NR.shp")
+# (geo_nr_shp ist in 6.2 gesetzt.)
 polygons   <- load_nr_polygons(geo_nr_shp)   # Spalten MASTER_ID, nbrg
 
 # -- Monat (1155/1157): streamend ueber die NR-Dateilisten (dir_extra).
+#    Ablage je Region/Lauf: <out_base>/monthly/NR-01/<Lauf>.csv ...
 nr_1155 <- grep("nr-?[0-9]{2}", liste("1155"), value = TRUE, ignore.case = TRUE)
 nr_1157 <- grep("nr-?[0-9]{2}", liste("1157"), value = TRUE, ignore.case = TRUE)
 wl_nr_month <- wl_month_nr_from_files(nr_1155, nr_1157, polygons)
-write_region_csvs(wl_nr_month, out_dir = "WL_CSV/monthly", prefix = "WL_monthly")
+write_run_csvs(wl_nr_month, out_dir = out_base)   # -> WL_diagrams/NR-01/<Lauf>.csv
 
 # -- Trend (1049/1050): NR-Jahres-Rasters unter dir_klima (nr_var_files aus 6.4),
 #    "alt"-Varianten ausgeschlossen. Laeufe mit 21/29/30 Jahren sind ok.
@@ -210,16 +228,15 @@ nr_1049 <- grep("1049", nr_var_files_use, value = TRUE)
 nr_1050 <- grep("1050", nr_var_files_use, value = TRUE)
 
 wl_nr_trend <- wl_trend_nr_from_files(nr_1049, nr_1050, polygons)
-write_region_csvs(wl_nr_trend, out_dir = "WL_CSV/trend", prefix = "WL_trend")
-# -> WL_CSV/{monthly,trend}/WL_*_NR-01.csv ... NR-11.csv
+write_run_csvs(wl_nr_trend, out_dir = out_base_trend)   # -> WL_diagrams_trend/NR-01/<Lauf>.csv
 
 
-## 6.9  BWI -> MASTER_ID-Region-CSV (abgelegte App-Daten) ----------------------
-# Ziel: EINMAL vorrechnen + ablegen; die App liest nur die CSV und ruft
-# plot_walther_lieth_from_long(..., id_col = "MASTER_ID"). Dazu cell_id -> MASTER_ID
-# anhaengen und je MASTER_ID mitteln (mehrere Zellen je MASTER_ID -> ein Wert),
-# damit je MASTER_ID genau 12 Monatszeilen bleiben. wl_month traegt aus 6.5 schon
-# quelle="BWI" + altitude/Lon/Lat.
+## 6.9  BWI -> MASTER_ID je Region/Lauf (abgelegte App-Daten) ------------------
+# Ziel: EINMAL vorrechnen + ablegen; die App liest nur die passende Lauf-CSV und
+# ruft plot_walther_lieth_from_long(..., id_col = "MASTER_ID"). Dazu cell_id ->
+# MASTER_ID anhaengen und je MASTER_ID mitteln (mehrere Zellen je MASTER_ID ->
+# ein Wert), damit je MASTER_ID genau 12 Monatszeilen bleiben. wl_month traegt
+# aus 6.5 schon quelle="BWI" + altitude/Lon/Lat.
 # ACHTUNG: Spaltennamen der Join-CSV ggf. anpassen (id_col=/master_col=).
 bwi_lookup <- build_bwi_master_lookup(
   id_nc_file = grep("8002", bwi_extra, value = TRUE),
@@ -227,12 +244,13 @@ bwi_lookup <- build_bwi_master_lookup(
 
 wl_bwi_master <- wl_month %>%
   attach_master_id(bwi_lookup) %>%     # cell_id -> MASTER_ID
-  wl_aggregate_master()                # Mittel je MASTER_ID (+ Metadaten)
+  wl_aggregate_master() %>%            # Mittel je MASTER_ID (+ Metadaten)
+  dplyr::mutate(quelle = "BWI-BZE")    # Ordnername wie gewuenscht
 
-write_region_csvs(wl_bwi_master, out_dir = "WL_CSV/monthly", prefix = "WL_monthly")
-# -> WL_CSV/monthly/WL_monthly_BWI.csv
+write_run_csvs(wl_bwi_master, out_dir = out_base)
+# -> 03_parameters/WL_diagrams/BWI-BZE/OBS_DWD_1991-2020.csv ... (je Lauf)
 # App-Aufruf (Beispiel):
-#   bwi <- read.csv2("WL_CSV/monthly/WL_monthly_BWI.csv")
+#   bwi <- read.csv2(file.path(out_base, "BWI-BZE/OBS_DWD_1991-2020.csv"))
 #   plot_walther_lieth_from_long(bwi, id_val = <MASTER_ID>,
 #                                run = "OBS_DWD_1991-2020", id_col = "MASTER_ID")
 
