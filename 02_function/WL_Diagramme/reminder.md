@@ -28,7 +28,8 @@ Punkt), um Baumartenempfehlungen zwischen Klimaläufen zu vergleichen und den
 ## Dateien in `02_function/WL_Diagramme/`
 | Datei | Inhalt |
 |-------|--------|
-| `walther_lieth_input.R` | `build_walther_lieth_input()`, `wl_extract_run()` — Monats-Long-Format aus 1155/1157; `.wl_detect_scale()` |
+| `walther_lieth_input.R` | `build_walther_lieth_input()`, `wl_extract_run()` — Monats-Long-Format aus 1155/1157 (terra-Pfad); `.wl_detect_scale()` |
+| `nc_monthly_tables.R` | `nc.1155_function()` (Temp/MAT, analog `nc.1157_function`) + `wl_long_from_tables()` — Bruecke: breite ncdf4-Tabellen -> WL-Long-Format (ohne terra) |
 | `plot_walther_lieth.R` | klassisches WL-Diagramm (4-Ecken-Kopf, humide/aride/perhumide, Frostbalken); `plot_walther_lieth_from_long()` |
 | `wali_trend.R` | `build_wali_trend_input()`, `plot_wali_trend()` — 30-Jahres-Verlauf aus 1049/1050 |
 | `walther_lieth_helpers.R` | geteilte Skalierung, Farben, Theme, `wl_patch()` (patchwork), Empfehlungs-Palette |
@@ -61,6 +62,29 @@ ts <- build_wali_trend_input(
   werden automatisch korrekt getrennt.
 - `geom` (Lon/Lat/altitude/id) wird durchgereicht, falls angegeben.
 
+## Bridge 2: ncdf4-Tabellen -> WL-Long (Monats-WL, ohne terra)
+Neuer Pfad in `nc_monthly_tables.R`, falls die Monats-NetCDFs schon per `ncdf4`
+in **breite Tabellen** (`cell_id | x | y | Jan..Dez | name`) überführt sind
+(`nc.1157_function` existiert bereits, `nc.1155_function` ist das Temp-Pendant).
+
+```r
+source("02_function/WL_Diagramme/walther_lieth_input.R")   # .wl_detect_scale()
+source("02_function/WL_Diagramme/nc_monthly_tables.R")
+temp_df <- nc.1155_function(nc.1155_list.files[5])         # MAT / "tadm"
+prec_df <- nc.1157_function(nc.1157_list.files[5])         # MAP / "rrds"
+wl <- wl_long_from_tables(temp_df, prec_df)                # id|Zeitlauf|Monat|T_mean|P_sum
+```
+
+- **Monats-Mapping über Spalten-POSITION (1..12)**, nicht über `Jan..Dez` →
+  robust gegen System-Locale (`format(..,"%b")` ist lokalisiert!).
+- **Zeitlauf** = `name` ohne Parameter-ID-Präfix (`1155_`/`1157_`) und `.nc` →
+  1155 & 1157 desselben Laufs joinen sauber.
+- **Skalierung** wie `wl_extract_run()`: EIN Auto-Faktor (aus Temp) auf T und P
+  gemeinsam. Achtung: Beispiel-Niederschläge (~250/Monat) wirken hoch → kurz
+  prüfen, ob 1157 noch ×10 ist (dann Auto-Faktor 0.1 greift via Temp-Median).
+- Behoben ggü. `nc.1157_function`: `nc_close()` lief dort nach `return()` ins
+  Leere → in `nc.1155_function` via `on.exit(nc_close())` gefixt.
+
 ## id vs. master_id (für die Empfehlungs-Anbindung)
 - `id` = **zellbasiert** = `id_bwi_bze` (1..92123) → direkter Raster-Join-Key.
 - `master_id_boden` = **standorts-/polygonbasiert**, kann leer sein → daran hängen
@@ -92,6 +116,12 @@ ts <- build_wali_trend_input(
   bitte mit `demo_compare.R` gegenprüfen.
 
 ## Offene TODOs
+- [ ] `wl_long_from_tables()` lokal in R verifizieren (echte 1155/1157-NetCDFs):
+      Join Temp×Niederschlag, Monats-Position, Auto-Skalierung, `x/y`-Durchreichung.
+- [ ] Niederschlags-Einheit klären: 1157-Werte (~250/Monat) noch ×10? Falls ja,
+      greift der Auto-Faktor 0.1 (aus Temp-Median) korrekt für T **und** P?
+- [ ] `nc.1157_function` aufräumen: `nc_close()` steht nach `return()` (tot) —
+      analog zu `nc.1155_function` auf `on.exit(nc_close())` umstellen.
 - [ ] Echte Baumartenempfehlung über `master_id_boden` statt `id` anbinden.
 - [ ] v2/v3-Dedup in der Datei-Liste vor dem Raster-Stack.
 - [ ] WL-Plot lokal verifizieren (Legende/override.aes, patchwork-Alignment).

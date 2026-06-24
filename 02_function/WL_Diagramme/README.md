@@ -50,6 +50,39 @@ Füllung > 100 mm, Frostbalken). Der Kopf wird mit **patchwork** gesetzt;
 fehlt es, gibt es einen Titel-Fallback. Sonderzeichen liegen als `\u`-Escapes
 im Quelltext → kein Mojibake, egal welches Encoding beim `source()`.
 
+### Alternative: direkt aus den NetCDF-Tabellen (ncdf4, ohne terra)
+
+Wenn die Monats-NetCDFs bereits per `ncdf4` in **breite Tabellen** überführt
+wurden (`cell_id | x | y | Jan…Dez | name`), führt `wl_long_from_tables()` Temp
+(1155) und Niederschlag (1157) direkt ins WL-Long-Format zusammen – ganz ohne
+`terra`/`rast_list`.
+
+```r
+source("02_function/WL_Diagramme/walther_lieth_input.R")  # .wl_detect_scale()
+source("02_function/WL_Diagramme/nc_monthly_tables.R")
+source("02_function/WL_Diagramme/plot_walther_lieth.R")
+
+# breite Tabellen je Datei einlesen (nc.1157_function existiert bereits)
+temp_df <- nc.1155_function(nc.1155_list.files[5])   # MAT, Varname "tadm"
+prec_df <- nc.1157_function(nc.1157_list.files[5])   # MAP, Varname "rrds"
+
+# Bruecke -> Long-Format (id | Zeitlauf | Monat | T_mean | P_sum [+ x,y])
+wl <- wl_long_from_tables(temp_df, prec_df)
+
+plot_walther_lieth_from_long(wl, id_val = 1, run = wl$Zeitlauf[1])
+```
+
+Details:
+- **Monate werden über die Spalten-Position (1..12) gemappt**, nicht über die
+  (lokalisierten) Monatsnamen `Jan…Dez` – robust gegen die System-Locale.
+- Der **Zeitlauf** wird aus `name` abgeleitet, indem die Parameter-ID am Anfang
+  (`1155_`/`1157_`) und `.nc` entfernt werden → 1155 und 1157 desselben Laufs
+  bekommen denselben Schlüssel und lassen sich joinen.
+- **Skalierung** wie bei `wl_extract_run()`: ein automatisch (aus der Temperatur)
+  erkannter Faktor wird auf Temperatur **und** Niederschlag gemeinsam angewandt
+  (`scale = 1` bzw. `0.1` überschreibt). `cell_id` = `id_bwi_bze` (Join-Key zur
+  Empfehlungs-Kette).
+
 ## 30-Jahres-Verlauf (Jahresparameter 1049 / 1050)
 
 `wali_trend.R` – „eine Art Walther-Lieth", aber über die Jahre
