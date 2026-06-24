@@ -247,21 +247,36 @@ Error in wali_trend_one_run(rast_list[[run]], run, geom = geom, scale = scale,  
 # (geo_nr_shp ist in 6.2 gesetzt.)
 polygons   <- load_nr_polygons(geo_nr_shp)   # Spalten MASTER_ID, nbrg
 
-# -- Monat (1155/1157): streamend ueber die NR-Dateilisten (dir_extra).
-#    Ablage je Region/Lauf: <out_base>/monthly/NR-01/<Lauf>.csv ...
+# -- Monat (1155/1157): pro (Region, Lauf) STREAMEND statt alles auf einmal.
+#    Je 1155-Datei den 1157-Partner am Datei-Stamm (Region_Lauf) ziehen, nur
+#    diesen einen Lauf mitteln und sofort als <out_base>/<Region>/<Lauf>.csv
+#    ablegen -> kurze Ladezeit/wenig RAM, Zwischenstaende stehen direkt auf Platte.
 nr_1155 <- grep("nr-?[0-9]{2}", liste("1155"), value = TRUE, ignore.case = TRUE)
 nr_1157 <- grep("nr-?[0-9]{2}", liste("1157"), value = TRUE, ignore.case = TRUE)
-wl_nr_month <- wl_month_nr_from_files(nr_1155, nr_1157, polygons)
-write_run_csvs(wl_nr_month, out_dir = out_base)   # -> WL_diagrams/NR-01/<Lauf>.csv
 
-# -- Trend (1049/1050): NR-Jahres-Rasters unter dir_klima (nr_var_files aus 6.4),
-#    "alt"-Varianten ausgeschlossen. Laeufe mit 21/29/30 Jahren sind ok.
+nr_stem    <- function(f) sub("\\.nc$", "", sub("^[0-9]+_", "", basename(f)))  # Region_Lauf
+nr_1157_by <- setNames(nr_1157, nr_stem(nr_1157))            # Stamm -> 1157-Datei (exakt)
+
+for (tf in nr_1155) {
+  pf <- nr_1157_by[[nr_stem(tf)]]                            # passender Niederschlag
+  if (is.null(pf)) { warning("kein 1157 zu ", basename(tf), call. = FALSE); next }
+  m <- wl_month_nr_from_files(tf, pf, polygons)              # nur dieser (Region, Lauf)
+  write_run_csvs(m, out_dir = out_base)                      # -> out_base/NR-01/<Lauf>.csv
+}
+
+# -- Trend (1049/1050): analog STREAMEND je (Region, Lauf). "alt"-Varianten raus;
+#    nr_var_files (aus 6.4) ist bereits v2/v3-frei. Laeufe mit 21/29/30 Jahren ok.
 nr_var_files_use <- grep("alt", nr_var_files, value = TRUE, invert = TRUE)
 nr_1049 <- grep("1049", nr_var_files_use, value = TRUE)
 nr_1050 <- grep("1050", nr_var_files_use, value = TRUE)
 
-wl_nr_trend <- wl_trend_nr_from_files(nr_1049, nr_1050, polygons)
-write_run_csvs(wl_nr_trend, out_dir = out_base_trend)   # -> WL_diagrams_trend/NR-01/<Lauf>.csv
+nr_1050_by <- setNames(nr_1050, nr_stem(nr_1050))
+for (tf in nr_1049) {
+  pf <- nr_1050_by[[nr_stem(tf)]]
+  if (is.null(pf)) { warning("kein 1050 zu ", basename(tf), call. = FALSE); next }
+  tr <- wl_trend_nr_from_files(tf, pf, polygons)
+  write_run_csvs(tr, out_dir = out_base_trend)               # -> out_base_trend/NR-01/<Lauf>.csv
+}
 
 
 ## 6.9  BWI -> MASTER_ID je Region/Lauf (abgelegte App-Daten) ------------------

@@ -39,7 +39,7 @@ plot_wali_timeline <- function(df, id_val, id_col = "id", runs = NULL,
                                trend = TRUE, name = NULL){
   prec_mode <- match.arg(prec_mode)
   col_by    <- match.arg(col_by)
-  for(pkg in c("ggplot2", "dplyr"))
+  for(pkg in c("ggplot2", "dplyr", "tidyr"))
     if(!requireNamespace(pkg, quietly = TRUE)) stop("Paket '", pkg, "' noetig.")
 
   if(!id_col %in% names(df))
@@ -66,48 +66,45 @@ plot_wali_timeline <- function(df, id_val, id_col = "id", runs = NULL,
     sub$P_show <- sub$P_year
     p_lab <- "Jahresniederschlag [mm]"
   }
+  t_lab <- "Jahresmitteltemperatur [°C]"
 
-  # gemeinsame lineare Abbildung Niederschlag -> Temperaturachse (sec_axis)
-  t_lo <- min(c(sub$T_year, 0), na.rm = TRUE); t_hi <- max(sub$T_year, na.rm = TRUE)
-  p_lo <- min(sub$P_show, na.rm = TRUE);       p_hi <- max(sub$P_show, na.rm = TRUE)
-  st <- max(t_hi - t_lo, 1); sp <- max(p_hi - p_lo, 1)
-  p2t <- function(p) (p - p_lo) / sp * st + t_lo
-  t2p <- function(t) (t - t_lo) / st * sp + p_lo
-  sub$P_auf_T <- p2t(sub$P_show)
+  # ZWEI gestapelte Panels (Temperatur / Niederschlag) statt Doppelachse: keine
+  # Quetschung mehr, jeder Lauf bleibt eine eigene Linie (auch v2 vs. Original).
+  lang <- tidyr::pivot_longer(sub, cols = c("T_year", "P_show"),
+                              names_to = "Groesse", values_to = "Wert")
+  lang$Panel <- factor(ifelse(lang$Groesse == "T_year", t_lab, p_lab),
+                       levels = c(t_lab, p_lab))
 
   aes <- ggplot2::aes
-  p <- ggplot2::ggplot(sub, aes(x = .data$Kalenderjahr)) +
-    # Niederschlag als alpha-Balken, je Lauf uebereinander (identity)
-    ggplot2::geom_col(aes(y = .data$P_auf_T, fill = .data[[farbe]],
-                          group = .data$Zeitlauf),
-                      position = "identity", alpha = 0.25, width = 0.9) +
-    # Temperatur als Linie + Punkte je Lauf
-    ggplot2::geom_line(aes(y = .data$T_year, colour = .data[[farbe]],
-                           group = .data$Zeitlauf), linewidth = 0.8) +
-    ggplot2::geom_point(aes(y = .data$T_year, colour = .data[[farbe]]), size = 1)
+  p <- ggplot2::ggplot(lang, aes(x = .data$Kalenderjahr, y = .data$Wert,
+                                 colour = .data[[farbe]], group = .data$Zeitlauf)) +
+    ggplot2::geom_line(linewidth = 0.6, alpha = 0.7)
 
   if(isTRUE(trend))
-    p <- p + ggplot2::geom_smooth(
-      aes(y = .data$T_year, colour = .data[[farbe]], group = .data$Zeitlauf),
-      method = "lm", formula = y ~ x, se = FALSE,
-      linewidth = 0.5, linetype = "dashed")
+    p <- p + ggplot2::geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
+                                  linewidth = 0.5, linetype = "dashed", alpha = 0.6)
 
+  # Nulllinie nur im Niederschlags-Panel (Differenz-Modus)
   if(prec_mode == "diff")
-    p <- p + ggplot2::geom_hline(yintercept = p2t(0), colour = "grey60",
-                                 linewidth = 0.3)
+    p <- p + ggplot2::geom_hline(
+      data = data.frame(Panel = factor(p_lab, levels = c(t_lab, p_lab))),
+      aes(yintercept = 0), inherit.aes = FALSE, colour = "grey60", linewidth = 0.3)
 
   p +
-    ggplot2::scale_y_continuous(
-      name = "Jahresmitteltemperatur [°C]",
-      sec.axis = ggplot2::sec_axis(~ t2p(.), name = p_lab)) +
+    ggplot2::facet_grid(rows = ggplot2::vars(.data$Panel),
+                        scales = "free_y", switch = "y") +
     ggplot2::labs(
       title = if(is.null(name)) paste0("WaLi-Zeitstrahl · Punkt ", id_val) else name,
-      subtitle = "Linien = Temperatur, Balken = Niederschlag; Szenarien je Zeitscheibe ueberlagert",
-      x = "Kalenderjahr", colour = farbe, fill = farbe) +
+      subtitle = "oben Temperatur, unten Niederschlag; je Linie ein Lauf",
+      x = "Kalenderjahr", y = NULL, colour = farbe) +
     ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
-                   plot.subtitle = ggplot2::element_text(size = 9, colour = "grey25"),
-                   legend.position = "bottom")
+    ggplot2::theme(
+      panel.grid.minor  = ggplot2::element_blank(),
+      strip.placement   = "outside",
+      strip.background   = ggplot2::element_blank(),
+      strip.text.y.left = ggplot2::element_text(angle = 90),
+      plot.subtitle     = ggplot2::element_text(size = 9, colour = "grey25"),
+      legend.position   = "bottom")
 }
 
 
