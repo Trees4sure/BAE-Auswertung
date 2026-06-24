@@ -48,8 +48,13 @@ liste    <- function(id) list.files(file.path(dir_extra, id),
 read_all <- function(files, fun)
   do.call(rbind, lapply(files, function(f) fun(f, assign_global = FALSE)))
 
-temp_df  <- read_all(liste("1155"), nc.1155_function)
-prec_df  <- read_all(liste("1157"), nc.1157_function)
+# BWI laeuft ueber den Tabellen-Pfad (synthetische .nc-Koordinaten -> MASTER_ID
+# spaeter via geom_bwi/7001-7002). NR NICHT hier stapeln - das gaebe eine
+# Riesentabelle (~20 Mio. Zeilen); NR laeuft streamend in 6.8.
+bwi_1155 <- grep("bwi[-_]bze", liste("1155"), value = TRUE, ignore.case = TRUE)
+bwi_1157 <- grep("bwi[-_]bze", liste("1157"), value = TRUE, ignore.case = TRUE)
+temp_df  <- read_all(bwi_1155, nc.1155_function)
+prec_df  <- read_all(bwi_1157, nc.1157_function)
 wl_month <- wl_long_from_tables(temp_df, prec_df)   # id|Zeitlauf|Monat|T_mean|P_sum (+x,y)
 
 # Schnellcheck: ein Punkt, erster Lauf
@@ -171,19 +176,19 @@ compare_wali_trend(ts, id_val = 1, runs = runs_auswahl, mode = "both")
 geo_nr_shp <- file.path(data_raw, "Grundlagen/Bodendatenbank/NR/Geodaten/GEO_NR.shp")
 polygons   <- load_nr_polygons(geo_nr_shp)   # Spalten MASTER_ID, nbrg
 
-# -- Monat (1155/1157): die schon gestapelten temp_df/prec_df enthalten BWI+NR;
-#    wl_long_nr_from_tables verarbeitet nur die NR-Dateien.
-wl_nr_month <- wl_long_nr_from_tables(temp_df, prec_df, polygons)
+# -- Monat (1155/1157): streamend ueber die NR-Dateilisten (dir_extra).
+nr_1155 <- grep("nr-?[0-9]{2}", liste("1155"), value = TRUE, ignore.case = TRUE)
+nr_1157 <- grep("nr-?[0-9]{2}", liste("1157"), value = TRUE, ignore.case = TRUE)
+wl_nr_month <- wl_month_nr_from_files(nr_1155, nr_1157, polygons)
 write_region_csvs(wl_nr_month, out_dir = "WL_CSV/monthly", prefix = "WL_monthly")
 
-# -- Trend (1049/1050): Dateien EINZELN lesen (Laeufe haben 21/29/30 Jahre).
-#    Quelle sind die NR-Jahres-Rasters unter dir_klima (nr_var_files aus 6.4),
-#    "alt"-Varianten ausgeschlossen.
+# -- Trend (1049/1050): NR-Jahres-Rasters unter dir_klima (nr_var_files aus 6.4),
+#    "alt"-Varianten ausgeschlossen. Laeufe mit 21/29/30 Jahren sind ok.
 nr_var_files_use <- grep("alt", nr_var_files, value = TRUE, invert = TRUE)
 nr_1049 <- grep("1049", nr_var_files_use, value = TRUE)
 nr_1050 <- grep("1050", nr_var_files_use, value = TRUE)
 
-wl_nr_trend <- wl_trend_nr_from_tables(nr_1049, nr_1050, polygons)
+wl_nr_trend <- wl_trend_nr_from_files(nr_1049, nr_1050, polygons)
 write_region_csvs(wl_nr_trend, out_dir = "WL_CSV/trend", prefix = "WL_trend")
 # -> WL_CSV/{monthly,trend}/WL_*_NR-01.csv ... NR-11.csv
 
