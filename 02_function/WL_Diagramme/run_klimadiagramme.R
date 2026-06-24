@@ -248,19 +248,31 @@ Error in wali_trend_one_run(rast_list[[run]], run, geom = geom, scale = scale,  
 # (geo_nr_shp ist in 6.2 gesetzt.)
 polygons   <- load_nr_polygons(geo_nr_shp)   # Spalten MASTER_ID, nbrg
 
-# Geo + Hoehe je MASTER_ID fuer den WL-Kopf (die NR-Klima-.nc tragen das nicht):
+# Geo + Hoehe + DGM-Lage je MASTER_ID fuer WL-Kopf und Empfehlungs-Leiste (die
+# NR-Klima-.nc tragen das nicht):
 #   Lon/Lat  = Polygon-Zentroid (EPSG:25832, Rechts-/Hochwert wie BWI x_/y_25832)
-#   altitude = mittlere DGM-Hoehe je MASTER_ID (vorberechnet in DGM_NR.csv;
-#              fwrite -> ";"-getrennt, Punkt-Dezimal -> fread, NICHT read.csv2)
+#   altitude = mittlere DGM-Hoehe (Elevation) je MASTER_ID; zusaetzlich Aspect/
+#              Slope/Exposition/Hangseite fuer die spaetere Empfehlung. Alles aus
+#              DGM_NR.csv (fwrite -> ";"-getrennt, Punkt-Dezimal -> fread, NICHT
+#              read.csv2).
 dgm_nr_path <- "DGM_NR.csv"                   # ggf. Pfad anpassen
 ctr   <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(polygons)))
 nr_xy <- aggregate(cbind(Lon = ctr[, 1], Lat = ctr[, 2]),
                    by = list(MASTER_ID = as.character(polygons$MASTER_ID)), FUN = mean)
 dgm_nr <- data.table::fread(dgm_nr_path, sep = ";")
-nr_geo <- merge(
-  nr_xy,
-  data.frame(MASTER_ID = as.character(dgm_nr$MASTER_ID), altitude = dgm_nr$Elevation),
-  by = "MASTER_ID", all.x = TRUE)            # MASTER_ID | Lon | Lat | altitude
+# Elevation -> altitude, restliche DGM-Spalten (falls vorhanden) durchreichen.
+dgm_map  <- c(altitude = "Elevation", Aspect = "Aspect", Slope = "Slope",
+              Exposition = "Exposition", Hangseite = "Hangseite")
+dgm_have <- dgm_map[dgm_map %in% names(dgm_nr)]
+dgm_sel  <- data.frame(MASTER_ID = as.character(dgm_nr$MASTER_ID),
+                       setNames(lapply(dgm_have, function(cc) dgm_nr[[cc]]), names(dgm_have)),
+                       check.names = FALSE, stringsAsFactors = FALSE)
+nr_geo <- merge(nr_xy, dgm_sel, by = "MASTER_ID", all.x = TRUE)  # MASTER_ID|Lon|Lat|altitude|...
+
+# Datei-Stamm (Region_Lauf, ohne ID-Praefix/.nc) + Lauf-Name (ohne Region-Praefix,
+# inkl. -v2/-v3-Suffix).
+nr_stem <- function(f) sub("\\.nc$", "", sub("^[0-9]+_", "", basename(f)))
+nr_run  <- function(f) sub("^nr-?[0-9]{2}_", "", nr_stem(f), ignore.case = TRUE)
 
 # -- Monat (1155/1157): pro (Region, Lauf) STREAMEND statt alles auf einmal.
 #    Je 1155-Datei den 1157-Partner am Datei-Stamm (Region_Lauf) ziehen, nur
@@ -269,7 +281,6 @@ nr_geo <- merge(
 nr_1155 <- grep("nr-?[0-9]{2}", liste("1155"), value = TRUE, ignore.case = TRUE)
 nr_1157 <- grep("nr-?[0-9]{2}", liste("1157"), value = TRUE, ignore.case = TRUE)
 
-nr_stem    <- function(f) sub("\\.nc$", "", sub("^[0-9]+_", "", basename(f)))  # Region_Lauf
 nr_1157_by <- setNames(nr_1157, nr_stem(nr_1157))            # Stamm -> 1157-Datei (exakt)
 
 for (tf in nr_1155) {
@@ -279,6 +290,19 @@ for (tf in nr_1155) {
   m$MASTER_ID <- as.character(m$MASTER_ID)
   m <- dplyr::left_join(m, nr_geo, by = "MASTER_ID")         # + Lon/Lat/altitude
   write_run_csvs(m, out_dir = out_base)                      # -> out_base/NR-01/<Lauf>.csv
+}
+
+# NR v2/v3 (Niederschlag nachprediziert, "-v2"/"-v3"; Temp nur als Basis): die
+# Basis-Temp mit dem v2/v3-Niederschlag paaren (run_label) und als EIGENER Lauf
+# "<Run>-v2"/"-v3" zusaetzlich ablegen - das Original bleibt erhalten.
+nr_1155_by <- setNames(nr_1155, nr_stem(nr_1155))
+for (pf in grep("[_-]v[23]", nr_1157, value = TRUE)) {
+  tf <- nr_1155_by[[ sub("[_-]v[23]$", "", nr_stem(pf)) ]]  # Basis-Temp (ohne Suffix)
+  if (is.null(tf)) { warning("keine Basis-Temp zu ", basename(pf), call. = FALSE); next }
+  m <- wl_month_nr_from_files(tf, pf, polygons, run_label = nr_run(pf))  # Lauf "...-v2"
+  m$MASTER_ID <- as.character(m$MASTER_ID)
+  m <- dplyr::left_join(m, nr_geo, by = "MASTER_ID")
+  write_run_csvs(m, out_dir = out_base)                      # -> out_base/NR-XX/<Run>-v2.csv
 }
 
 # Deskriptives Regions-Diagramm direkt aus der fertigen CSV (Mittel ueber alle
@@ -301,6 +325,19 @@ for (tf in nr_1049) {
   write_run_csvs(tr, out_dir = out_base_trend)               # -> out_base_trend/NR-01/<Lauf>.csv
 }
 
+# NR-Trend v2/v3 (aus nr_var_files_v2 in 6.4): Basis-1049 mit v2/v3-1050 paaren
+# und als eigener Lauf "<Run>-v2"/"-v3" ablegen.
+nr_1049_by <- setNames(nr_1049, nr_stem(nr_1049))
+nr_1050_v  <- grep("1050", grep("alt", nr_var_files_v2, value = TRUE, invert = TRUE), value = TRUE)
+for (pf in nr_1050_v) {
+  tf <- nr_1049_by[[ sub("[_-]v[23]$", "", nr_stem(pf)) ]]
+  if (is.null(tf)) { warning("keine Basis-Temp(1049) zu ", basename(pf), call. = FALSE); next }
+  tr <- wl_trend_nr_from_files(tf, pf, polygons, run_label = nr_run(pf))
+  tr$MASTER_ID <- as.character(tr$MASTER_ID)
+  tr <- dplyr::left_join(tr, nr_geo, by = "MASTER_ID")
+  write_run_csvs(tr, out_dir = out_base_trend)
+}
+
 
 ## 6.9  BWI -> MASTER_ID je Region/Lauf (abgelegte App-Daten) ------------------
 # Ziel: EINMAL vorrechnen + ablegen; die App liest nur die passende Lauf-CSV und
@@ -313,12 +350,16 @@ bwi_lookup <- build_bwi_master_lookup(
   id_nc_file = grep("8002", bwi_extra, value = TRUE),
   join_csv   = file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv"))
 
-wl_bwi_master <- wl_month %>%
-  attach_master_id(bwi_lookup) %>%     # cell_id -> MASTER_ID
-  wl_aggregate_master() %>%            # Mittel je MASTER_ID (+ Metadaten)
-  dplyr::mutate(quelle = "BWI-BZE")    # Ordnername wie gewuenscht
-
-write_run_csvs(wl_bwi_master, out_dir = out_base)
+# Lauf fuer Lauf statt 42 Mio. Zeilen in EINEM group_by: pro Zeitlauf filtern,
+# auf MASTER_ID verdichten, sofort als BWI-BZE/<Lauf>.csv ablegen (kleiner RAM,
+# Zwischenstaende auf Platte). wl_month traegt aus 6.5 schon altitude/Lon/Lat.
+for (rn in unique(wl_month$Zeitlauf)) {
+  wl_month[wl_month$Zeitlauf == rn, , drop = FALSE] %>%
+    attach_master_id(bwi_lookup) %>%   # cell_id -> MASTER_ID
+    wl_aggregate_master() %>%          # Mittel je MASTER_ID (+ Metadaten)
+    dplyr::mutate(quelle = "BWI-BZE") %>%
+    write_run_csvs(out_dir = out_base) # -> out_base/BWI-BZE/<Lauf>.csv
+}
 # -> 03_parameters/WL_diagrams/BWI-BZE/OBS_DWD_1991-2020.csv ... (je Lauf)
 # App-Aufruf (Beispiel):
 #   bwi <- read.csv2(file.path(out_base, "BWI-BZE/OBS_DWD_1991-2020.csv"))

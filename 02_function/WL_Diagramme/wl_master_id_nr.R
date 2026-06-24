@@ -113,11 +113,19 @@ nr_extract_long <- function(r, poly_region, value_name, period_name = "Monat"){
 .nr_extract_files <- function(temp_files, prec_files, polygons,
                               read_temp, read_prec,
                               value_t, value_p, period_name,
-                              add_calendar = FALSE, scale = NULL){
+                              add_calendar = FALSE, scale = NULL,
+                              run_label = NULL){
   `%>%` <- dplyr::`%>%`
+  # run_label gesetzt -> Temp/Prec POSITIONAL (1:1) paaren und Zeitlauf
+  # ueberschreiben. Noetig fuer NR v2/v3: der nachpredizierte Niederschlag traegt
+  # "-v2"/"-v3", die Temp nur den Basis-Run -> die Paarung ueber gleiche Run-Namen
+  # greift sonst nicht.
+  positional <- !is.null(run_label)
 
   temp_files <- .nr_only(temp_files); prec_files <- .nr_only(prec_files)
   if(!length(temp_files)) stop("Keine NR-Temp-Dateien uebergeben.")
+  if(positional && length(prec_files) != length(temp_files))
+    stop("run_label: temp_files und prec_files muessen gleich lang sein (1:1).")
 
   # Sicherheitsnetz: Datei-Regionen muessen sich mit den Polygon-Regionen (nbrg)
   # ueberschneiden - sonst lieber lauter Abbruch als stille Leer-CSVs.
@@ -128,13 +136,20 @@ nr_extract_long <- function(r, poly_region, value_name, period_name = "Monat"){
          "}, Polygone(nbrg) -> {", paste(poly_regs, collapse = ", "),
          "}. nbrg-Ableitung in load_nr_polygons (Stellen 8-9) pruefen.")
 
-  pkey <- paste(vapply(prec_files, .nr_region, ""), vapply(prec_files, .nr_run, ""))
+  pkey <- if(positional) NULL else
+    paste(vapply(prec_files, .nr_region, ""), vapply(prec_files, .nr_run, ""))
 
   ergebnisse <- vector("list", length(temp_files))
   for(i in seq_along(temp_files)){
     tf     <- temp_files[i]
-    region <- .nr_region(tf); run <- .nr_run(tf)
-    pf     <- prec_files[match(paste(region, run), pkey)]
+    region <- .nr_region(tf)
+    if(positional){
+      pf  <- prec_files[i]
+      run <- if(length(run_label) == 1L) run_label else run_label[i]
+    } else {
+      run <- .nr_run(tf)
+      pf  <- prec_files[match(paste(region, run), pkey)]
+    }
     if(is.na(pf)){ warning("Kein Niederschlag zu ", basename(tf), call. = FALSE); next }
 
     poly_r <- polygons[polygons$nbrg == region, ]
@@ -189,12 +204,12 @@ nr_extract_long <- function(r, poly_region, value_name, period_name = "Monat"){
 wl_month_nr_from_files <- function(temp_files, prec_files, polygons,
                                    read_temp = nc.1155_function,
                                    read_prec = nc.1157_function,
-                                   scale = NULL){
+                                   scale = NULL, run_label = NULL){
   `%>%` <- dplyr::`%>%`
   out <- .nr_extract_files(temp_files, prec_files, polygons, read_temp, read_prec,
                            value_t = "T_mean", value_p = "P_sum",
                            period_name = "Monat", add_calendar = FALSE,
-                           scale = scale)
+                           scale = scale, run_label = run_label)
   if(!nrow(out)) return(out)
   out %>%
     dplyr::select("MASTER_ID", "quelle", "Zeitlauf", "Monat", "T_mean", "P_sum") %>%
@@ -217,12 +232,12 @@ wl_month_nr_from_files <- function(temp_files, prec_files, polygons,
 wl_trend_nr_from_files <- function(temp_files, prec_files, polygons,
                                    read_temp = nc.1049_function,
                                    read_prec = nc.1050_function,
-                                   scale = NULL){
+                                   scale = NULL, run_label = NULL){
   `%>%` <- dplyr::`%>%`
   out <- .nr_extract_files(temp_files, prec_files, polygons, read_temp, read_prec,
                            value_t = "T_year", value_p = "P_year",
                            period_name = "Jahr", add_calendar = TRUE,
-                           scale = scale)
+                           scale = scale, run_label = run_label)
   if(!nrow(out)) return(out)
   out %>%
     dplyr::select("MASTER_ID", "quelle", "Zeitlauf", "Jahr", "Kalenderjahr",
