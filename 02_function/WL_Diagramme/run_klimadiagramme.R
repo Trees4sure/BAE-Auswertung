@@ -382,7 +382,10 @@ wl_csvs <- list.files(file.path(out_base, wl_region),
 
 for (csv in wl_csvs) {
   run <- sub("\\.csv$", "", basename(csv))   # Lauf = Dateistamm = Zeitlauf
-  d   <- read.csv2(csv)
+  # fread statt read.csv2: die CSVs haben PUNKT-Dezimal -> read.csv2 (Komma)
+  # liefe Character zurueck. as.data.frame, damit die Basis-Indizierung im
+  # Wrapper (df[cond, , drop=FALSE]) sauber bleibt.
+  d   <- as.data.frame(data.table::fread(csv))
   for (id in wl_ids) {
     # Fehlt eine ID/Kombination in einer CSV, nur warnen statt den Loop abbrechen.
     p <- tryCatch(
