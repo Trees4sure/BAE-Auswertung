@@ -255,7 +255,7 @@ polygons   <- load_nr_polygons(geo_nr_shp)   # Spalten MASTER_ID, nbrg
 #              Slope/Exposition/Hangseite fuer die spaetere Empfehlung. Alles aus
 #              DGM_NR.csv (fwrite -> ";"-getrennt, Punkt-Dezimal -> fread, NICHT
 #              read.csv2).
-dgm_nr_path <- "DGM_NR.csv"                   # ggf. Pfad anpassen
+dgm_nr_path <- file.path("01_data", "Grundlagen/Geodaten/DGM_NR.csv")
 ctr   <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(polygons)))
 nr_xy <- aggregate(cbind(Lon = ctr[, 1], Lat = ctr[, 2]),
                    by = list(MASTER_ID = as.character(polygons$MASTER_ID)), FUN = mean)
