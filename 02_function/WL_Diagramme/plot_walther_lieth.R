@@ -221,16 +221,21 @@ plot_walther_lieth_from_long <- function(df, id_val, run, id_col = "id",
     stop("Erwarte 12 Monatszeilen, gefunden: ", nrow(sub),
          " (", id_col, "=", id_val, ", Lauf=", run, ").")
 
+  # Numerisch erzwingen - robuste gegen CSVs mit Punkt- ODER Komma-Dezimal
+  # (read.csv2 laesst Punkt-Dezimal als Character stehen -> round()/mean()/sum()
+  # wuerden mit "non-numeric argument to mathematical function" scheitern).
+  num <- function(x) if (is.numeric(x)) x else as.numeric(sub(",", ".", x, fixed = TRUE))
+
   # Erste vorhandene, nicht-leere Spalte aus den Kandidaten ziehen (NA-Fallback).
   hole <- function(...) {
     for (spalte in c(...)) if (spalte %in% names(sub)) {
       v <- sub[[spalte]][1]
-      if (!is.na(v)) return(v)
+      if (!is.na(v) && nzchar(trimws(v))) return(num(v))
     }
-    NA
+    NA_real_
   }
   plot_walther_lieth(
-    temp = sub$T_mean, prec = sub$P_sum,
+    temp = num(sub$T_mean), prec = num(sub$P_sum),
     name = if (is.null(name)) paste0("Punkt ", id_val) else name,
     elevation = hole("altitude"),
     lon = hole("Lon", "X_Centroid"), lat = hole("Lat", "Y_Centroid"),
