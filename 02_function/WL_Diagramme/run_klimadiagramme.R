@@ -57,7 +57,9 @@ temp_df  <- read_all(bwi_1155, nc.1155_function)
 prec_df  <- read_all(bwi_1157, nc.1157_function)
 wl_month <- wl_long_from_tables(temp_df, prec_df)   # id|Zeitlauf|Monat|T_mean|P_sum (+x,y)
 
-# Schnellcheck: ein Punkt, erster Lauf
+# Schnellcheck: ein Punkt, erster Lauf (Kopf Hoehe/Lon/Lat noch "?" -
+# Metadaten werden in 6.5 angehaengt). Optional nur EINEN Lauf vorfiltern:
+#   wl_one <- wl_long_from_tables(temp_df, prec_df, runs = "OBS_DWD_1991-2020")
 plot_walther_lieth_from_long(wl_month, id_val = 1, run = wl_month$Zeitlauf[1])
 
 
@@ -106,6 +108,12 @@ nc.BWI.id.df    <- rd("8002")   # BWI-Punkt-id
 # Geometrie fuer die WL-/Trend-Eingaben (ohne id_04)
 geom_bwi <- cbind(nc.BWI.rw.df, nc.BWI.hw.df, nc.BWI.el.df, nc.BWI.id.df) %>%
   dplyr::rename(Lon = x_25832, Lat = y_25832, altitude = elevation_250m, id = id)
+
+# Hoehe/Lon/Lat an wl_month haengen (reihenfolge-sicher ueber die 8002-id-Werte)
+# -> Plot-Kopf zeigt jetzt Hoehe/Laenge/Breite statt "?".
+bwi_id_nc <- grep("8002", bwi_extra, value = TRUE)
+wl_month  <- attach_bwi_geometry(wl_month, bwi_id_nc, geom_bwi)
+plot_walther_lieth_from_long(wl_month, id_val = 1, run = wl_month$Zeitlauf[1])
 
 # Boden-/Klima-Schluesseltabelle (fuer die spaetere Empfehlungs-Anbindung)
 MRS_Bod_Klima_Schl <- read.csv2(file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv")) %>%

@@ -186,6 +186,22 @@ nc.1050_function <- function(nc.file = nc.1050_list.files[2],   # MAP/Jahr
 }
 
 
+# ---- intern: breite Tabelle auf bestimmte Zeitlaeufe vorfiltern -------------
+#' Zeilen behalten, deren Lauf-Schluessel einen der 'runs' als Teilstring traegt.
+#' runs = NULL -> Tabelle unveraendert. Wirft einen Fehler, wenn nichts uebrig
+#' bleibt (Tippfehler im Lauf-Namen).
+.wl_filter_runs <- function(df, run_col, run_from_name, runs) {
+  if (is.null(runs)) return(df)
+  zt   <- run_from_name(df[[run_col]])
+  keep <- Reduce(`|`, lapply(runs, function(r) grepl(r, zt, fixed = TRUE)))
+  if (!any(keep))
+    stop("runs-Filter {", paste(runs, collapse = ", "),
+         "} passt auf keinen Zeitlauf (vorhanden u.a.: ",
+         paste(utils::head(unique(zt), 5), collapse = ", "), ").")
+  df[keep, , drop = FALSE]
+}
+
+
 # ---- Bruecke: breite Tabellen -> WL-Long-Format -----------------------------
 #' Breite Temp-/Niederschlags-Monatstabellen ins Walther-Lieth-Long-Format.
 #'
@@ -211,6 +227,9 @@ nc.1050_function <- function(nc.file = nc.1050_list.files[2],   # MAP/Jahr
 #'                    id/run/coord, in vorhandener Reihenfolge.
 #' @param run_from_name  Funktion Dateiname -> Lauf-Schluessel. NULL = Default
 #'                    (Parameter-ID-Praefix und ".nc" entfernen).
+#' @param runs       optional: nur diese Zeitlaeufe behalten (vor dem Join
+#'                    vorfiltern). Teilstring-Treffer, d.h. "OBS_DWD_1991-2020"
+#'                    matcht "bwi-bze_OBS_DWD_1991-2020". NULL = alle.
 #' @param scale      NULL = Auto-Plausibilitaet; sonst 1 oder 0.1 explizit.
 #' @return tibble: id | Zeitlauf | Monat | T_mean | P_sum (+ Koordinaten).
 wl_long_from_tables <- function(temp_df, prec_df,
@@ -219,6 +238,7 @@ wl_long_from_tables <- function(temp_df, prec_df,
                                 coord_cols   = c("x", "y"),
                                 month_cols   = NULL,
                                 run_from_name = NULL,
+                                runs         = NULL,
                                 scale        = NULL) {
   for (pkg in c("dplyr"))
     if (!requireNamespace(pkg, quietly = TRUE))
@@ -228,6 +248,11 @@ wl_long_from_tables <- function(temp_df, prec_df,
   if (is.null(run_from_name))
     run_from_name <- function(x)
       sub("\\.nc$", "", sub("^[0-9]+_", "", basename(as.character(x))))
+
+  # Optional vorfiltern: nur die gewuenschten Zeitlaeufe (Teilstring-Treffer).
+  # Spart Speicher/Zeit und vermeidet die inner-join-Warnung bei Teilmengen.
+  temp_df <- .wl_filter_runs(temp_df, run_col, run_from_name, runs)
+  prec_df <- .wl_filter_runs(prec_df, run_col, run_from_name, runs)
 
   # ein breites df -> langes df (id | Zeitlauf | Monat | <value_name>)
   pivot_one <- function(df, value_name) {
@@ -311,6 +336,8 @@ wl_long_from_tables <- function(temp_df, prec_df,
 #'                    alle Spalten ausser id/run/coord, in vorhandener Reihenfolge.
 #' @param run_from_name  Funktion Dateiname -> Lauf-Schluessel. NULL = Default
 #'                    (Parameter-ID-Praefix und ".nc" entfernen).
+#' @param runs       optional: nur diese Zeitlaeufe behalten (Teilstring-Treffer);
+#'                    NULL = alle.
 #' @param scale      NULL = Auto-Plausibilitaet; sonst 1 oder 0.1 explizit.
 #' @return tibble: id | Zeitlauf | Jahr | Kalenderjahr | T_year | P_year (+ Koord.)
 wali_trend_from_tables <- function(temp_df, prec_df,
@@ -319,6 +346,7 @@ wali_trend_from_tables <- function(temp_df, prec_df,
                                    coord_cols    = c("x", "y"),
                                    year_cols     = NULL,
                                    run_from_name = NULL,
+                                   runs          = NULL,
                                    scale         = NULL) {
   if (!requireNamespace("dplyr", quietly = TRUE))
     stop("Paket 'dplyr' wird benoetigt.")
@@ -327,6 +355,9 @@ wali_trend_from_tables <- function(temp_df, prec_df,
   if (is.null(run_from_name))
     run_from_name <- function(x)
       sub("\\.nc$", "", sub("^[0-9]+_", "", basename(as.character(x))))
+
+  temp_df <- .wl_filter_runs(temp_df, run_col, run_from_name, runs)
+  prec_df <- .wl_filter_runs(prec_df, run_col, run_from_name, runs)
 
   # ein breites df -> langes df (id | Zeitlauf | Jahr | Kalenderjahr | <value>)
   pivot_one <- function(df, value_name) {

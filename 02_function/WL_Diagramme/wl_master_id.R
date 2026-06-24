@@ -96,11 +96,20 @@ read_nc_id_grid <- function(nc_file, varname = NULL, value_name = "id_bwi_bze") 
 #' @param join_csv   BWI-BZE_Klima_Boden_Join.csv (read.csv2 / Semikolon).
 #' @param varname    id-Variablenname (NULL = Autoerkennung).
 #' @param id_col,master_col  Spaltennamen in join_csv.
-#' @return data.frame: quelle ("BWI") | cell_id | MASTER_ID
+#' @param geom       optional: data.frame mit Punkt-Metadaten (z.B. geom_bwi),
+#'                   verknuepft ueber \code{geom_id} == id_bwi_bze. Die in
+#'                   \code{geom_cols} genannten Spalten (altitude/Lon/Lat) werden
+#'                   in den Lookup uebernommen -> spaeter im Plot-Kopf sichtbar.
+#' @param geom_id    Spalte in \code{geom} mit der BWI-Punkt-id (Default "id").
+#' @param geom_cols  zu uebernehmende Metadaten-Spalten (Default altitude/Lon/Lat).
+#' @return data.frame: quelle ("BWI") | cell_id | MASTER_ID [| altitude | Lon | Lat]
 build_bwi_master_lookup <- function(id_nc_file, join_csv,
                                     varname    = NULL,
                                     id_col     = "id_bwi_bze",
-                                    master_col = "master_id_boden") {
+                                    master_col = "master_id_boden",
+                                    geom       = NULL,
+                                    geom_id    = "id",
+                                    geom_cols  = c("altitude", "Lon", "Lat")) {
   idg <- read_nc_id_grid(id_nc_file, varname, value_name = "id_bwi_bze")
 
   m <- utils::read.csv2(join_csv, stringsAsFactors = FALSE)
@@ -113,10 +122,30 @@ build_bwi_master_lookup <- function(id_nc_file, join_csv,
   out <- merge(idg[, c("cell_id", "id_bwi_bze")], m, by = "id_bwi_bze")
   out <- out[grepl("\\S", out$MASTER_ID), ]   # leere MASTER_ID (kein Boden) raus
 
-  message(sprintf("BWI-Lookup: %d Zellen mit MASTER_ID (von %d id-Zellen).",
-                  nrow(out), nrow(idg)))
-  data.frame(quelle = "BWI", cell_id = out$cell_id, MASTER_ID = out$MASTER_ID,
-             stringsAsFactors = FALSE)
+  res <- data.frame(quelle = "BWI", cell_id = out$cell_id,
+                    MASTER_ID = out$MASTER_ID, id_bwi_bze = out$id_bwi_bze,
+                    stringsAsFactors = FALSE)
+
+  # optional Punkt-Metadaten (Hoehe/Lon/Lat) ueber die BWI-Punkt-id anhaengen
+  if (!is.null(geom)) {
+    if (!geom_id %in% names(geom))
+      stop("geom_id '", geom_id, "' fehlt in geom (vorhanden: ",
+           paste(names(geom), collapse = ", "), ").")
+    have <- intersect(geom_cols, names(geom))
+    if (length(have) == 0)
+      warning("Keine der geom_cols (", paste(geom_cols, collapse = ", "),
+              ") in geom gefunden - keine Metadaten angehaengt.", call. = FALSE)
+    g <- as.data.frame(geom)[, c(geom_id, have), drop = FALSE]
+    names(g)[1] <- "id_bwi_bze"
+    g <- g[!duplicated(g$id_bwi_bze), ]
+    res <- merge(res, g, by = "id_bwi_bze", all.x = TRUE)
+  }
+
+  message(sprintf("BWI-Lookup: %d Zellen mit MASTER_ID (von %d id-Zellen)%s.",
+                  nrow(res), nrow(idg),
+                  if (!is.null(geom)) " inkl. Geometrie" else ""))
+  res$id_bwi_bze <- NULL
+  res[order(res$cell_id), ]
 }
 
 
@@ -144,6 +173,46 @@ attach_master_id <- function(long_df, lookup) {
     warning("attach_master_id: kein Treffer - passen quelle/cell_id zum Lookup?",
             call. = FALSE)
   dplyr::relocate(out, "MASTER_ID")
+}
+
+
+# ---- BWI-Punkt-Metadaten (Hoehe/Lon/Lat) an ein Long-df anhaengen -----------
+#' altitude/Lon/Lat aus geom_bwi ueber die id-Werte an ein Long-df haengen.
+#'
+#' Reihenfolge-sicher: die id (8002) wird mit read_nc_id_grid() im SELBEN
+#' ncdf4-Gitter wie die Klimadaten gelesen (cell_id -> id_bwi_bze), dann wird
+#' geom ueber den id-WERT (nicht die Position) verknuepft. Fuellt im Plot-Kopf
+#' Hoehe/Laenge/Breite (plot_walther_lieth_from_long liest altitude/Lon/Lat).
+#'
+#' @param long_df   WL-/Trend-Long mit Spalte 'id' (= cell_id).
+#' @param id_nc_file id-NetCDF (8002-Raster).
+#' @param geom      data.frame mit Punkt-Metadaten (z.B. geom_bwi).
+#' @param varname   id-Variablenname (NULL = Autoerkennung).
+#' @param geom_id   Spalte in geom mit der BWI-Punkt-id (Default "id").
+#' @param geom_cols zu uebernehmende Spalten (Default altitude/Lon/Lat).
+#' @return long_df mit zusaetzlichen Metadaten-Spalten (left join, NA wo fehlt).
+attach_bwi_geometry <- function(long_df, id_nc_file, geom, varname = NULL,
+                                geom_id = "id",
+                                geom_cols = c("altitude", "Lon", "Lat")) {
+  if (!requireNamespace("dplyr", quietly = TRUE))
+    stop("Paket 'dplyr' wird benoetigt.")
+  if (!"id" %in% names(long_df)) stop("long_df braucht Spalte 'id' (= cell_id).")
+  if (!geom_id %in% names(geom))
+    stop("geom_id '", geom_id, "' fehlt in geom (vorhanden: ",
+         paste(names(geom), collapse = ", "), ").")
+
+  idg  <- read_nc_id_grid(id_nc_file, varname, value_name = "id_bwi_bze")
+  have <- intersect(geom_cols, names(geom))
+  if (length(have) == 0)
+    warning("Keine der geom_cols (", paste(geom_cols, collapse = ", "),
+            ") in geom - nichts angehaengt.", call. = FALSE)
+  g <- as.data.frame(geom)[, c(geom_id, have), drop = FALSE]
+  names(g)[1] <- "id_bwi_bze"
+  g <- g[!duplicated(g$id_bwi_bze), ]
+
+  meta <- merge(idg[, c("cell_id", "id_bwi_bze")], g, by = "id_bwi_bze")
+  meta$id_bwi_bze <- NULL
+  dplyr::left_join(long_df, meta, by = c("id" = "cell_id"))
 }
 
 
