@@ -2,34 +2,35 @@
 # Monats-Klimatologien (1155 Temp / 1157 Niederschlag) aus NetCDF in breite
 # Tabellen lesen und von dort in das Walther-Lieth-Long-Format ueberfuehren.
 #
-#   nc.1155_function()    -> breite Temp-Tabelle (analog nc.1157_function)
+#   nc.1155_function()    -> breite Temp-Tabelle (Varname "tadm", MAT)
+#   nc.1157_function()    -> breite Niederschlags-Tabelle (Varname "rrds", MAP)
 #   wl_long_from_tables() -> Bruecke: breite Temp-/Niederschlags-Tabellen
 #                            zusammenfuehren -> id | Zeitlauf | Monat | T_mean | P_sum
 #
-# Das ist der ncdf4-basierte Pfad (ohne terra). Ergebnis von
-# wl_long_from_tables() ist direkt fuer plot_walther_lieth_from_long() geeignet.
+# Beide Lese-Funktionen teilen sich einen generischen Leser (.nc_monthly_table);
+# sie unterscheiden sich nur in Variable und Ziel-Objektname. Das ist der
+# ncdf4-basierte Pfad (ohne terra). Ergebnis von wl_long_from_tables() ist
+# direkt fuer plot_walther_lieth_from_long() geeignet.
 # =============================================================================
 
 
-# ---- 1155: Monatsmitteltemperatur (MAT, Varname i.d.R. "tadm") --------------
-#' Eine 1155-NetCDF-Datei in eine breite Monatstabelle ueberfuehren.
+# ---- Generischer Leser: eine NetCDF-Monatsklimatologie -> breite Tabelle ----
+#' Eine NetCDF-Datei mit 12 Monats-Layern in eine breite Tabelle ueberfuehren.
 #'
-#' Spiegelt nc.1157_function (Niederschlag, "rrds"), liest aber die Temperatur.
 #' Output: cell_id | x | y | <12 Monatsspalten> | name
 #'
-#' @param nc.file  Pfad zur 1155-NetCDF-Datei.
-#' @param varname  Name der Temperatur-Variablen (Default "tadm"). Existiert sie
+#' @param nc.file  Pfad zur NetCDF-Datei.
+#' @param varname  Name der Datenvariable (z.B. "tadm"/"rrds"). Existiert sie
 #'                 nicht, wird automatisch die erste 3-dimensionale Variable
 #'                 (x, y, time) verwendet.
-#' @param assign_global  TRUE (Default): Ergebnis zusaetzlich als nc.1155_df in
+#' @param df_name  Name fuer die optionale globale Zuweisung (z.B. "nc.1155_df").
+#' @param assign_global  TRUE (Default): Ergebnis zusaetzlich unter df_name in
 #'                 die globale Umgebung schreiben (wie im bestehenden Workflow).
 #' @return data.frame im breiten Format.
-nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
-                             varname = "tadm",
-                             assign_global = TRUE) {
+.nc_monthly_table <- function(nc.file, varname, df_name = NULL,
+                              assign_global = TRUE) {
   library(ncdf4)
   library(dplyr)
-  library(tidyr)
 
   # Datei laden
   nc <- nc_open(nc.file)
@@ -39,15 +40,22 @@ nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
   easting  <- ncvar_get(nc, "easting")
   northing <- ncvar_get(nc, "northing")
 
-  # Temperatur-Variable robust waehlen: erst "tadm", sonst erste 3D-Variable
+  # Datenvariable robust waehlen: erst varname, sonst erste 3D-Variable
   if (!varname %in% names(nc$var)) {
     dims3 <- vapply(nc$var, function(v) v$ndims == 3, logical(1))
     if (!any(dims3))
       stop("Variable '", varname, "' nicht gefunden und keine 3D-Variable da.")
-    varname <- names(nc$var)[dims3][1]
-    message("Variable '", varname, "' (3D) automatisch gewaehlt.")
+    alt <- names(nc$var)[dims3][1]
+    message("Variable '", varname, "' fehlt - '", alt, "' (3D) automatisch gewaehlt.")
+    varname <- alt
   }
-  tadm <- ncvar_get(nc, varname)        # [x, y, time]
+  vals <- ncvar_get(nc, varname)        # [x, y, time]
+
+  if (length(dim(vals)) != 3)
+    stop("Variable '", varname, "' ist nicht 3-dimensional [x, y, time].")
+  nt <- dim(vals)[3]
+  if (nt != 12)
+    stop("Erwarte 12 Monats-Layer, gefunden: ", nt, " in ", basename(nc.file), ".")
 
   # Zeit umwandeln: "days since 1970-01-01"
   zeit_raw   <- ncvar_get(nc, "time")
@@ -55,17 +63,17 @@ nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
   startdatum <- as.Date(sub("days since ", "", zeit_unit))
   zeit       <- startdatum + zeit_raw
 
-  # Monatsnamen (lokalisiert wie bei nc.1157_function; die Bruecke
-  # wl_long_from_tables() keyt spaeter ueber die Spalten-Position, nicht den Namen)
+  # Monatsnamen (lokalisiert); die Bruecke wl_long_from_tables() keyt spaeter
+  # ueber die Spalten-POSITION (1..12), nicht ueber den Namen.
   monat_namen <- format(zeit, "%b")
 
-  # Grid generieren
+  # Grid generieren (x schnellster Index, passend zu as.vector der Matrix)
   grid <- expand.grid(x = easting, y = northing)
   grid$cell_id <- seq_len(nrow(grid))
 
   # Werte je Monat extrahieren und zuweisen
-  for (i in seq_along(monat_namen)) {
-    matrix_monat <- tadm[ , , i]
+  for (i in seq_len(nt)) {
+    matrix_monat <- vals[ , , i]
     grid[[monat_namen[i]]] <- as.vector(matrix_monat)
   }
 
@@ -74,8 +82,33 @@ nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
     arrange(cell_id) %>%
     mutate(name = basename(nc.file))
 
-  if (assign_global) assign("nc.1155_df", out, envir = .GlobalEnv)
+  if (assign_global && !is.null(df_name))
+    assign(df_name, out, envir = .GlobalEnv)
   out
+}
+
+
+# ---- 1155: Monatsmitteltemperatur (MAT, Varname "tadm") --------------------
+#' Eine 1155-NetCDF-Datei in eine breite Monatstabelle ueberfuehren.
+#' @inheritParams .nc_monthly_table
+#' @return data.frame: cell_id | x | y | <12 Monatsspalten> | name
+nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
+                             varname = "tadm",
+                             assign_global = TRUE) {
+  .nc_monthly_table(nc.file, varname = varname,
+                    df_name = "nc.1155_df", assign_global = assign_global)
+}
+
+
+# ---- 1157: mittlerer Monatsniederschlag (MAP, Varname "rrds") --------------
+#' Eine 1157-NetCDF-Datei in eine breite Monatstabelle ueberfuehren.
+#' @inheritParams .nc_monthly_table
+#' @return data.frame: cell_id | x | y | <12 Monatsspalten> | name
+nc.1157_function <- function(nc.file = nc.1157_list.files[2],   # MAP
+                             varname = "rrds",
+                             assign_global = TRUE) {
+  .nc_monthly_table(nc.file, varname = varname,
+                    df_name = "nc.1157_df", assign_global = assign_global)
 }
 
 
@@ -184,3 +217,19 @@ wl_long_from_tables <- function(temp_df, prec_df,
   dplyr::as_tibble(merged) %>%
     dplyr::arrange(.data$id, .data$Zeitlauf, .data$Monat)
 }
+
+
+# ---- Beispiel (auskommentiert) ---------------------------------------------
+# source("02_function/WL_Diagramme/walther_lieth_input.R")  # .wl_detect_scale()
+# source("02_function/WL_Diagramme/plot_walther_lieth.R")   # Plot
+#
+# nc.1155_list.files <- list.files("../../../data/data_raw/extra_downloads/1155",
+#                                  pattern = "1155", full.names = TRUE, recursive = TRUE)
+# nc.1157_list.files <- list.files("../../../data/data_raw/extra_downloads/1157",
+#                                  pattern = "1157", full.names = TRUE, recursive = TRUE)
+#
+# temp_df <- nc.1155_function(nc.1155_list.files[5])   # gleicher Lauf wie [5] bei 1157!
+# prec_df <- nc.1157_function(nc.1157_list.files[5])
+#
+# wl <- wl_long_from_tables(temp_df, prec_df)
+# plot_walther_lieth_from_long(wl, id_val = 1, run = wl$Zeitlauf[1])
