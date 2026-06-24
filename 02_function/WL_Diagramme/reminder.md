@@ -3,6 +3,27 @@
 Kurzgedächtnis, was in `02_function/WL_Diagramme/` gebaut wurde, wie es
 zusammenhängt und was noch offen ist.
 
+## Letzter Stand (Session-Updates, Branch-HEAD `22ccc7b`)
+- **v2/v3 NICHT mehr rausfiltern, sondern als EIGENE Läufe führen** (BWI-Trend):
+  `expand_precip_versions()` in 6.4 koppelt je Lauf die Temp (1049) mit JEDER
+  vorhandenen 1050-Version → Original = `<run>`, nachprediziert = `<run>_v2`/`_v3`.
+  Behebt den „30 vs. 60 Layer"-Abbruch; Original bleibt erhalten, v2/v3 daneben.
+- **Schreibweise unterschiedlich:** BWI `_v2`/`_v3` (Unterstrich), **NR `-v2`/`-v3`
+  (Bindestrich)** → überall Regex **`[_-]v[23]`** (nicht `_v[23]`!).
+- **NR-CSV-Export streamt** je (Region, Lauf) extern in 6.8 (Schleife über die
+  Dateien, Partner exakt über Datei-Stamm `Region_Lauf`), nicht ein Riesen-`bind_rows`.
+- **NR v2/v3 in die CSVs:** `wl_month/trend_nr_from_files(..., run_label=)` paart
+  Basis-Temp (nur v1) positional mit dem v2/v3-Niederschlag → Lauf `<Run>-v2`.
+- **Geo/Höhe/DGM an NR-CSVs:** `nr_geo` (Polygon-Zentroid Lon/Lat in 25832 +
+  `DGM_NR.csv`: altitude=Elevation, Aspect/Slope/Exposition/Hangseite) per
+  `left_join` vor `write_run_csvs`. Pfad: `01_data/Grundlagen/Geodaten/DGM_NR.csv`
+  (mit `data.table::fread`, `;`/Punkt-Dezimal — NICHT `read.csv2`!).
+- **6.9 BWI-Master streamt** Lauf für Lauf (statt 42-Mio-Zeilen-`group_by`).
+- **Timeline neu:** `plot_wali_timeline()` = zwei gestapelte Panels (Temp/Niederschlag,
+  `facet_grid` `scales="free_y"`), je Lauf eine Linie — keine Doppelachsen-Quetschung.
+- **`wl_region_diagram(csv_path)`** (in `wl_master_id.R`): WL-Diagramm aus einer
+  fertigen `<Region>/<Lauf>.csv`, Mittel über alle MASTER_ID — liest CSV, NICHT .nc.
+
 ## Ziel
 Pro BWI-Punkt / NR-Region (MASTER_ID) und Klimalauf Klima-Diagramme erzeugen
 (Klick auf Punkt/Polygon), um Baumartenempfehlungen zwischen Klimaläufen zu
@@ -34,11 +55,11 @@ vergleichen und den **Grund** für einen Empfehlungswechsel sichtbar zu machen.
 | `walther_lieth_input.R` | `build_walther_lieth_input()`, `wl_extract_run()`, `.wl_detect_scale()` (terra-Pfad) |
 | `plot_walther_lieth.R` | WL-Diagramm + `plot_walther_lieth_from_long(df, id_val, run, id_col="id")` |
 | `wali_trend.R` | `build_wali_trend_input()`, `plot_wali_trend()`, `plot_wali_trend_from_long()` |
-| `wali_timeline.R` | **NEU** `plot_wali_timeline()` — durchgehender 1961-2100-Szenario-Vergleich (alpha-Balken + Linien, `prec_mode="diff"`) |
+| `wali_timeline.R` | `plot_wali_timeline()` — 1961-2100-Szenario-Vergleich, **zwei gestapelte Panels** (Temp/Niederschlag, `facet_grid scales="free_y"`), je Lauf eine Linie, `prec_mode="diff"` |
 | `wali_trend_compare.R` | `compare_wali_trend()` (Default `facets`; `delta`/Mittel-Shift nur noch optional) |
 | `walther_lieth_compare.R` | Monats-WL-Vergleich (facets + Delta) |
-| `wl_master_id.R` | `wl_split_quelle()` (idempotent), `read_nc_id_grid()`, `build_bwi_master_lookup(geom=)`, `attach_master_id()`, `wl_aggregate_master()`, `attach_bwi_geometry()`, `write_region_csvs()`, **`write_run_csvs()`** |
-| `wl_master_id_nr.R` | NR-Pfad (streamend): `load_nr_polygons()`, `nr_build_raster()`, `nr_extract_long()`, `wl_month_nr_from_files()`, `wl_trend_nr_from_files()` |
+| `wl_master_id.R` | `wl_split_quelle()` (idempotent), `read_nc_id_grid()`, `build_bwi_master_lookup(geom=)`, `attach_master_id()`, `wl_aggregate_master()`, `attach_bwi_geometry()`, `write_region_csvs()`, **`write_run_csvs()`**, **`wl_region_diagram(csv_path)`** (WL aus fertiger CSV) |
+| `wl_master_id_nr.R` | NR-Pfad (streamend): `load_nr_polygons()`, `nr_build_raster()`, `nr_extract_long()`, `wl_month_nr_from_files(..., run_label=)`, `wl_trend_nr_from_files(..., run_label=)` (`run_label`=positionale 1:1-Paarung für v2/v3) |
 | `recommendation_strip.R` / `compose_overview.R` | Empfehlungs-Leiste / Gesamtgrafik |
 | `run_klimadiagramme.R` | **Orchestrator** (6.1–6.9): laden → WL/Trend → Region/Lauf-CSVs |
 
@@ -56,8 +77,11 @@ App: Klick wählt Region+Lauf → passende (schon vorgefilterte) CSV laden →
 
 - **BWI:** `wl_long_from_tables` (cell) → `attach_master_id(lookup)` →
   `wl_aggregate_master()` (Mittel je MASTER_ID, sonst >12 Monatszeilen).
-- **NR:** `wl_month_nr_from_files()` liefert direkt MASTER_ID-Polygonmittel.
+- **NR:** `wl_month_nr_from_files()` liefert direkt MASTER_ID-Polygonmittel;
+  6.8 streamt je (Region, Lauf) und hängt vor dem Schreiben `nr_geo`
+  (Lon/Lat/altitude + DGM-Lage) per `left_join(by="MASTER_ID")` an.
 - Beide → gleiches Schema → `write_run_csvs(out_dir, region_col="quelle")`.
+- NR-CSVs tragen jetzt zusätzlich `Lon|Lat|altitude|Aspect|Slope|Exposition|Hangseite`.
 
 ## Wichtige Funktions-Details
 - **`runs=`-Vorfilter** (`wl_long_from_tables`/`wali_trend_from_tables`): nur
@@ -73,9 +97,11 @@ App: Klick wählt Region+Lauf → passende (schon vorgefilterte) CSV laden →
   und `polygons$nbrg` sich nicht überschneiden (statt stiller Leer-CSV).
 
 ## Bekannte Caveats
-- **v2/v3 (RCP45):** Muster **`_v[23]`** verwenden — `[_v23]` ist eine
-  Zeichenklasse und matcht das `_` überall. v2/v3 betreffen auch den
-  Niederschlag, müssen separat nachprediziert werden → im Hauptlauf raus.
+- **v2/v3 (RCP45 ECECMO=v2, MPICLM=v3):** sind die NACHPREDIZIERTEN Niederschläge.
+  → **NICHT rausfiltern**, sondern als eigene Läufe führen (`expand_precip_versions`,
+  `run_label`). Original (kompromittiert, aber Basis weiterer Rechnungen) bleibt.
+  Muster **`[_-]v[23]`** (BWI `_v2`, NR `-v2`) — NICHT `[_v23]` (Zeichenklasse,
+  matcht `_` überall) und NICHT nur `_v[23]` (verfehlt die NR-Bindestrich-Variante).
 - **`nbrg` aus MASTER_ID:** Stellen 8-9 = Regionsnummer (Stellen 6-7 = "nr").
 - **Encoding:** ältere Dateien als `\u`-Escapes; neue nutzen UTF-8 direkt.
 - **Nicht in R getestet** (Entwicklung ohne lokale R-Installation).
@@ -88,7 +114,15 @@ App: Klick wählt Region+Lauf → passende (schon vorgefilterte) CSV laden →
 - [ ] Fehlendes Jahr 1971 (Trend, Punkt 1): `P_year` dort NA/~0? Punkt-spezifisch
       prüfen — ggf. NA-Jahre im Plot interpolieren/auslassen statt Null-Balken.
 - [ ] Plot-Kopf Höhe/Lon/Lat nach `attach_bwi_geometry` wirklich gefüllt?
-- [ ] Echte Baumartenempfehlung über `master_id_boden` anbinden.
+- [ ] **`DGM_NR.csv` MASTER_ID-Format == Polygon-MASTER_ID?** (Join `as.character`,
+      aber führende Nullen o.Ä. müssen exakt passen, sonst `altitude`=NA).
+- [ ] **NR v2/v3-Export:** zu jedem `-v2`/`-v3`-Niederschlag eine Basis-Temp
+      (`nr_1155`/`nr_1049`) mit gleichem Stamm vorhanden? (sonst `warning` + skip).
+- [ ] `n_years_for()` deckt evtl. v2/v3 zu 21/29-Jahres-Läufen ab? (Suffix wird
+      gestrippt; aktuell sind RCP45-v2/v3 = 30 J. → unkritisch).
+- [ ] Echte Baumartenempfehlung über `master_id_boden` anbinden; DGM-Lage
+      (Aspect/Slope/Exposition/Hangseite) steht in den NR-CSVs bereit.
+- [ ] **Noch in R durchlaufen lassen** (Entwicklung ohne lokale R-Installation).
 
 ## Branch
 Entwicklung auf `claude/kind-hopper-30mip3`.
