@@ -11,7 +11,7 @@
 #
 # Hinweis: Die Laeufe koennen verschiedene Perioden abdecken (z.B. 1991-2020
 # vs. 2071-2100). Ein jahrweises Delta waere dann nicht alignbar - deshalb
-# zeigt das Delta hier den MITTLEREN Shift (\u00d8 \u0394T, \u00d8 \u0394P) je Lauf vs. Referenz.
+# zeigt das Delta hier den MITTLEREN Shift (\u00d8 DeltaT, \u00d8 DeltaP) je Lauf vs. Referenz.
 # =============================================================================
 
 
@@ -70,7 +70,7 @@ plot_wali_trend_facets <- function(df, id_val, runs = NULL, ncol = NULL,
 
 
 # ---- 2. Delta: mittlerer Shift je Lauf gegenueber der Referenz --------------
-# Balken je Vergleichslauf: \u0394T [\u00b0C] (links/rot) und \u0394P [mm/a] (rechts/blau),
+# Balken je Vergleichslauf: DeltaT [\u00b0C] (links/rot) und DeltaP [mm/a] (rechts/blau),
 # als Mittelwert-Differenz zur Referenzperiode.
 plot_wali_trend_delta <- function(df, id_val, run_ref, runs = NULL) {
   d <- df[df$id == id_val, ]
@@ -87,16 +87,16 @@ plot_wali_trend_delta <- function(df, id_val, run_ref, runs = NULL) {
     dP = vapply(cmps, function(r) mittel(r)["P"] - ref["P"], numeric(1))
   )
 
-  # \u0394P auf die \u0394T-Achse skalieren (eigene, datengerechte Skala)
+  # DeltaP auf die DeltaT-Achse skalieren (eigene, datengerechte Skala)
   faktor <- if (max(abs(delta$dT)) > 0)
     max(abs(delta$dP)) / max(abs(delta$dT)) else 1
   delta$dP_auf_temp <- delta$dP / faktor
 
   # lange Form fuer gruppierte Balken (Temp + Niederschlag nebeneinander)
   lang <- dplyr::bind_rows(
-    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "\u0394Temperatur",
+    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "DeltaTemperatur",
                   wert = delta$dT, y = delta$dT),
-    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "\u0394Niederschlag",
+    dplyr::tibble(Zeitlauf = delta$Zeitlauf, groesse = "DeltaNiederschlag",
                   wert = delta$dP, y = delta$dP_auf_temp)
   )
 
@@ -104,16 +104,16 @@ plot_wali_trend_delta <- function(df, id_val, run_ref, runs = NULL) {
     ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.7),
                       width = 0.6, alpha = 0.85) +
     ggplot2::geom_hline(yintercept = 0, colour = "grey50") +
-    ggplot2::geom_text(ggplot2::aes(label = ifelse(groesse == "\u0394Temperatur",
+    ggplot2::geom_text(ggplot2::aes(label = ifelse(groesse == "DeltaTemperatur",
                                                    sprintf("%+.1f \u00b0C", wert),
                                                    sprintf("%+d mm", round(wert)))),
                        position = ggplot2::position_dodge(width = 0.7),
                        vjust = -0.3, size = 3) +
-    ggplot2::scale_fill_manual(values = c("\u0394Temperatur" = COL_TEMP,
-                                          "\u0394Niederschlag" = COL_PREC), name = NULL) +
+    ggplot2::scale_fill_manual(values = c("DeltaTemperatur" = COL_TEMP,
+                                          "DeltaNiederschlag" = COL_PREC), name = NULL) +
     ggplot2::scale_y_continuous(
-      name = "\u0394Temperatur [\u00b0C]",
-      sec.axis = ggplot2::sec_axis(~ . * faktor, name = "\u0394Niederschlag [mm/a]")) +
+      name = "DeltaTemperatur [\u00b0C]",
+      sec.axis = ggplot2::sec_axis(~ . * faktor, name = "DeltaNiederschlag [mm/a]")) +
     ggplot2::labs(title = paste0("WaLi-Trend Mittel-Shift \u00b7 Punkt ", id_val),
                   subtitle = paste0("Differenz zur Referenz: ", run_ref),
                   x = NULL) +
@@ -122,7 +122,7 @@ plot_wali_trend_delta <- function(df, id_val, run_ref, runs = NULL) {
 
 
 # ---- 3. Wrapper -------------------------------------------------------------
-# Default "facets": die Mittel-Shift-Leiste (delta) ist redundant - die Δ-Info
+# Default "facets": die Mittel-Shift-Leiste (delta) ist redundant - die Delta-Info
 # liest man direkt aus dem Vergleich bzw. dem Zeitstrahl (plot_wali_timeline()).
 # delta bleibt per mode="delta"/"both" verfuegbar.
 compare_wali_trend <- function(df, id_val, runs = NULL,
