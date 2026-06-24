@@ -298,6 +298,16 @@ write_run_csvs <- function(long_df, out_dir, region_col = "quelle",
                            run_col = "Zeitlauf") {
   for (cc in c(region_col, run_col))
     if (!cc %in% names(long_df)) stop("long_df braucht Spalte '", cc, "'.")
+  # Nicht-atomare Spalten (z.B. sf-'geometry'/sfc oder Listen-Spalten) verwerfen -
+  # fwrite kann sie nicht schreiben und sie gehoeren nicht in die Lauf-CSV. Lieber
+  # mit Warnung droppen als die ganze Schleife abbrechen.
+  drop <- names(long_df)[!vapply(long_df, is.atomic, logical(1))]
+  if (length(drop)) {
+    warning("write_run_csvs: nicht-atomare Spalte(n) verworfen: ",
+            paste(drop, collapse = ", "), call. = FALSE)
+    # as.data.frame zuerst: sf haelt 'geometry' beim Subsetting sonst klebrig fest.
+    long_df <- as.data.frame(long_df)[setdiff(names(long_df), drop)]
+  }
   pfade <- character(0)
   for (rg in unique(long_df[[region_col]])) {
     d_rg   <- long_df[long_df[[region_col]] == rg, , drop = FALSE]
