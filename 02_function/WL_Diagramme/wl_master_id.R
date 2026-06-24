@@ -29,6 +29,9 @@
 #' @param col Name der Schluesselspalte.
 #' @return df mit zusaetzlicher Spalte 'quelle' und bereinigtem Zeitlauf.
 wl_split_quelle <- function(df, col = "Zeitlauf") {
+  # Idempotent: ist 'quelle' schon da (z.B. split_quelle=TRUE in den Bruecken),
+  # nichts tun - sonst wuerde der bereits bereinigte Zeitlauf zu quelle=NA fuehren.
+  if ("quelle" %in% names(df)) return(df)
   z   <- as.character(df[[col]])
   pat <- "^(bwi[-_]bze|nr-?[0-9]{2})_(.*)$"
   reg <- sub(pat, "\\1", z, ignore.case = TRUE)

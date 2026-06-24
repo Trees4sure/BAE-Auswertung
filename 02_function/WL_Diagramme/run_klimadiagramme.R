@@ -53,14 +53,27 @@ read_all <- function(files, fun)
 # Riesentabelle (~20 Mio. Zeilen); NR laeuft streamend in 6.8.
 bwi_1155 <- grep("bwi[-_]bze", liste("1155"), value = TRUE, ignore.case = TRUE)
 bwi_1157 <- grep("bwi[-_]bze", liste("1157"), value = TRUE, ignore.case = TRUE)
+
+# v2/v3-Laeufe (RCP45) gesondert behandeln: aus dem Hauptlauf ausschliessen und
+# separat aufheben (muessen lt. Notiz noch nachprediziert werden; betrifft auch
+# den Niederschlag). ACHTUNG Muster "_v[23]" - NICHT "[_v23]": letzteres ist eine
+# Zeichenklasse und matcht das '_' in JEDEM Dateinamen.
+bwi_1155_v23 <- grep("_v[23]", bwi_1155, value = TRUE)
+bwi_1157_v23 <- grep("_v[23]", bwi_1157, value = TRUE)
+bwi_1155     <- grep("_v[23]", bwi_1155, value = TRUE, invert = TRUE)   # ohne v2/v3
+bwi_1157     <- grep("_v[23]", bwi_1157, value = TRUE, invert = TRUE)
+
 temp_df  <- read_all(bwi_1155, nc.1155_function)
 prec_df  <- read_all(bwi_1157, nc.1157_function)
-wl_month <- wl_long_from_tables(temp_df, prec_df)   # id|Zeitlauf|Monat|T_mean|P_sum (+x,y)
+wl_month <- wl_long_from_tables(temp_df, prec_df)   # id|quelle|Zeitlauf|Monat|T_mean|P_sum (+x,y)
 
-# Schnellcheck: ein Punkt, erster Lauf (Kopf Hoehe/Lon/Lat noch "?" -
-# Metadaten werden in 6.5 angehaengt). Optional nur EINEN Lauf vorfiltern:
-#   wl_one <- wl_long_from_tables(temp_df, prec_df, runs = "OBS_DWD_1991-2020")
-plot_walther_lieth_from_long(wl_month, id_val = 1, run = wl_month$Zeitlauf[1])
+# Zeitlauf ist jetzt BEREINIGT (ohne "bwi-bze_") -> Laeufe direkt benennbar.
+# Optional nur EINEN Lauf erzeugen (spart die Millionen Zeilen der anderen):
+#   wl_month_one <- wl_long_from_tables(temp_df, prec_df, runs = "OBS_DWD_1991-2020")
+
+# Schnellcheck: ein Punkt, FESTER Lauf-Name (nicht wl_month$Zeitlauf[1] - bei
+# Millionen Zeilen muesste man den Index erst raten). Kopf-Metadaten folgen 6.5.
+plot_walther_lieth_from_long(wl_month, id_val = 1, run = "OBS_DWD_1991-2020")
 
 
 ## 6.4  Jahres-Klima-Rasters fuer BWI + NR (1049 = MAT, 1050 = MAP) ------------

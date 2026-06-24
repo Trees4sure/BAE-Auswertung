@@ -186,18 +186,36 @@ nc.1050_function <- function(nc.file = nc.1050_list.files[2],   # MAP/Jahr
 }
 
 
+# ---- intern: Lauf-Schluessel in quelle + bereinigten Zeitlauf zerlegen ------
+#' "bwi-bze_OBS_DWD_1991-2020" -> list(quelle="BWI", run="OBS_DWD_1991-2020"),
+#' "nr-01_OBS_DWD_1961-1990"  -> list(quelle="NR-01", run="OBS_DWD_1961-1990").
+#' Ohne Quell-Praefix: quelle = NA, run = unveraendert.
+.wl_split_key <- function(keys) {
+  keys <- as.character(keys)
+  pat  <- "^(bwi[-_]bze|nr-?[0-9]{2})_(.*)$"
+  reg  <- sub(pat, "\\1", keys, ignore.case = TRUE)
+  run  <- sub(pat, "\\2", keys, ignore.case = TRUE)
+  nogo <- reg == keys
+  quelle <- ifelse(grepl("^bwi", reg, ignore.case = TRUE), "BWI",
+                   toupper(sub("^nr-?", "NR-", reg, ignore.case = TRUE)))
+  quelle[nogo] <- NA_character_
+  run[nogo]    <- keys[nogo]
+  list(quelle = quelle, run = run)
+}
+
+
 # ---- intern: breite Tabelle auf bestimmte Zeitlaeufe vorfiltern -------------
-#' Zeilen behalten, deren Lauf-Schluessel einen der 'runs' als Teilstring traegt.
-#' runs = NULL -> Tabelle unveraendert. Wirft einen Fehler, wenn nichts uebrig
-#' bleibt (Tippfehler im Lauf-Namen).
+#' Zeilen behalten, deren BEREINIGTER Lauf (ohne Quell-Praefix) einen der 'runs'
+#' als Teilstring traegt - so matcht "OBS_DWD_1991-2020" trotz "bwi-bze_"-Praefix
+#' im Dateinamen. runs = NULL -> Tabelle unveraendert. Fehler, wenn nichts bleibt.
 .wl_filter_runs <- function(df, run_col, run_from_name, runs) {
   if (is.null(runs)) return(df)
-  zt   <- run_from_name(df[[run_col]])
-  keep <- Reduce(`|`, lapply(runs, function(r) grepl(r, zt, fixed = TRUE)))
+  run  <- .wl_split_key(run_from_name(df[[run_col]]))$run   # "OBS_DWD_1991-2020"
+  keep <- Reduce(`|`, lapply(runs, function(r) grepl(r, run, fixed = TRUE)))
   if (!any(keep))
     stop("runs-Filter {", paste(runs, collapse = ", "),
          "} passt auf keinen Zeitlauf (vorhanden u.a.: ",
-         paste(utils::head(unique(zt), 5), collapse = ", "), ").")
+         paste(utils::head(unique(run), 5), collapse = ", "), ").")
   df[keep, , drop = FALSE]
 }
 
@@ -228,10 +246,15 @@ nc.1050_function <- function(nc.file = nc.1050_list.files[2],   # MAP/Jahr
 #' @param run_from_name  Funktion Dateiname -> Lauf-Schluessel. NULL = Default
 #'                    (Parameter-ID-Praefix und ".nc" entfernen).
 #' @param runs       optional: nur diese Zeitlaeufe behalten (vor dem Join
-#'                    vorfiltern). Teilstring-Treffer, d.h. "OBS_DWD_1991-2020"
-#'                    matcht "bwi-bze_OBS_DWD_1991-2020". NULL = alle.
+#'                    vorfiltern). Teilstring-Treffer auf den BEREINIGTEN Namen,
+#'                    d.h. "OBS_DWD_1991-2020" matcht trotz "bwi-bze_"-Praefix.
+#'                    NULL = alle.
+#' @param split_quelle TRUE (Default): Ergebnis bekommt Spalte 'quelle'
+#'                    ("BWI"/"NR-XX") und einen um das Quell-Praefix BEREINIGTEN
+#'                    'Zeitlauf' ("OBS_DWD_1991-2020"). FALSE: Zeitlauf behaelt
+#'                    den vollen Schluessel (altes Verhalten).
 #' @param scale      NULL = Auto-Plausibilitaet; sonst 1 oder 0.1 explizit.
-#' @return tibble: id | Zeitlauf | Monat | T_mean | P_sum (+ Koordinaten).
+#' @return tibble: id | [quelle] | Zeitlauf | Monat | T_mean | P_sum (+ Koord.).
 wl_long_from_tables <- function(temp_df, prec_df,
                                 id_col       = "cell_id",
                                 run_col      = "name",
@@ -239,6 +262,7 @@ wl_long_from_tables <- function(temp_df, prec_df,
                                 month_cols   = NULL,
                                 run_from_name = NULL,
                                 runs         = NULL,
+                                split_quelle = TRUE,
                                 scale        = NULL) {
   for (pkg in c("dplyr"))
     if (!requireNamespace(pkg, quietly = TRUE))
@@ -313,6 +337,13 @@ wl_long_from_tables <- function(temp_df, prec_df,
     merged <- dplyr::left_join(merged, coords, by = "id")
   }
 
+  # Zeitlauf in quelle ("BWI"/"NR-XX") + bereinigten Zeitlauf trennen
+  if (isTRUE(split_quelle)) {
+    sp <- .wl_split_key(merged$Zeitlauf)
+    merged$quelle   <- sp$quelle
+    merged$Zeitlauf <- sp$run
+  }
+
   dplyr::as_tibble(merged) %>%
     dplyr::arrange(.data$id, .data$Zeitlauf, .data$Monat)
 }
@@ -338,8 +369,10 @@ wl_long_from_tables <- function(temp_df, prec_df,
 #'                    (Parameter-ID-Praefix und ".nc" entfernen).
 #' @param runs       optional: nur diese Zeitlaeufe behalten (Teilstring-Treffer);
 #'                    NULL = alle.
+#' @param split_quelle TRUE (Default): Spalte 'quelle' + bereinigter 'Zeitlauf'
+#'                    (wie wl_long_from_tables). FALSE: voller Schluessel.
 #' @param scale      NULL = Auto-Plausibilitaet; sonst 1 oder 0.1 explizit.
-#' @return tibble: id | Zeitlauf | Jahr | Kalenderjahr | T_year | P_year (+ Koord.)
+#' @return tibble: id | [quelle] | Zeitlauf | Jahr | Kalenderjahr | T_year | P_year
 wali_trend_from_tables <- function(temp_df, prec_df,
                                    id_col        = "cell_id",
                                    run_col       = "name",
@@ -347,6 +380,7 @@ wali_trend_from_tables <- function(temp_df, prec_df,
                                    year_cols     = NULL,
                                    run_from_name = NULL,
                                    runs          = NULL,
+                                   split_quelle  = TRUE,
                                    scale         = NULL) {
   if (!requireNamespace("dplyr", quietly = TRUE))
     stop("Paket 'dplyr' wird benoetigt.")
@@ -430,6 +464,12 @@ wali_trend_from_tables <- function(temp_df, prec_df,
     coords <- temp_df[!duplicated(temp_df[[id_col]]), c(id_col, cc), drop = FALSE]
     names(coords)[1] <- "id"
     merged <- dplyr::left_join(merged, coords, by = "id")
+  }
+
+  if (isTRUE(split_quelle)) {
+    sp <- .wl_split_key(merged$Zeitlauf)
+    merged$quelle   <- sp$quelle
+    merged$Zeitlauf <- sp$run
   }
 
   dplyr::as_tibble(merged) %>%
