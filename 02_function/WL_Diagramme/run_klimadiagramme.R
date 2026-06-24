@@ -362,7 +362,7 @@ for (rn in unique(wl_month$Zeitlauf)) {
 }
 # -> 03_parameters/WL_diagrams/BWI-BZE/OBS_DWD_1991-2020.csv ... (je Lauf)
 # App-Aufruf (Beispiel):
-#   bwi <- read.csv2(file.path(out_base, "BWI-BZE/OBS_DWD_1991-2020.csv"))
+#   bwi <- data.table::fread(file.path(out_base, "BWI-BZE/OBS_DWD_1991-2020.csv"))
 #   plot_walther_lieth_from_long(bwi, id_val = <MASTER_ID>,
 #                                run = "OBS_DWD_1991-2020", id_col = "MASTER_ID")
 

@@ -307,7 +307,9 @@ write_run_csvs <- function(long_df, out_dir, region_col = "quelle",
     for (rn in laeufe) {
       d <- d_rg[d_rg[[run_col]] == rn, , drop = FALSE]
       f <- file.path(dir_rg, paste0(rn, ".csv"))
-      utils::write.csv2(d, f, row.names = FALSE)
+      # fwrite (";"-getrennt, PUNKT-Dezimal) -> passend mit fread einlesen,
+      # NICHT read.csv2 (das erwartet Komma-Dezimal -> Character-Spalten).
+      data.table::fwrite(d, f, sep = ";")
       pfade <- c(pfade, f)
     }
     message(sprintf("%s: %d Lauf-CSVs -> %s", rg, length(laeufe), dir_rg))
@@ -325,18 +327,19 @@ write_run_csvs <- function(long_df, out_dir, region_col = "quelle",
 #' geschlossenes Regions-Klimadiagramm (Kopf zeigt Mittelhoehe + Jahresmittel).
 #' Funktioniert fuer NR-Regionen (quelle = "NR-XX") wie fuer BWI ("BWI-BZE").
 #'
-#' @param csv_path Pfad zur Region/Lauf-CSV (Semikolon/Komma-Dezimal -> read.csv2).
+#' @param csv_path Pfad zur Region/Lauf-CSV (fwrite: ";"-getrennt, Punkt-Dezimal
+#'   -> mit fread lesen, NICHT read.csv2).
 #' @param name     optionaler Titel (Default "<quelle> (Regionsmittel)").
 #' @param ...      an plot_walther_lieth_from_long() weitergereicht.
 #' @return ggplot-/patchwork-Objekt.
 wl_region_diagram <- function(csv_path, name = NULL, ...) {
   if (!requireNamespace("dplyr", quietly = TRUE))
     stop("Paket 'dplyr' wird benoetigt.")
-  d <- utils::read.csv2(csv_path)
+  d <- as.data.frame(data.table::fread(csv_path))
   for (cc in c("quelle", "Zeitlauf", "Monat", "T_mean", "P_sum"))
     if (!cc %in% names(d)) stop("Spalte '", cc, "' fehlt in ", basename(csv_path), ".")
 
-  meta <- intersect(c("altitude", "Lon", "Lat"), names(d))
+  meta <- intersect(c("altitude", "Lon", "Lat", "X_Centroid", "Y_Centroid"), names(d))
   m <- d %>%
     dplyr::group_by(.data$quelle, .data$Zeitlauf, .data$Monat) %>%
     dplyr::summarise(
