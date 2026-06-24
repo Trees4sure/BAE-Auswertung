@@ -4,135 +4,91 @@ Kurzgedächtnis, was in `02_function/WL_Diagramme/` gebaut wurde, wie es
 zusammenhängt und was noch offen ist.
 
 ## Ziel
-Pro BWI-Punkt / NR-Zelle und Klimalauf Klima-Diagramme erzeugen (Klick auf
-Punkt), um Baumartenempfehlungen zwischen Klimaläufen zu vergleichen und den
-**Grund** für einen Empfehlungswechsel sichtbar zu machen.
+Pro BWI-Punkt / NR-Region (MASTER_ID) und Klimalauf Klima-Diagramme erzeugen
+(Klick auf Punkt/Polygon), um Baumartenempfehlungen zwischen Klimaläufen zu
+vergleichen und den **Grund** für einen Empfehlungswechsel sichtbar zu machen.
 
-## Datengrundlage (Parameter-IDs aus dem Katalog)
-| ID | Inhalt | CDO-Ableitung |
-|----|--------|---------------|
-| 1112 | Tagesmittel-Temperatur (Roh, ×10) | – |
-| 1114 | Tagesniederschlagssumme (Roh, ×10) | – |
-| 1049 | Jahresmitteltemperatur (Varname `tadm`) | `yearmean(1112)` |
-| 1050 | Jahresniederschlagssumme (Varname `rrds`) | `yearsum(1114)` |
-| 1137 / 1155 | Monatsmitteltemperatur / 30a-Klimatologie | `monmean` / `ymonmean` |
-| 1145 / 1157 | Monatsniederschlag / 30a-Klimatologie | `monsum` / `ymonmean` |
+## Datengrundlage (Parameter-IDs)
+| ID | Inhalt | Varname BWI / NR |
+|----|--------|------------------|
+| 1049 | Jahresmitteltemperatur | `tadm` / `tadm` |
+| 1050 | Jahresniederschlagssumme | `rrds` / `rain` |
+| 1155 | Monatsmittel-Temp (12 Layer) | `tadm` / `temp` |
+| 1157 | Monatsniederschlag (12 Layer) | `rrds` / `rain` |
 
-- **Echtes Walther-Lieth (Monat):** braucht **1155 + 1157** (je 12 Layer).
-- **WaLi-Trend (30 Jahre):** braucht **1049 + 1050** (je ~30 Jahres-Layer);
-  diese liegen bereits als `nc.grep.variables_BWI_KS` vor (60 Layer/Lauf).
-- Rohdaten-Skalierung `mulc,0.1` (Tabelle 6) nur bei 1112/1114; die abgeleiteten
-  Produkte sind i.d.R. schon in echten Einheiten (Plausibilitätscheck eingebaut).
-- Wichtig: **Temperatur = Mittel, Niederschlag = Summe** (steckt korrekt in den IDs).
+- **WL Monat:** 1155 + 1157 (je 12 Layer). **WaLi-Trend:** 1049 + 1050 (~30 Jahre).
+- **Variablennamen je Region verschieden** → die Leser nehmen einen Kandidaten-
+  Vektor (`c("rrds","rain")`) und fallen sonst auf die EINZIGE 3D-Variable zurück.
+
+## Georeferenzierung — die zentrale Asymmetrie
+| | BWI (`*bwi-bze*`) | NR (`*nr*`) |
+|---|---|---|
+| `.nc`-Koordinaten | **synthetisch** 1..304, kein CRS | **echt** EPSG:25832, 250 m |
+| echte Koordinaten | aus 7001/7002 (→ `geom_bwi`) | direkt aus dem `.nc` |
+| MASTER_ID | Tabellen-Join (id_bwi_bze→Boden) | räumlich (Polygon-Mittel) |
 
 ## Dateien in `02_function/WL_Diagramme/`
 | Datei | Inhalt |
 |-------|--------|
-| `walther_lieth_input.R` | `build_walther_lieth_input()`, `wl_extract_run()` — Monats-Long-Format aus 1155/1157 (terra-Pfad); `.wl_detect_scale()` |
-| `nc_monthly_tables.R` | `nc.1155_function()` (Temp/MAT, analog `nc.1157_function`) + `wl_long_from_tables()` — Bruecke: breite ncdf4-Tabellen -> WL-Long-Format (ohne terra) |
-| `plot_walther_lieth.R` | klassisches WL-Diagramm (4-Ecken-Kopf, humide/aride/perhumide, Frostbalken); `plot_walther_lieth_from_long()` |
-| `wali_trend.R` | `build_wali_trend_input()`, `plot_wali_trend()` — 30-Jahres-Verlauf aus 1049/1050 |
-| `walther_lieth_helpers.R` | geteilte Skalierung, Farben, Theme, `wl_patch()` (patchwork), Empfehlungs-Palette |
-| `walther_lieth_compare.R` | Monats-WL: Small Multiples (`*_facets`) + Delta-WL (`*_delta`) + `compare_walther_lieth()` |
-| `wali_trend_compare.R` | WaLi-Trend: Small Multiples + Mittel-Shift + `compare_wali_trend()` |
-| `recommendation_strip.R` | Empfehlungs-Leiste (grid/facets) + `combine_climate_recommendation()` |
-| `compose_overview.R` | `compose_scenario_overview()` — Gesamtgrafik (links WL untereinander, rechts Empfehlung + Delta je Szenario) |
-| `testdata/` | CSV-Testdaten + Generatoren (`make_test_data.R`, `make_shift_test_data.R`) + `demo_compare.R` |
+| `nc_monthly_tables.R` | `.nc_layer_table()` (ncdf4→breite Tabelle), `nc.1155/1157/1049/1050_function()`, `wl_long_from_tables()` (Monat), `wali_trend_from_tables()` (Trend). Mit `runs=`-Vorfilter + `split_quelle=` |
+| `walther_lieth_input.R` | `build_walther_lieth_input()`, `wl_extract_run()`, `.wl_detect_scale()` (terra-Pfad) |
+| `plot_walther_lieth.R` | WL-Diagramm + `plot_walther_lieth_from_long(df, id_val, run, id_col="id")` |
+| `wali_trend.R` | `build_wali_trend_input()`, `plot_wali_trend()`, `plot_wali_trend_from_long()` |
+| `wali_timeline.R` | **NEU** `plot_wali_timeline()` — durchgehender 1961-2100-Szenario-Vergleich (alpha-Balken + Linien, `prec_mode="diff"`) |
+| `wali_trend_compare.R` | `compare_wali_trend()` (Default `facets`; `delta`/Mittel-Shift nur noch optional) |
+| `walther_lieth_compare.R` | Monats-WL-Vergleich (facets + Delta) |
+| `wl_master_id.R` | `wl_split_quelle()` (idempotent), `read_nc_id_grid()`, `build_bwi_master_lookup(geom=)`, `attach_master_id()`, `wl_aggregate_master()`, `attach_bwi_geometry()`, `write_region_csvs()`, **`write_run_csvs()`** |
+| `wl_master_id_nr.R` | NR-Pfad (streamend): `load_nr_polygons()`, `nr_build_raster()`, `nr_extract_long()`, `wl_month_nr_from_files()`, `wl_trend_nr_from_files()` |
+| `recommendation_strip.R` / `compose_overview.R` | Empfehlungs-Leiste / Gesamtgrafik |
+| `run_klimadiagramme.R` | **Orchestrator** (6.1–6.9): laden → WL/Trend → Region/Lauf-CSVs |
 
-Pakete: `terra, dplyr, tidyr, purrr, ggplot2, patchwork` (optional `scales`).
+Pakete: `terra, sf, exactextractr, ncdf4, dplyr, tidyr, ggplot2, patchwork`.
 
-## Bridge: von den Rohrastern zum WaLi-Trend-Long-Format
-`nc.grep.variables_BWI_KS` (je Lauf 60 Layer = 30 `tadm` + 30 `rrds`) ist direkt
-die `rast_list`. **KEIN `tapp`** (das mittelt die Jahre weg).
-
-```r
-source("02_function/WL_Diagramme/walther_lieth_input.R")  # .wl_detect_scale()
-source("02_function/WL_Diagramme/wali_trend.R")
-
-# geom optional: ohne geom ist id == Zellindex == id_bwi_bze (1..92123)
-ts <- build_wali_trend_input(
-  nc.grep.variables_BWI_KS,
-  runs = c("OBS_DWD_1961-1990", "RCP45_MPICLM_2071-2100"),  # Lauf-Filter!
-  ids  = 70041234)                                          # Punkt-Filter!
+## App-Datenmodell (Kern!)
+**Einmal vorrechnen + ablegen, App liest nur + plottet, gekeyt auf MASTER_ID.**
 ```
-
-- **Immer `runs=`/`ids=` filtern** für Klick-Diagramme. Ungefiltert entstehen
-  ~92.123 Punkte × ~30 Jahre × ~34 Läufe ≈ **114 Mio. Zeilen**.
-- Layer-Erkennung über `1049|MAT|tadm` bzw. `1050|MAP|rrds`; 21/29-Jahres-Läufe
-  werden automatisch korrekt getrennt.
-- `geom` (Lon/Lat/altitude/id) wird durchgereicht, falls angegeben.
-
-## Bridge 2: ncdf4-Tabellen -> WL-Long (Monats-WL, ohne terra)
-Neuer Pfad in `nc_monthly_tables.R`, falls die Monats-NetCDFs schon per `ncdf4`
-in **breite Tabellen** (`cell_id | x | y | Jan..Dez | name`) überführt sind
-(`nc.1157_function` existiert bereits, `nc.1155_function` ist das Temp-Pendant).
-
-```r
-source("02_function/WL_Diagramme/walther_lieth_input.R")   # .wl_detect_scale()
-source("02_function/WL_Diagramme/nc_monthly_tables.R")
-temp_df <- nc.1155_function(nc.1155_list.files[5])         # MAT / "tadm"
-prec_df <- nc.1157_function(nc.1157_list.files[5])         # MAP / "rrds"
-wl <- wl_long_from_tables(temp_df, prec_df)                # id|Zeitlauf|Monat|T_mean|P_sum
+<out_base>/<Region>/<Lauf>.csv          (write_run_csvs)
+  03_parameters/WL_diagrams/BWI-BZE/OBS_DWD_1991-2020.csv ...  (Monat)
+  03_parameters/WL_diagrams_trend/NR-08/...                    (Trend)
 ```
+App: Klick wählt Region+Lauf → passende (schon vorgefilterte) CSV laden →
+`plot_walther_lieth_from_long(df, id_val=<MASTER_ID>, run, id_col="MASTER_ID")`.
 
-- **Monats-Mapping über Spalten-POSITION (1..12)**, nicht über `Jan..Dez` →
-  robust gegen System-Locale (`format(..,"%b")` ist lokalisiert!).
-- **Zeitlauf** = `name` ohne Parameter-ID-Präfix (`1155_`/`1157_`) und `.nc` →
-  1155 & 1157 desselben Laufs joinen sauber.
-- **Skalierung** wie `wl_extract_run()`: EIN Auto-Faktor (aus Temp) auf T und P
-  gemeinsam. Achtung: Beispiel-Niederschläge (~250/Monat) wirken hoch → kurz
-  prüfen, ob 1157 noch ×10 ist (dann Auto-Faktor 0.1 greift via Temp-Median).
-- Behoben ggü. `nc.1157_function`: `nc_close()` lief dort nach `return()` ins
-  Leere → in `nc.1155_function` via `on.exit(nc_close())` gefixt.
+- **BWI:** `wl_long_from_tables` (cell) → `attach_master_id(lookup)` →
+  `wl_aggregate_master()` (Mittel je MASTER_ID, sonst >12 Monatszeilen).
+- **NR:** `wl_month_nr_from_files()` liefert direkt MASTER_ID-Polygonmittel.
+- Beide → gleiches Schema → `write_run_csvs(out_dir, region_col="quelle")`.
 
-## id vs. master_id (für die Empfehlungs-Anbindung)
-- `id` = **zellbasiert** = `id_bwi_bze` (1..92123) → direkter Raster-Join-Key.
-- `master_id_boden` = **standorts-/polygonbasiert**, kann leer sein → daran hängen
-  Bodendaten **und** Baumartenempfehlungen.
-- Kette: `WaLi-Trend.id` → `id_bwi_bze` → `MRS_Bod_Klima_Schl` → `master_id_boden`
-  → Empfehlungen. (Die Test-Empfehlungstabelle keyt aktuell auf `id`; real über
-  `master_id_boden` verknüpfen.)
+## Wichtige Funktions-Details
+- **`runs=`-Vorfilter** (`wl_long_from_tables`/`wali_trend_from_tables`): nur
+  bestimmte Läufe; Teilstring-Treffer auf den BEREINIGTEN Namen
+  (`"OBS_DWD_1991-2020"` matcht trotz `bwi-bze_`-Präfix).
+- **`split_quelle=TRUE`** (Default): Ergebnis trägt `quelle` (BWI/NR-XX) +
+  bereinigten `Zeitlauf` (ohne `bwi-bze_`) → Läufe direkt benennbar.
+- **Monats-Mapping über Spalten-POSITION** (1..12), nicht `Jan..Dez` (Locale!).
+- **`nr_build_raster`** baut aus den tabelleneigenen x/y (NR = echte Meter).
+- **`attach_bwi_geometry`**: Höhe/Lon/Lat reihenfolge-sicher über die 8002-id-
+  WERTE (read_nc_id_grid im selben Gitter) → füllt den Plot-Kopf.
+- **Region-Cross-Check** in den NR-Treibern: lauter Abbruch, wenn Datei-Regionen
+  und `polygons$nbrg` sich nicht überschneiden (statt stiller Leer-CSV).
 
-## Diagrammtypen
-- **WL Monat** (`plot_walther_lieth`): echtes Walther-Lieth, 1 °C : 2 mm.
-- **WaLi-Trend** (`plot_wali_trend`): 30-Jahres-Verlauf, zwei unabhängige Achsen,
-  Trendlinien (strikte 1:2-Kopplung nur bei Monatswerten sinnvoll).
-- **Differenz:** Small Multiples + Delta (Monat: echtes ΔWL; Trend: Mittel-Shift).
-- **Empfehlungs-Leiste:** Stufen sehr/empfohlen/bedingt/nicht, Farbwechsel =
-  Stufenwechsel; `aligned=TRUE` deckungsgleich unter den Klima-Facetten.
-- **Gesamtübersicht** (`compose_scenario_overview`): links WL je Lauf, rechts oben
-  Empfehlungswechsel, rechts darunter Delta je Szenario.
+## Bekannte Caveats
+- **v2/v3 (RCP45):** Muster **`_v[23]`** verwenden — `[_v23]` ist eine
+  Zeichenklasse und matcht das `_` überall. v2/v3 betreffen auch den
+  Niederschlag, müssen separat nachprediziert werden → im Hauptlauf raus.
+- **`nbrg` aus MASTER_ID:** Stellen 8-9 = Regionsnummer (Stellen 6-7 = "nr").
+- **Encoding:** ältere Dateien als `\u`-Escapes; neue nutzen UTF-8 direkt.
+- **Nicht in R getestet** (Entwicklung ohne lokale R-Installation).
 
-## Bekannte Caveats / Stolpersteine
-- **v2/v3-Duplikate (ECECMO, MPICLM):** `grep("1049|1050")` zieht z. B. `1050_v2`
-  mit → Lauf hat 90 statt 60 Layer (zeigte sich als „45 Jahre"). Die neue
-  Erkennung bricht dann sauber ab (30 `tadm` vs. 60 `rrds`). **Fix upstream:**
-  `grep("_v2|_v3", ..., invert = TRUE)` vor `terra::rast`.
-- **Encoding:** Sonderzeichen in den R-Dateien als `\u`-Escapes (reines ASCII) →
-  kein Mojibake beim `source()` (war Ursache der `Â·`/`Ã`-Anzeige).
-- **Zell-Alignment:** `geom` muss zeilenweise zur `terra::as.data.frame`-Reihenfolge
-  passen (gleiche NA-Maske über alle Layer eines Laufs).
-- **Nicht in R getestet** (Entwicklung erfolgte ohne lokale R-Installation) —
-  bitte mit `demo_compare.R` gegenprüfen.
-
-## Offene TODOs
-- [ ] `wl_long_from_tables()` lokal in R verifizieren (echte 1155/1157-NetCDFs):
-      Join Temp×Niederschlag, Monats-Position, Auto-Skalierung, `x/y`-Durchreichung.
-- [ ] Niederschlags-Einheit klären: 1157-Werte (~250/Monat) noch ×10? Falls ja,
-      greift der Auto-Faktor 0.1 (aus Temp-Median) korrekt für T **und** P?
-- [ ] `nc.1157_function` aufräumen: `nc_close()` steht nach `return()` (tot) —
-      analog zu `nc.1155_function` auf `on.exit(nc_close())` umstellen.
-- [ ] Echte Baumartenempfehlung über `master_id_boden` statt `id` anbinden.
-- [ ] v2/v3-Dedup in der Datei-Liste vor dem Raster-Stack.
-- [ ] WL-Plot lokal verifizieren (Legende/override.aes, patchwork-Alignment).
-- [ ] Optional: 1155/1157 für alle Läufe vorhanden? Sonst aus 1112/1114 via CDO
-      (`ymonmean`/`monsum`) nachgenerieren.
-- [ ] Optional: Warnung in `compare_wali_trend()` bei sehr großem (ungefiltertem) ts.
-- [ ] OFFEN (entscheiden): Beispiel-`id_val` in `demo_compare.R` und in der Doku
-      von `70041234` auf einen gültigen `id_bwi_bze` (z. B. `1`) umstellen, damit
-      die Beispiele **ohne `geom`** direkt laufen. Hintergrund: ohne `geom` ist
-      `id == id_bwi_bze` (1..92123); `70041234` existiert nur, wenn `geom` mit der
-      echten BWI-id mitgegeben wird.
+## Offene Checks / TODOs
+- [ ] `table(polygons$nbrg)` == NR-01..NR-11? (Region-Join verifizieren)
+- [ ] `BWI-BZE_Klima_Boden_Join.csv`: heißen die Spalten `id_bwi_bze` /
+      `master_id_boden`? Sonst `build_bwi_master_lookup(id_col=, master_col=)`.
+- [ ] NR-1155-Temp-Variable: ist `temp` korrekt? (sonst greift Single-3D-Fallback)
+- [ ] Fehlendes Jahr 1971 (Trend, Punkt 1): `P_year` dort NA/~0? Punkt-spezifisch
+      prüfen — ggf. NA-Jahre im Plot interpolieren/auslassen statt Null-Balken.
+- [ ] Plot-Kopf Höhe/Lon/Lat nach `attach_bwi_geometry` wirklich gefüllt?
+- [ ] Echte Baumartenempfehlung über `master_id_boden` anbinden.
 
 ## Branch
 Entwicklung auf `claude/kind-hopper-30mip3`.
