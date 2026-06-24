@@ -214,6 +214,29 @@ write_region_csvs(wl_nr_trend, out_dir = "WL_CSV/trend", prefix = "WL_trend")
 # -> WL_CSV/{monthly,trend}/WL_*_NR-01.csv ... NR-11.csv
 
 
+## 6.9  BWI -> MASTER_ID-Region-CSV (abgelegte App-Daten) ----------------------
+# Ziel: EINMAL vorrechnen + ablegen; die App liest nur die CSV und ruft
+# plot_walther_lieth_from_long(..., id_col = "MASTER_ID"). Dazu cell_id -> MASTER_ID
+# anhaengen und je MASTER_ID mitteln (mehrere Zellen je MASTER_ID -> ein Wert),
+# damit je MASTER_ID genau 12 Monatszeilen bleiben. wl_month traegt aus 6.5 schon
+# quelle="BWI" + altitude/Lon/Lat.
+# ACHTUNG: Spaltennamen der Join-CSV ggf. anpassen (id_col=/master_col=).
+bwi_lookup <- build_bwi_master_lookup(
+  id_nc_file = grep("8002", bwi_extra, value = TRUE),
+  join_csv   = file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv"))
+
+wl_bwi_master <- wl_month %>%
+  attach_master_id(bwi_lookup) %>%     # cell_id -> MASTER_ID
+  wl_aggregate_master()                # Mittel je MASTER_ID (+ Metadaten)
+
+write_region_csvs(wl_bwi_master, out_dir = "WL_CSV/monthly", prefix = "WL_monthly")
+# -> WL_CSV/monthly/WL_monthly_BWI.csv
+# App-Aufruf (Beispiel):
+#   bwi <- read.csv2("WL_CSV/monthly/WL_monthly_BWI.csv")
+#   plot_walther_lieth_from_long(bwi, id_val = <MASTER_ID>,
+#                                run = "OBS_DWD_1991-2020", id_col = "MASTER_ID")
+
+
 # =============================================================================
 # Optional / Demos (mit Testdaten) -- bei Bedarf einkommentieren
 # =============================================================================

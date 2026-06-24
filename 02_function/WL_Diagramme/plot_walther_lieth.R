@@ -200,17 +200,26 @@ plot_walther_lieth <- function(temp, prec, name = "",
 
 # ---- 4. Bequemer Wrapper auf das Long-Format --------------------------------
 #' Diagramm direkt aus dem Long-Format (build_walther_lieth_input) zeichnen.
-plot_walther_lieth_from_long <- function(df, id_val, run, ...) {
-  sub <- df[df$id == id_val & df$Zeitlauf == run, , drop = FALSE]
+#'
+#' @param id_col Schluesselspalte fuer id_val (Default "id"). Die abgelegten
+#'   App-Daten sind nach MASTER_ID gekeyt -> dann id_col = "MASTER_ID".
+#' @param name   optionaler Diagramm-Titel; NULL = "Punkt <id_val>".
+plot_walther_lieth_from_long <- function(df, id_val, run, id_col = "id",
+                                         name = NULL, ...) {
+  if (!id_col %in% names(df))
+    stop("Spalte '", id_col, "' fehlt im df (vorhanden: ",
+         paste(names(df), collapse = ", "), "). id_col= passend setzen ",
+         "(App-Daten sind nach 'MASTER_ID' gekeyt).")
+  sub <- df[df[[id_col]] == id_val & df$Zeitlauf == run, , drop = FALSE]
   sub <- sub[order(sub$Monat), ]
   if (nrow(sub) != 12)
     stop("Erwarte 12 Monatszeilen, gefunden: ", nrow(sub),
-         " (id=", id_val, ", Lauf=", run, ").")
+         " (", id_col, "=", id_val, ", Lauf=", run, ").")
 
   hole <- function(spalte) if (spalte %in% names(sub)) sub[[spalte]][1] else NA
   plot_walther_lieth(
     temp = sub$T_mean, prec = sub$P_sum,
-    name = paste0("BWI-Punkt ", id_val),
+    name = if (is.null(name)) paste0("Punkt ", id_val) else name,
     elevation = hole("altitude"), lon = hole("Lon"), lat = hole("Lat"),
     period = run, ...
   )

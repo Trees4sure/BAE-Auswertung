@@ -179,6 +179,45 @@ attach_master_id <- function(long_df, lookup) {
 }
 
 
+# ---- Zell-Long auf MASTER_ID-Mittel verdichten (App-Schluessel) -------------
+#' Zell-genaues Long-df (id=cell_id) je MASTER_ID mitteln.
+#'
+#' Mehrere Klimazellen koennen auf dieselbe MASTER_ID fallen -> die App klickt
+#' aber EINE MASTER_ID und erwartet je (MASTER_ID, Zeitlauf, Periode) genau einen
+#' Wert. Diese Funktion mittelt T/P je Gruppe (analog zum NR-Polygon-Mittel) und
+#' fuehrt die Metadaten (Hoehe/Lon/Lat) als ersten Wert mit. Danach ist 'MASTER_ID'
+#' der Plot-Schluessel (plot_walther_lieth_from_long(..., id_col = "MASTER_ID")).
+#'
+#' @param long_df    Long mit MASTER_ID + Wert-/Perioden-Spalten (aus attach_master_id).
+#' @param period_col Perioden-Spalte ("Monat" bzw. "Jahr").
+#' @param value_cols zu mittelnde Wert-Spalten (Default T_mean/P_sum).
+#' @param by_cols    Gruppierung neben MASTER_ID/Periode (Default quelle, Zeitlauf;
+#'                   Kalenderjahr wird automatisch mitgenommen, falls vorhanden).
+#' @param meta_cols  Metadaten, die je Gruppe als erster Wert erhalten bleiben.
+#' @return getiltes Long: by_cols | MASTER_ID | period_col | value_cols | meta
+wl_aggregate_master <- function(long_df, period_col = "Monat",
+                                value_cols = c("T_mean", "P_sum"),
+                                by_cols    = c("quelle", "Zeitlauf"),
+                                meta_cols  = c("altitude", "Lon", "Lat")) {
+  if (!requireNamespace("dplyr", quietly = TRUE))
+    stop("Paket 'dplyr' wird benoetigt.")
+  if (!"MASTER_ID" %in% names(long_df)) stop("long_df braucht Spalte 'MASTER_ID'.")
+  vcs  <- intersect(value_cols, names(long_df))
+  if (length(vcs) == 0) stop("keine der value_cols in long_df gefunden.")
+  grp  <- intersect(c(by_cols, "MASTER_ID", period_col,
+                      if ("Kalenderjahr" %in% names(long_df)) "Kalenderjahr"),
+                    names(long_df))
+  meta <- intersect(meta_cols, names(long_df))
+
+  long_df %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(grp))) %>%
+    dplyr::summarise(
+      dplyr::across(dplyr::all_of(vcs),  ~ mean(.x, na.rm = TRUE)),
+      dplyr::across(dplyr::all_of(meta), ~ dplyr::first(.x)),
+      .groups = "drop")
+}
+
+
 # ---- BWI-Punkt-Metadaten (Hoehe/Lon/Lat) an ein Long-df anhaengen -----------
 #' altitude/Lon/Lat aus geom_bwi ueber die id-Werte an ein Long-df haengen.
 #'
