@@ -29,6 +29,9 @@
 #' @param label_fun Funktion Datum -> Spaltenlabel je Layer. Default Monatskuerzel
 #'                 (\code{format(zeit, "%b")}); fuer Jahresprodukte \code{"%Y"}.
 #' @param expected_n  erwartete Layer-Zahl (z.B. 12 fuer Monate); NULL = beliebig.
+#' @param auto_var FALSE (Default): fehlt \code{varname}, wird mit Dateiname-Hinweis
+#'                 abgebrochen (schuetzt vor stiller Daten-Verwechslung). TRUE:
+#'                 ersatzweise die erste 3D-Variable nehmen (mit message()).
 #' @param df_name  Name fuer die optionale globale Zuweisung (z.B. "nc.1155_df").
 #' @param assign_global  TRUE (Default): Ergebnis zusaetzlich unter df_name in
 #'                 die globale Umgebung schreiben (wie im bestehenden Workflow).
@@ -36,9 +39,12 @@
 .nc_layer_table <- function(nc.file, varname,
                             label_fun = function(zeit) format(zeit, "%b"),
                             expected_n = NULL,
+                            auto_var = FALSE,
                             df_name = NULL, assign_global = TRUE) {
   library(ncdf4)
   library(dplyr)
+
+  datei <- basename(nc.file)   # = spaetere Spalte 'name'; in allen messages voran
 
   # Datei laden
   nc <- nc_open(nc.file)
@@ -48,13 +54,20 @@
   easting  <- ncvar_get(nc, "easting")
   northing <- ncvar_get(nc, "northing")
 
-  # Datenvariable robust waehlen: erst varname, sonst erste 3D-Variable
+  # Datenvariable: strikt verlangen. Nur mit auto_var=TRUE Ersatz aus erster
+  # 3D-Variable - sonst lauter Abbruch (falsche Parameter-Datei in der Liste?).
   if (!varname %in% names(nc$var)) {
+    vorhanden <- names(nc$var)
+    if (!isTRUE(auto_var))
+      stop("[", datei, "] Variable '", varname, "' nicht enthalten (gefunden: ",
+           paste(vorhanden, collapse = ", "),
+           "). Falsche Parameter-Datei? Mit varname= oder auto_var=TRUE uebersteuern.")
     dims3 <- vapply(nc$var, function(v) v$ndims == 3, logical(1))
     if (!any(dims3))
-      stop("Variable '", varname, "' nicht gefunden und keine 3D-Variable da.")
+      stop("[", datei, "] weder '", varname, "' noch eine 3D-Variable gefunden.")
     alt <- names(nc$var)[dims3][1]
-    message("Variable '", varname, "' fehlt - '", alt, "' (3D) automatisch gewaehlt.")
+    message("[", datei, "] Variable '", varname, "' fehlt - '", alt,
+            "' (3D) automatisch gewaehlt (auto_var=TRUE).")
     varname <- alt
   }
   vals <- ncvar_get(nc, varname)        # [x, y, time]
@@ -63,8 +76,7 @@
     stop("Variable '", varname, "' ist nicht 3-dimensional [x, y, time].")
   nt <- dim(vals)[3]
   if (!is.null(expected_n) && nt != expected_n)
-    stop("Erwarte ", expected_n, " Zeit-Layer, gefunden: ", nt,
-         " in ", basename(nc.file), ".")
+    stop("[", datei, "] erwarte ", expected_n, " Zeit-Layer, gefunden: ", nt, ".")
 
   # Zeit umwandeln: "days since 1970-01-01"
   zeit_raw   <- ncvar_get(nc, "time")
@@ -76,8 +88,8 @@
   # Fallback auf den Layer-Index. Die Bruecken keyen ueber Position/Jahr.
   labels <- label_fun(zeit)
   if (length(labels) != nt || anyDuplicated(labels)) {
-    warning("Zeit-Labels nicht eindeutig/passend - nutze Layer-Index 1..", nt,
-            " in ", basename(nc.file), ".", call. = FALSE)
+    warning("[", datei, "] Zeit-Labels nicht eindeutig/passend - nutze ",
+            "Layer-Index 1..", nt, ".", call. = FALSE)
     labels <- as.character(seq_len(nt))
   }
 
@@ -93,7 +105,11 @@
   out <- grid %>%
     relocate(cell_id, x, y) %>%
     arrange(cell_id) %>%
-    mutate(name = basename(nc.file))
+    mutate(name = datei)
+
+  # Fortschrittsmeldung (nuetzlich beim Einlesen in einer Schleife)
+  message(sprintf("[%s] gelesen: Variable '%s', %d Layer, %d Zellen.",
+                  datei, varname, nt, nrow(out)))
 
   if (assign_global && !is.null(df_name))
     assign(df_name, out, envir = .GlobalEnv)
@@ -107,9 +123,11 @@
 #' @return data.frame: cell_id | x | y | <12 Monatsspalten> | name
 nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
                              varname = "tadm",
+                             auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
                   label_fun = function(zeit) format(zeit, "%b"), expected_n = 12,
+                  auto_var = auto_var,
                   df_name = "nc.1155_df", assign_global = assign_global)
 }
 
@@ -118,9 +136,11 @@ nc.1155_function <- function(nc.file = nc.1155_list.files[2],   # MAT
 #' @return data.frame: cell_id | x | y | <12 Monatsspalten> | name
 nc.1157_function <- function(nc.file = nc.1157_list.files[2],   # MAP
                              varname = "rrds",
+                             auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
                   label_fun = function(zeit) format(zeit, "%b"), expected_n = 12,
+                  auto_var = auto_var,
                   df_name = "nc.1157_df", assign_global = assign_global)
 }
 
@@ -131,9 +151,11 @@ nc.1157_function <- function(nc.file = nc.1157_list.files[2],   # MAP
 #' @return data.frame: cell_id | x | y | <n Jahresspalten> | name
 nc.1049_function <- function(nc.file = nc.1049_list.files[2],   # MAT/Jahr
                              varname = "tadm",
+                             auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
                   label_fun = function(zeit) format(zeit, "%Y"), expected_n = NULL,
+                  auto_var = auto_var,
                   df_name = "nc.1049_df", assign_global = assign_global)
 }
 
@@ -142,9 +164,11 @@ nc.1049_function <- function(nc.file = nc.1049_list.files[2],   # MAT/Jahr
 #' @return data.frame: cell_id | x | y | <n Jahresspalten> | name
 nc.1050_function <- function(nc.file = nc.1050_list.files[2],   # MAP/Jahr
                              varname = "rrds",
+                             auto_var = FALSE,
                              assign_global = TRUE) {
   .nc_layer_table(nc.file, varname = varname,
                   label_fun = function(zeit) format(zeit, "%Y"), expected_n = NULL,
+                  auto_var = auto_var,
                   df_name = "nc.1050_df", assign_global = assign_global)
 }
 
@@ -374,22 +398,27 @@ wali_trend_from_tables <- function(temp_df, prec_df,
 # source("02_function/WL_Diagramme/plot_walther_lieth.R")   # Monats-WL
 # source("02_function/WL_Diagramme/wali_trend.R")           # WaLi-Trend
 #
-# ## --- Monats-WL (1155/1157) ---
-# nc.1155_list.files <- list.files("../../../data/data_raw/extra_downloads/1155",
-#                                  pattern = "1155", full.names = TRUE, recursive = TRUE)
-# nc.1157_list.files <- list.files("../../../data/data_raw/extra_downloads/1157",
-#                                  pattern = "1157", full.names = TRUE, recursive = TRUE)
-# temp_df <- nc.1155_function(nc.1155_list.files[5])   # gleicher Lauf wie [5] bei 1157!
-# prec_df <- nc.1157_function(nc.1157_list.files[5])
-# wl <- wl_long_from_tables(temp_df, prec_df)
+# base <- "../../../data/data_raw/extra_downloads"
+#
+# ## Dateien je Parameter listen - Pattern am Dateinamen-ANFANG verankern,
+# ## damit z.B. keine 1155-Datei in der 1157-Liste landet:
+# liste <- function(id)
+#   list.files(file.path(base, id), pattern = paste0("^", id, "_.*\\.nc$"),
+#              full.names = TRUE, recursive = TRUE)
+#
+# ## --- Alle Dateien eines Parameters in einer Schleife einlesen + stapeln ---
+# ## (jede Datei meldet sich per message() mit ihrem name; assign_global = FALSE,
+# ##  damit die Schleife nicht staendig nc.1157_df ueberschreibt)
+# read_all <- function(files, fun)
+#   do.call(rbind, lapply(files, function(f) fun(f, assign_global = FALSE)))
+#
+# temp_df <- read_all(liste("1155"), nc.1155_function)   # je Datei: "[<name>] gelesen: ..."
+# prec_df <- read_all(liste("1157"), nc.1157_function)
+# wl <- wl_long_from_tables(temp_df, prec_df)            # joint pro Zeitlauf ueber name
 # plot_walther_lieth_from_long(wl, id_val = 1, run = wl$Zeitlauf[1])
 #
-# ## --- WaLi-Trend (1049/1050) ---
-# nc.1049_list.files <- list.files("../../../data/data_raw/extra_downloads/1049",
-#                                  pattern = "1049", full.names = TRUE, recursive = TRUE)
-# nc.1050_list.files <- list.files("../../../data/data_raw/extra_downloads/1050",
-#                                  pattern = "1050", full.names = TRUE, recursive = TRUE)
-# t_year <- nc.1049_function(nc.1049_list.files[5])    # gleicher Lauf wie [5] bei 1050!
-# p_year <- nc.1050_function(nc.1050_list.files[5])
+# ## --- WaLi-Trend (1049/1050) analog ---
+# t_year <- read_all(liste("1049"), nc.1049_function)
+# p_year <- read_all(liste("1050"), nc.1050_function)
 # tr <- wali_trend_from_tables(t_year, p_year)
 # plot_wali_trend_from_long(tr, id_val = 1, run = tr$Zeitlauf[1])
