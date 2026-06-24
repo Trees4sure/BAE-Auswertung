@@ -316,6 +316,41 @@ write_run_csvs <- function(long_df, out_dir, region_col = "quelle",
 }
 
 
+# ---- Deskriptives Regions-/Sammel-Diagramm aus einer abgelegten CSV ---------
+#' Walther-Lieth-Diagramm aus einer fertigen Region/Lauf-CSV.
+#'
+#' Liest NICHT die .nc, sondern die in write_run_csvs() abgelegte CSV
+#' (<out>/<Region>/<Lauf>.csv) und mittelt T_mean/P_sum - und, falls vorhanden,
+#' altitude/Lon/Lat - ueber ALLE MASTER_ID der Datei. Ergebnis: ein in sich
+#' geschlossenes Regions-Klimadiagramm (Kopf zeigt Mittelhoehe + Jahresmittel).
+#' Funktioniert fuer NR-Regionen (quelle = "NR-XX") wie fuer BWI ("BWI-BZE").
+#'
+#' @param csv_path Pfad zur Region/Lauf-CSV (Semikolon/Komma-Dezimal -> read.csv2).
+#' @param name     optionaler Titel (Default "<quelle> (Regionsmittel)").
+#' @param ...      an plot_walther_lieth_from_long() weitergereicht.
+#' @return ggplot-/patchwork-Objekt.
+wl_region_diagram <- function(csv_path, name = NULL, ...) {
+  if (!requireNamespace("dplyr", quietly = TRUE))
+    stop("Paket 'dplyr' wird benoetigt.")
+  d <- utils::read.csv2(csv_path)
+  for (cc in c("quelle", "Zeitlauf", "Monat", "T_mean", "P_sum"))
+    if (!cc %in% names(d)) stop("Spalte '", cc, "' fehlt in ", basename(csv_path), ".")
+
+  meta <- intersect(c("altitude", "Lon", "Lat"), names(d))
+  m <- d %>%
+    dplyr::group_by(.data$quelle, .data$Zeitlauf, .data$Monat) %>%
+    dplyr::summarise(
+      T_mean = mean(.data$T_mean, na.rm = TRUE),
+      P_sum  = mean(.data$P_sum,  na.rm = TRUE),
+      dplyr::across(dplyr::all_of(meta), ~ mean(.x, na.rm = TRUE)),
+      .groups = "drop")
+
+  plot_walther_lieth_from_long(
+    m, id_val = m$quelle[1], run = m$Zeitlauf[1], id_col = "quelle",
+    name = if (is.null(name)) paste0(m$quelle[1], " (Regionsmittel)") else name, ...)
+}
+
+
 # ---- Beispiel: BWI-Monats-CSV erzeugen (auskommentiert) --------------------
 # source("02_function/WL_Diagramme/nc_monthly_tables.R")
 # source("02_function/WL_Diagramme/walther_lieth_input.R")   # .wl_detect_scale()

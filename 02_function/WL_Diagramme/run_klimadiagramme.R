@@ -248,6 +248,20 @@ Error in wali_trend_one_run(rast_list[[run]], run, geom = geom, scale = scale,  
 # (geo_nr_shp ist in 6.2 gesetzt.)
 polygons   <- load_nr_polygons(geo_nr_shp)   # Spalten MASTER_ID, nbrg
 
+# Geo + Hoehe je MASTER_ID fuer den WL-Kopf (die NR-Klima-.nc tragen das nicht):
+#   Lon/Lat  = Polygon-Zentroid (EPSG:25832, Rechts-/Hochwert wie BWI x_/y_25832)
+#   altitude = mittlere DGM-Hoehe je MASTER_ID (vorberechnet in DGM_NR.csv;
+#              fwrite -> ";"-getrennt, Punkt-Dezimal -> fread, NICHT read.csv2)
+dgm_nr_path <- "DGM_NR.csv"                   # ggf. Pfad anpassen
+ctr   <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(polygons)))
+nr_xy <- aggregate(cbind(Lon = ctr[, 1], Lat = ctr[, 2]),
+                   by = list(MASTER_ID = as.character(polygons$MASTER_ID)), FUN = mean)
+dgm_nr <- data.table::fread(dgm_nr_path, sep = ";")
+nr_geo <- merge(
+  nr_xy,
+  data.frame(MASTER_ID = as.character(dgm_nr$MASTER_ID), altitude = dgm_nr$Elevation),
+  by = "MASTER_ID", all.x = TRUE)            # MASTER_ID | Lon | Lat | altitude
+
 # -- Monat (1155/1157): pro (Region, Lauf) STREAMEND statt alles auf einmal.
 #    Je 1155-Datei den 1157-Partner am Datei-Stamm (Region_Lauf) ziehen, nur
 #    diesen einen Lauf mitteln und sofort als <out_base>/<Region>/<Lauf>.csv
@@ -262,8 +276,14 @@ for (tf in nr_1155) {
   pf <- nr_1157_by[[nr_stem(tf)]]                            # passender Niederschlag
   if (is.null(pf)) { warning("kein 1157 zu ", basename(tf), call. = FALSE); next }
   m <- wl_month_nr_from_files(tf, pf, polygons)              # nur dieser (Region, Lauf)
+  m$MASTER_ID <- as.character(m$MASTER_ID)
+  m <- dplyr::left_join(m, nr_geo, by = "MASTER_ID")         # + Lon/Lat/altitude
   write_run_csvs(m, out_dir = out_base)                      # -> out_base/NR-01/<Lauf>.csv
 }
+
+# Deskriptives Regions-Diagramm direkt aus der fertigen CSV (Mittel ueber alle
+# MASTER_ID der Region) - liest die CSV, nicht die .nc:
+#   wl_region_diagram(file.path(out_base, "NR-08", "OBS_DWD_1991-2020.csv"))
 
 # -- Trend (1049/1050): analog STREAMEND je (Region, Lauf). "alt"-Varianten raus;
 #    nr_var_files (aus 6.4) ist bereits v2/v3-frei. Laeufe mit 21/29/30 Jahren ok.
@@ -276,6 +296,8 @@ for (tf in nr_1049) {
   pf <- nr_1050_by[[nr_stem(tf)]]
   if (is.null(pf)) { warning("kein 1050 zu ", basename(tf), call. = FALSE); next }
   tr <- wl_trend_nr_from_files(tf, pf, polygons)
+  tr$MASTER_ID <- as.character(tr$MASTER_ID)
+  tr <- dplyr::left_join(tr, nr_geo, by = "MASTER_ID")       # + Lon/Lat/altitude
   write_run_csvs(tr, out_dir = out_base_trend)               # -> out_base_trend/NR-01/<Lauf>.csv
 }
 
