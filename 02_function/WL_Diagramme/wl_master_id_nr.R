@@ -33,6 +33,35 @@ read_real_coords <- function(rw_nc, hw_nc, varname_rw = NULL, varname_hw = NULL)
 }
 
 
+# ---- Echte Koordinaten je Zelle aus vorhandenen NR-Raster-CSVs --------------
+#' Aus einer NR-CSV (echte x/y EPSG:25832 + Zell-id) eine cell_id -> (X,Y)-Tabelle.
+#'
+#' Diese CSVs (eine Zeile je NR-Rasterzelle, ~40000) wurden aus den NR-Rastern
+#' erzeugt und tragen bereits die ECHTEN Koordinaten - ideale Quelle fuer
+#' coords_for(). Da die Geometrie laufunabhaengig ist, genuegt EINE CSV je Region.
+#'
+#' ACHTUNG: Der Join an die Klimadaten laeuft ueber cell_id == \code{cell_col}.
+#' Pruefe einmal, dass die Zell-Indizierung der CSV der des Klima-.nc-Gitters
+#' entspricht (gleiche Zellzahl/Reihenfolge) - sonst x_col/y_col/cell_col anpassen.
+#'
+#' @param csv_file  Pfad zu einer NR-CSV der Region.
+#' @param cell_col,x_col,y_col  Spaltennamen (Default "cell","x","y").
+#' @param sep       Trennzeichen (Default ";").
+#' @return data.frame: cell_id | X | Y (je Zelle eindeutig)
+nr_coords_from_csv <- function(csv_file, cell_col = "cell",
+                               x_col = "x", y_col = "y", sep = ";") {
+  d <- utils::read.csv(csv_file, sep = sep, stringsAsFactors = FALSE,
+                       check.names = FALSE)
+  for (cc in c(cell_col, x_col, y_col))
+    if (!cc %in% names(d))
+      stop("Spalte '", cc, "' fehlt in ", basename(csv_file),
+           " (vorhanden: ", paste(names(d), collapse = ", "), ").")
+  out <- data.frame(cell_id = d[[cell_col]], X = d[[x_col]], Y = d[[y_col]])
+  out <- out[!duplicated(out$cell_id) & !is.na(out$cell_id), ]
+  out[order(out$cell_id), ]
+}
+
+
 # ---- StoKa/Boden-Polygone laden + Region (nbrg) taggen ----------------------
 #' GEO_NR.shp einlesen und Regions-Tag 'nbrg' ("NR-01"...) ergaenzen.
 #'
@@ -166,10 +195,15 @@ wl_long_nr_from_tables <- function(temp_df, prec_df, coords_for, polygons,
 #
 # polygons <- load_nr_polygons("01_data/Grundlagen/Bodendatenbank/NR/Geodaten/GEO_NR.shp")
 #
-# # echte Koordinaten je NR-Region (NR-Rechtswert/Hochwert-Raster, analog 7001/7002):
-# coords_for <- function(region) read_real_coords(
-#   rw_nc = nr_rw_file(region),   # <- deine NR-Rechtswert-Datei je Region
-#   hw_nc = nr_hw_file(region))   # <- deine NR-Hochwert-Datei je Region
+# # echte Koordinaten je NR-Region - Variante A (empfohlen): aus den vorhandenen
+# # NR-Raster-CSVs (x,y,cell). Eine CSV je Region genuegt (Geometrie laufunabh.):
+# nr_coord_csv <- function(region)                       # region: "NR-01" ...
+#   list.files("<NR-CSV-Ordner>", full.names = TRUE,
+#              pattern = paste0(sub("-", "", region), ".*\\.csv$"))[1]
+# coords_for <- function(region) nr_coords_from_csv(nr_coord_csv(region))
+#
+# # Variante B: aus NR-Rechtswert/Hochwert-Rastern (analog BWI 7001/7002):
+# # coords_for <- function(region) read_real_coords(nr_rw_file(region), nr_hw_file(region))
 #
 # nr_1155 <- grep("nr-?[0-9]{2}", liste("1155"), value = TRUE, ignore.case = TRUE)
 # nr_1157 <- grep("nr-?[0-9]{2}", liste("1157"), value = TRUE, ignore.case = TRUE)
