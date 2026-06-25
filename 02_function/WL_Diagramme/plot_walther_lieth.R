@@ -57,10 +57,14 @@ wl_panel <- function(temp, prec, t_abs_max = NA, t_abs_min = NA) {
   monate  <- 1:12
   monthly <- data.frame(month = monate, temp = temp, pt = wl_p2t(prec))
 
-  # Feine Interpolation fuer Schraffuren / Fuellung
+  # Feine Interpolation fuer Schraffuren / Fuellung. ptf BEWUSST im pt-Raum
+  # interpolieren (wl_p2t zuerst, dann approx) - genau wie die gezeichnete
+  # Niederschlagslinie (geom_line ueber monthly$pt). wl_p2t hat bei 100 mm einen
+  # Knick (1/2 -> 1/20); transformiert man erst NACH der Interpolation, laufen
+  # Schraffur/Flaeche am 100-mm-Uebergang ueber die Linie hinaus.
   xf  <- seq(1, 12, length.out = 12 * 24)
   tf  <- stats::approx(monate, temp, xf)$y
-  ptf <- wl_p2t(stats::approx(monate, prec, xf)$y)
+  ptf <- stats::approx(monate, monthly$pt, xf)$y
   fine <- data.frame(x = xf, tf = tf, ptf = ptf, humid = ptf >= tf)
 
   # Schraffur-Linien (ausgeduennt, damit es nach Schraffur aussieht)
