@@ -68,10 +68,17 @@ wl_panel <- function(temp, prec, t_abs_max = NA, t_abs_min = NA) {
   humid_h <- hatch[hatch$humid, ]
   arid_h  <- hatch[!hatch$humid, ]
 
-  # Perhumide Flaeche (> 100 mm -> pt > 50), zusammenhaengende Gruppen
-  fine$wet <- fine$ptf > 50
-  fine$grp <- cumsum(c(TRUE, diff(fine$wet) != 0))
-  wet <- fine[fine$wet, ]
+  # Humide Senkrechtschraffur an der 100-mm-Bruchlinie (pt = 50) kappen: oberhalb
+  # uebernimmt die volle perhumide Flaeche, die Striche duerfen nicht darueber
+  # hinaus weiterlaufen (sonst ragen sie durch die Flaeche in die perhumide Zone).
+  humid_h$top <- pmin(humid_h$ptf, 50)
+
+  # Perhumide Flaeche (> 100 mm -> pt > 50): EIN Band ueber den ganzen x-Bereich,
+  # oben pmax(ptf, 50), unten 50. In den trockenen Abschnitten ist die Hoehe 0,
+  # an den Raendern laeuft die Flaeche genau dort aus, wo die Niederschlagskurve
+  # die 100-mm-Linie kreuzt - kein senkrechter Abriss an einem Stuetzpunkt mehr.
+  fine$wet_top <- pmax(fine$ptf, 50)
+  has_wet <- any(fine$ptf > 50)
 
   # Achsengrenzen: oben WL-typisch, unten ein schmales Band fuer Frostbalken
   ymax <- max(50, ceiling(max(c(monthly$temp, monthly$pt)) / 10) * 10)
@@ -87,14 +94,14 @@ wl_panel <- function(temp, prec, t_abs_max = NA, t_abs_min = NA) {
 
   p <- ggplot2::ggplot()
   # perhumide Flaeche (nur falls es Monate > 100 mm gibt)
-  if (nrow(wet) > 0)
-    p <- p + ggplot2::geom_ribbon(data = wet,
-      ggplot2::aes(x = x, ymin = 50, ymax = ptf, group = grp,
+  if (has_wet)
+    p <- p + ggplot2::geom_ribbon(data = fine,
+      ggplot2::aes(x = x, ymin = 50, ymax = wet_top,
                    fill = "perhumide Periode (> 100 mm)"))
-  # humide Senkrechtschraffur (blau)
+  # humide Senkrechtschraffur (blau), bei pt = 50 gekappt
   if (nrow(humid_h) > 0)
     p <- p + ggplot2::geom_segment(data = humid_h,
-      ggplot2::aes(x = x, xend = x, y = tf, yend = ptf, colour = "humide Periode"))
+      ggplot2::aes(x = x, xend = x, y = tf, yend = top, colour = "humide Periode"))
   # aride Punktschraffur (rot, gepunktet)
   if (nrow(arid_h) > 0)
     p <- p + ggplot2::geom_segment(data = arid_h,
@@ -161,7 +168,7 @@ wl_panel <- function(temp, prec, t_abs_max = NA, t_abs_min = NA) {
       legend.position    = "bottom")
 
   # perhumide Fuellung nur skalieren, wenn sie vorkommt (sonst Warnung)
-  if (nrow(wet) > 0)
+  if (has_wet)
     p <- p + ggplot2::scale_fill_manual(name = NULL,
               values = c("perhumide Periode (> 100 mm)" = BLAU))
   p
