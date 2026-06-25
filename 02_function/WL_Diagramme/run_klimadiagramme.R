@@ -549,45 +549,66 @@ for (mid in MID_auswahl) {
   if (nrow(pt) == 0) { warning(mid, ": keine Daten.", call. = FALSE); next }
   pt$P_temp <- pt$P_sum / 2                       # Niederschlag auf die Temp-Achse
 
-  # Mittelkurven der Buendel (fett) je Monat ueber alle Laeufe.
-  mittel <- aggregate(cbind(T_mean, P_temp) ~ Monat, pt, mean)
+  # Szenario-Familie aus dem Laufnamen (OBS_DWD / RCP45 / RCP85) -> Linientyp der
+  # Mittelkurven + Beschriftung am rechten Rand (zeigt, wo welches Szenario liegt).
+  pt$Familie <- ifelse(grepl("^OBS",   pt$Zeitlauf), "OBS_DWD",
+                ifelse(grepl("^RCP45", pt$Zeitlauf), "RCP45",
+                ifelse(grepl("^RCP85", pt$Zeitlauf), "RCP85", "andere")))
 
-  # De-Martonne je Lauf/Monat, dann Mittel + min/max ueber die Laeufe je Monat.
+  # Mittelkurven JE FAMILIE (fett) je Monat, fuer T und P.
+  fam     <- aggregate(cbind(T_mean, P_temp) ~ Familie + Monat, pt, mean)
+  fam_lab <- fam[fam$Monat == 12, ]               # Labels am Dezember-Ende
+
+  # De-Martonne je Lauf/Monat -> Mittel + min/max ueber alle Laeufe je Monat.
   pt$dm <- 12 * pt$P_sum / (pt$T_mean + 10)
   dm <- aggregate(dm ~ Monat, pt, function(x) c(m = mean(x), lo = min(x), hi = max(x)))
   dm <- data.frame(Monat = dm$Monat, m = dm$dm[, "m"],
                    lo = dm$dm[, "lo"], hi = dm$dm[, "hi"])
-
   # De-Martonne in die Plot-Mitte legen: Index [0, max] -> Achsen-Band [a, b].
-  # a/b einfach anpassen, falls die Linie hoeher/tiefer liegen soll.
   a <- 8; b <- 34
   to_axis <- function(x) a + (b - a) * x / max(dm$hi)
   dm$m_y <- to_axis(dm$m); dm$lo_y <- to_axis(dm$lo); dm$hi_y <- to_axis(dm$hi)
 
   p <- ggplot() +
-    # Temperatur-Buendel (alle Laeufe duenn) + Mittel fett
+    geom_hline(yintercept = 50, colour = "grey80", linetype = "dashed") +  # WL-Bruchlinie
+    # duenne Buendel: rot = Temperatur, blau = Niederschlag (P/2)
     geom_line(data = pt, aes(Monat, T_mean, group = Zeitlauf),
-              colour = "#c0392b", alpha = 0.22, linewidth = 0.6) +
-    geom_line(data = mittel, aes(Monat, T_mean), colour = "#c0392b", linewidth = 1.3) +
-    # Niederschlags-Buendel (P/2) + Mittel fett
+              colour = "#c0392b", alpha = 0.10, linewidth = 0.5) +
     geom_line(data = pt, aes(Monat, P_temp, group = Zeitlauf),
-              colour = "#2c5fa8", alpha = 0.22, linewidth = 0.6) +
-    geom_line(data = mittel, aes(Monat, P_temp), colour = "#2c5fa8", linewidth = 1.3) +
-    # De-Martonne: min/max-Huelle + Mittellinie + Wertelabels
+              colour = "#2c5fa8", alpha = 0.10, linewidth = 0.5) +
+    # De-Martonne: min/max-Huelle + Mittellinie
     geom_ribbon(data = dm, aes(Monat, ymin = lo_y, ymax = hi_y),
-                fill = "#2e7d32", alpha = 0.15) +
-    geom_line(data = dm, aes(Monat, m_y), colour = "#2e7d32", linewidth = 1.1) +
-    geom_text(data = dm, aes(Monat, m_y, label = round(m)),
-              colour = "#2e7d32", size = 2.6, vjust = -0.9) +
-    scale_x_continuous(breaks = 1:12, labels = stf_monlab) +
+                fill = "#2e7d32", alpha = 0.13) +
+    geom_line(data = dm, aes(Monat, m_y), colour = "#2e7d32", linewidth = 1) +
+    # Familien-Mittel: Farbe = Variable (rot/blau), Linientyp = Szenario-Familie
+    geom_line(data = fam, aes(Monat, T_mean, linetype = Familie),
+              colour = "#c0392b", linewidth = 1.1) +
+    geom_line(data = fam, aes(Monat, P_temp, linetype = Familie),
+              colour = "#2c5fa8", linewidth = 1.1) +
+    # rechts daneben: welche Familie wo liegt (am T-Mittel-Ende)
+    geom_text(data = fam_lab, aes(Monat, T_mean, label = Familie),
+              colour = "#c0392b", hjust = -0.1, size = 2.9) +
+    scale_linetype_manual(values = c(OBS_DWD = "solid", RCP45 = "dashed",
+                                     RCP85 = "dotted", andere = "12"),
+                          name = "Szenario") +
+    scale_x_continuous(breaks = 1:12, labels = stf_monlab,
+                       expand = expansion(mult = c(0.02, 0.18))) +
     scale_y_continuous("Temperatur [\u00b0C]",
       sec.axis = sec_axis(~ . * 2, name = "Niederschlag [mm]")) +
+    coord_cartesian(clip = "off") +
     labs(title = paste0("Gestaffelter WL-Vergleich \u00b7 ", mid),
          subtitle = paste0(length(unique(pt$Zeitlauf)),
-           " Klimal\u00e4ufe  \u00b7  rot T, blau P (= P/2 auf Temp-Achse)  \u00b7  ",
+           " Klimal\u00e4ufe  \u00b7  rot = Temperatur, blau = Niederschlag  \u00b7  ",
            "gr\u00fcn: De-Martonne 12P/(T+10), Mittel + min/max"),
          x = "Monat") +
-    theme_minimal()
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.grid.minor   = element_blank(),
+      axis.title.y.left  = element_text(colour = "#c0392b"),
+      axis.text.y.left   = element_text(colour = "#c0392b"),
+      axis.title.y.right = element_text(colour = "#2c5fa8"),
+      axis.text.y.right  = element_text(colour = "#2c5fa8"),
+      legend.position    = "bottom")
 
   ggsave(file.path(wl_stf_dir, paste0(mid, "_staffel.png")),
          p, width = 10, height = 6.5, dpi = 200)
