@@ -512,6 +512,90 @@ for (mod in future_models) {
 #    04_results/WL_compare/NR-08/  (oben WL-Vergleich, unten Differenz)
 
 
+## 6.12  Gestaffelter WL-Vergleich je MASTER_ID (ALLE Laeufe ueberlagert) ------
+# Ein Panel je gewaehlter MASTER_ID: alle Lauf-CSVs der Region uebereinander.
+# Unten das Temperatur-Buendel (rot), oben das Niederschlags-Buendel (blau, als
+# P/2 auf der Temperaturachse -> WL-Kopplung 1 degC : 2 mm). Dazu der De-Martonne-
+# Index 12*P/(T+10) je Lauf/Monat: Mittel ueber alle Laeufe als gruene
+# Mittellinie + min/max-Huelle.
+#
+# Punkte ueber MID_auswahl waehlen; je Punkt ein eigener ggplot im Loop.
+# ggplot hat nur EINE Zweitachse (hier: Niederschlag mm). Der De-Martonne wird
+# darum per einfachem Linear-Massstab (a/b) in die Mitte gelegt und mit echten
+# Indexwerten als Labels beschriftet - kein dritter Achsen-Strang noetig.
+
+library(ggplot2)
+
+MID_auswahl <- c("NR_130_08_6189", "NR_130_08_66519")   # gewuenschte MASTER_IDs
+wl_stf_dir  <- file.path("04_results", "WL_staffel", wl_region)
+dir.create(wl_stf_dir, recursive = TRUE, showWarnings = FALSE)
+
+# ALLE Lauf-CSVs der Region (wl_csvs aus 6.10) einlesen und auf die gewaehlten
+# IDs stapeln. Spalten je CSV: MASTER_ID | Monat | T_mean | P_sum; Lauf = Stamm.
+stf <- data.frame()
+for (csv in wl_csvs) {
+  run <- sub("\\.csv$", "", basename(csv))
+  d   <- as.data.frame(data.table::fread(csv))
+  d   <- d[d$MASTER_ID %in% MID_auswahl, c("MASTER_ID", "Monat", "T_mean", "P_sum")]
+  if (nrow(d) == 0) next
+  d$Zeitlauf <- run
+  stf <- rbind(stf, d)
+}
+
+stf_monlab <- c("J","F","M","A","M","J","J","A","S","O","N","D")
+
+for (mid in MID_auswahl) {
+  pt <- stf[stf$MASTER_ID == mid, ]
+  if (nrow(pt) == 0) { warning(mid, ": keine Daten.", call. = FALSE); next }
+  pt$P_temp <- pt$P_sum / 2                       # Niederschlag auf die Temp-Achse
+
+  # Mittelkurven der Buendel (fett) je Monat ueber alle Laeufe.
+  mittel <- aggregate(cbind(T_mean, P_temp) ~ Monat, pt, mean)
+
+  # De-Martonne je Lauf/Monat, dann Mittel + min/max ueber die Laeufe je Monat.
+  pt$dm <- 12 * pt$P_sum / (pt$T_mean + 10)
+  dm <- aggregate(dm ~ Monat, pt, function(x) c(m = mean(x), lo = min(x), hi = max(x)))
+  dm <- data.frame(Monat = dm$Monat, m = dm$dm[, "m"],
+                   lo = dm$dm[, "lo"], hi = dm$dm[, "hi"])
+
+  # De-Martonne in die Plot-Mitte legen: Index [0, max] -> Achsen-Band [a, b].
+  # a/b einfach anpassen, falls die Linie hoeher/tiefer liegen soll.
+  a <- 8; b <- 34
+  to_axis <- function(x) a + (b - a) * x / max(dm$hi)
+  dm$m_y <- to_axis(dm$m); dm$lo_y <- to_axis(dm$lo); dm$hi_y <- to_axis(dm$hi)
+
+  p <- ggplot() +
+    # Temperatur-Buendel (alle Laeufe duenn) + Mittel fett
+    geom_line(data = pt, aes(Monat, T_mean, group = Zeitlauf),
+              colour = "#c0392b", alpha = 0.22, linewidth = 0.6) +
+    geom_line(data = mittel, aes(Monat, T_mean), colour = "#c0392b", linewidth = 1.3) +
+    # Niederschlags-Buendel (P/2) + Mittel fett
+    geom_line(data = pt, aes(Monat, P_temp, group = Zeitlauf),
+              colour = "#2c5fa8", alpha = 0.22, linewidth = 0.6) +
+    geom_line(data = mittel, aes(Monat, P_temp), colour = "#2c5fa8", linewidth = 1.3) +
+    # De-Martonne: min/max-Huelle + Mittellinie + Wertelabels
+    geom_ribbon(data = dm, aes(Monat, ymin = lo_y, ymax = hi_y),
+                fill = "#2e7d32", alpha = 0.15) +
+    geom_line(data = dm, aes(Monat, m_y), colour = "#2e7d32", linewidth = 1.1) +
+    geom_text(data = dm, aes(Monat, m_y, label = round(m)),
+              colour = "#2e7d32", size = 2.6, vjust = -0.9) +
+    scale_x_continuous(breaks = 1:12, labels = stf_monlab) +
+    scale_y_continuous("Temperatur [\u00b0C]",
+      sec.axis = sec_axis(~ . * 2, name = "Niederschlag [mm]")) +
+    labs(title = paste0("Gestaffelter WL-Vergleich \u00b7 ", mid),
+         subtitle = paste0(length(unique(pt$Zeitlauf)),
+           " Klimal\u00e4ufe  \u00b7  rot T, blau P (= P/2 auf Temp-Achse)  \u00b7  ",
+           "gr\u00fcn: De-Martonne 12P/(T+10), Mittel + min/max"),
+         x = "Monat") +
+    theme_minimal()
+
+  ggsave(file.path(wl_stf_dir, paste0(mid, "_staffel.png")),
+         p, width = 10, height = 6.5, dpi = 200)
+}
+# -> je gewaehlter MASTER_ID eine PNG <MASTER_ID>_staffel.png in
+#    04_results/WL_staffel/NR-08/
+
+
 # =============================================================================
 # Optional / Demos (mit Testdaten) -- bei Bedarf einkommentieren
 # =============================================================================
