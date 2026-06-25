@@ -460,13 +460,29 @@ wl_model_key <- function(run) {
   m <- gsub("[_-]+", "_", m)                            # Trenner zusammenziehen
   sub("^_|_$", "", m)                                   # Raender trimmen
 }
-wl_period_of <- function(run)
-  regmatches(run, regexpr("(19|20)[0-9]{2}-(19|20)[0-9]{2}", run))
+# Perioden-Jahreszahl je Lauf - LAENGEN-STABIL (NA, wenn kein Treffer). NICHT
+# 'regmatches(x, regexpr(x))' direkt: das WIRFT treffer-lose Elemente raus und
+# verschiebt damit jeden logischen Filter (-> sonst rutschen falsche Laeufe wie
+# 1961-1990 durch und ein Modell-Set bleibt nur mit der Referenz zurueck).
+wl_period_of <- function(run) {
+  out <- rep(NA_character_, length(run))
+  m   <- regexpr("(19|20)[0-9]{2}-(19|20)[0-9]{2}", run)
+  out[m > 0] <- regmatches(run, m)
+  out
+}
 
 # Zukunfts-Laeufe (nur die gewuenschten Perioden) nach Modell gruppieren.
 wl_future <- setdiff(names(wl_run_path), wl_ref_run)
-wl_future <- wl_future[wl_period_of(wl_future) %in% wl_periods]
+wl_future <- wl_future[wl_period_of(wl_future) %in% wl_periods]   # NA faellt raus
+if (length(wl_future) == 0)
+  warning("keine Zukunfts-Laeufe in ", paste(wl_periods, collapse = "/"),
+          " gefunden - nichts zu vergleichen.", call. = FALSE)
 wl_models <- split(wl_future, vapply(wl_future, wl_model_key, character(1)))
+
+# Laeufe mit GENAU 12 Monatszeilen fuer diese id (sonst kein gueltiges WL/Delta).
+wl_runs_ok <- function(df, id, runs)
+  runs[vapply(runs, function(r)
+    sum(df$id == id & df$Zeitlauf == r) == 12L, logical(1))]
 
 for (model in names(wl_models)) {
   # Laeufe dieses Modells nach Periode sortieren (2021-2050 vor 2071-2100).
@@ -480,11 +496,18 @@ for (model in names(wl_models)) {
     warning("keine Daten fuer Modell ", model, call. = FALSE); next }
 
   for (id in wl_ids) {
-    if (!id %in% df_long$id) { warning(id, " fehlt fuer ", model, call. = FALSE); next }
+    # Nur Laeufe mit vollstaendigen 12 Monaten; Referenz MUSS dabei sein und es
+    # braucht mind. einen Zukunftslauf - sonst hat compare_walther_lieth() eine
+    # leere Delta-Liste (-> patchwork ncol = 0 -> "nrow * ncol < n"-Fehler).
+    runs_ok <- wl_runs_ok(df_long, id, runs_cmp)
+    if (!wl_ref_run %in% runs_ok || length(runs_ok) < 2) {
+      warning(id, " / ", model, ": <2 vollstaendige Laeufe (",
+              paste(runs_ok, collapse = ", "), ") - uebersprungen.",
+              call. = FALSE); next }
 
     # (a) Small Multiples + Delta-Diagramme ("Walther-Lieth-Vergleich")
     p_both <- tryCatch(
-      compare_walther_lieth(df_long, id, runs = runs_cmp, mode = "both",
+      compare_walther_lieth(df_long, id, runs = runs_ok, mode = "both",
                             ref = wl_ref_run),
       error = function(e) { warning(id, " / ", model, " (both): ",
                                     conditionMessage(e), call. = FALSE); NULL })
@@ -496,8 +519,8 @@ for (model in names(wl_models)) {
     if (!is.null(wl_rec)) {
       p_rec <- tryCatch(
         combine_climate_recommendation(
-          plot_walther_lieth_facets(df_long, id, runs = runs_cmp),
-          wl_rec, id, runs = runs_cmp),
+          plot_walther_lieth_facets(df_long, id, runs = runs_ok),
+          wl_rec, id, runs = runs_ok),
         error = function(e) { warning(id, " / ", model, " (rec): ",
                                       conditionMessage(e), call. = FALSE); NULL })
       if (!is.null(p_rec))
