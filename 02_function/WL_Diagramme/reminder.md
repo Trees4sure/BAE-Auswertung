@@ -3,7 +3,36 @@
 Kurzgedächtnis, was in `02_function/WL_Diagramme/` gebaut wurde, wie es
 zusammenhängt und was noch offen ist.
 
-## Letzter Stand (Session-Updates, Branch-HEAD `22ccc7b`)
+## Letzter Stand (Session-Updates, Branch-HEAD `363f53f`)
+- **Code-Stil-Wunsch des Nutzers (in `CLAUDE.md` festgehalten):** flach statt
+  verschachtelt, sichtbare/anpassbare `ggplot()`-Aufrufe im Skript, debugbar,
+  Logik in Schleifen statt in Helfer-/Wrapper-Funktionen. Neue Abschnitte 6.11/
+  6.12/6.14 sind bewusst flach (alles im Loop, Plots inline) gehalten.
+- **Empfehlungsdaten gibt es real NICHT** (nur Testdaten aus `make_test_data.R`)
+  → Empfehlungs-Leisten/`combine_climate_recommendation` bleiben ohne Daten aussen vor.
+- **NEU 6.11 — Lauf-Vergleich je MASTER_ID:** Referenz `OBS_DWD_1991-2020` vs. je
+  Modell die Zukunft 2021-2050 + 2071-2100; oben WL-Small-Multiples, unten Delta.
+  Modell-Gruppierung über `[0-9]{4}-[0-9]{4}` (NICHT `(19|20)..` — sonst fällt
+  Endjahr **2100** raus!), Auswahl über Anfangsjahr 2021/2071 (fängt auch
+  `2071-2099` von HADWRF). → `04_results/WL_compare/<Region>/<id>_<Modell>.png`.
+- **NEU 6.12 — gestaffelter WL-Vergleich je MASTER_ID:** alle Läufe überlagert
+  (rot T, blau P als P/2 auf der Temp-Achse), Szenario-Familie OBS_DWD/RCP45/RCP85
+  als **Linientyp** der Familien-Mittel + Label rechts; De-Martonne `12P/(T+10)`
+  als grüne Mittellinie + min/max-Hülle (per Linear-Massstab `a/b` in die Mitte
+  gelegt — ggplot kann nur EINE Zweitachse). Punkte über `MID_auswahl`.
+- **NEU 6.14 — Regions-Mittel-WL je Lauf:** Schleife über die Lauf-CSVs der Region,
+  `wl_region_diagram(csv)` (Mittel über alle MASTER_ID). NICHT
+  `plot_walther_lieth_from_long(wl_csvs, id_val="NR-08", ...)` — wl_csvs sind Pfade.
+- **BUG NR-Datenaufbereitung — T/P vertauscht:** in den NR-CSVs stand `T_mean` =
+  Monatsniederschlag (Beweis: Mittel(T) = Jahressumme/12 exakt). Ursache liegt
+  beim NR-Einlesen (1155-Datei/Variable liefert Niederschlag), NICHT in der
+  Aggregation (die hält T/P sauber). **Guard** in `.nr_extract_files`: warnt laut,
+  wenn `value_t` == `value_p`. **Debug 6.13** zeigt Variable + Wertebereich je
+  1155/1157-Datei. Fix = Quelle/Variable korrigieren + **6.8 komplett neu laufen**
+  (alle NR-Lauf-CSVs überschreiben). OBS_DWD danach korrekt (9.6 °C).
+- **`run` ≠ MASTER_ID:** `run`/Zeitlauf wählt die DATEI (`<Lauf>.csv`, alle IDs
+  drin), `id` die Zeile darin. Mehrere Läufe × Punkte = zwei Schleifen (aussen
+  `run`+`fread`, innen `id`); ein Lauf = nur Schleife über IDs.
 - **v2/v3 NICHT mehr rausfiltern, sondern als EIGENE Läufe führen** (BWI-Trend):
   `expand_precip_versions()` in 6.4 koppelt je Lauf die Temp (1049) mit JEDER
   vorhandenen 1050-Version → Original = `<run>`, nachprediziert = `<run>_v2`/`_v3`.
@@ -61,7 +90,7 @@ vergleichen und den **Grund** für einen Empfehlungswechsel sichtbar zu machen.
 | `wl_master_id.R` | `wl_split_quelle()` (idempotent), `read_nc_id_grid()`, `build_bwi_master_lookup(geom=)`, `attach_master_id()`, `wl_aggregate_master()`, `attach_bwi_geometry()`, `write_region_csvs()`, **`write_run_csvs()`**, **`wl_region_diagram(csv_path)`** (WL aus fertiger CSV) |
 | `wl_master_id_nr.R` | NR-Pfad (streamend): `load_nr_polygons()`, `nr_build_raster()`, `nr_extract_long()`, `wl_month_nr_from_files(..., run_label=)`, `wl_trend_nr_from_files(..., run_label=)` (`run_label`=positionale 1:1-Paarung für v2/v3) |
 | `recommendation_strip.R` / `compose_overview.R` | Empfehlungs-Leiste / Gesamtgrafik |
-| `run_klimadiagramme.R` | **Orchestrator** (6.1–6.9): laden → WL/Trend → Region/Lauf-CSVs |
+| `run_klimadiagramme.R` | **Orchestrator** (6.1–6.14): laden → WL/Trend → Region/Lauf-CSVs (6.1–6.9); je-MASTER_ID-Einzeldiagramme (6.10); Lauf-Vergleich Ref vs. Zukunft (6.11); gestaffelter WL + De-Martonne (6.12); T/P-Debug (6.13); Regions-Mittel-WL je Lauf (6.14) |
 
 Pakete: `terra, sf, exactextractr, ncdf4, dplyr, tidyr, ggplot2, patchwork`.
 
@@ -110,7 +139,10 @@ App: Klick wählt Region+Lauf → passende (schon vorgefilterte) CSV laden →
 - [ ] `table(polygons$nbrg)` == NR-01..NR-11? (Region-Join verifizieren)
 - [ ] `BWI-BZE_Klima_Boden_Join.csv`: heißen die Spalten `id_bwi_bze` /
       `master_id_boden`? Sonst `build_bwi_master_lookup(id_col=, master_col=)`.
-- [ ] NR-1155-Temp-Variable: ist `temp` korrekt? (sonst greift Single-3D-Fallback)
+- [ ] **NR-1155-Temp-Variable FALSCH → T/P-Swap (akut!):** `T_mean` enthielt
+      Niederschlag. Mit Debug 6.13 prüfen, ob `nc.1155_function` aus der NR-1155-
+      Datei wirklich Temperatur (`temp`, Range ~-5..25) liest — sonst Quelle/
+      Variable fixen und **6.8 für alle NR-Läufe neu** schreiben.
 - [ ] Fehlendes Jahr 1971 (Trend, Punkt 1): `P_year` dort NA/~0? Punkt-spezifisch
       prüfen — ggf. NA-Jahre im Plot interpolieren/auslassen statt Null-Balken.
 - [ ] Plot-Kopf Höhe/Lon/Lat nach `attach_bwi_geometry` wirklich gefüllt?
