@@ -417,7 +417,10 @@ for (csv in wl_csvs) {
 # (= MASTER_ID) und 'Zeitlauf' (= Dateistamm) ergaenzen und stapeln.
 
 wl_ref_run <- "OBS_DWD_1991-2020"          # Referenzlauf (oben/erste Spalte)
-wl_periods <- c("2021-2050", "2071-2100")  # Zukunfts-Perioden je Modell
+# Zukunfts-Perioden ueber das ANFANGSJAHR waehlen, nicht ueber den exakten
+# String: manche Laeufe enden abweichend (z.B. RCP85_HADWRF_2071-2099) und
+# wuerden bei "2071-2100" sonst durchs Raster fallen. "2021" = nah, "2071" = fern.
+wl_period_starts <- c("2021", "2071")
 
 wl_cmp_dir <- file.path("04_results", "WL_compare", wl_region)
 dir.create(wl_cmp_dir, recursive = TRUE, showWarnings = FALSE)
@@ -453,12 +456,17 @@ load_run_long <- function(run) {
   d
 }
 
+# Perioden-Muster JJJJ-JJJJ. Bewusst [0-9]{4}, NICHT (19|20)[0-9]{2}: das
+# Endjahr 2100 (in "2071-2100") beginnt mit "21" und wuerde sonst NICHT matchen
+# -> alle Fernlaeufe ...-2100 fielen durch die Auswahl.
+WL_PERIOD_RE <- "[0-9]{4}-[0-9]{4}"
+
 # Modell-Schluessel = Laufname OHNE die Perioden-Jahreszahl (v2/v3 bleiben drin,
 # damit nachprediziert/Original getrennte Vergleiche ergeben).
 wl_model_key <- function(run) {
-  m <- sub("(19|20)[0-9]{2}-(19|20)[0-9]{2}", "", run)  # Periode entfernen
-  m <- gsub("[_-]+", "_", m)                            # Trenner zusammenziehen
-  sub("^_|_$", "", m)                                   # Raender trimmen
+  m <- sub(WL_PERIOD_RE, "", run)   # Periode entfernen
+  m <- gsub("[_-]+", "_", m)        # Trenner zusammenziehen
+  sub("^_|_$", "", m)               # Raender trimmen
 }
 # Perioden-Jahreszahl je Lauf - LAENGEN-STABIL (NA, wenn kein Treffer). NICHT
 # 'regmatches(x, regexpr(x))' direkt: das WIRFT treffer-lose Elemente raus und
@@ -466,16 +474,19 @@ wl_model_key <- function(run) {
 # 1961-1990 durch und ein Modell-Set bleibt nur mit der Referenz zurueck).
 wl_period_of <- function(run) {
   out <- rep(NA_character_, length(run))
-  m   <- regexpr("(19|20)[0-9]{2}-(19|20)[0-9]{2}", run)
+  m   <- regexpr(WL_PERIOD_RE, run)
   out[m > 0] <- regmatches(run, m)
   out
 }
 
 # Zukunfts-Laeufe (nur die gewuenschten Perioden) nach Modell gruppieren.
+# Auswahl ueber das Anfangsjahr der Periode (substr 1:4) -> robust gegen
+# abweichende Endjahre; NA (kein Perioden-Treffer) faellt automatisch raus.
 wl_future <- setdiff(names(wl_run_path), wl_ref_run)
-wl_future <- wl_future[wl_period_of(wl_future) %in% wl_periods]   # NA faellt raus
+wl_future <- wl_future[substr(wl_period_of(wl_future), 1, 4) %in% wl_period_starts]
 if (length(wl_future) == 0)
-  warning("keine Zukunfts-Laeufe in ", paste(wl_periods, collapse = "/"),
+  warning("keine Zukunfts-Laeufe mit Anfangsjahr ",
+          paste(wl_period_starts, collapse = "/"),
           " gefunden - nichts zu vergleichen.", call. = FALSE)
 wl_models <- split(wl_future, vapply(wl_future, wl_model_key, character(1)))
 
