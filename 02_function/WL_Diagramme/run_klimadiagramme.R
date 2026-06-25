@@ -596,6 +596,55 @@ for (mid in MID_auswahl) {
 #    04_results/WL_staffel/NR-08/
 
 
+## 6.13  DEBUG: Temperatur/Niederschlag-Verwechslung pruefen ------------------
+# Die NR-CSVs zeigen T_mean = Monatsniederschlag (Mittel = Jahressumme/12) -> in
+# die "1155"-Datei wird Niederschlag gelesen. Hier EINE 1155- und EINE 1157-Datei
+# DIREKT einlesen und Variable + Wertebereich zeigen. Temperatur muss im Winter
+# unter 0 gehen (Min < 0, Max < 30 degC); Niederschlag ist immer positiv (~20-120
+# mm). Ist der 1155-Bereich komplett positiv und ~40-60, steckt dort Niederschlag.
+tf1 <- nr_1155[1]; pf1 <- nr_1157[1]
+t_chk <- nc.1155_function(tf1, assign_global = FALSE)   # message() nennt die Variable!
+p_chk <- nc.1157_function(pf1, assign_global = FALSE)
+vt <- setdiff(names(t_chk), c("cell_id", "x", "y", "name"))
+vp <- setdiff(names(p_chk), c("cell_id", "x", "y", "name"))
+cat("1155:", basename(tf1), "-> Range",
+    paste(round(range(unlist(t_chk[vt]), na.rm = TRUE), 1), collapse = " .. "), "\n")
+cat("1157:", basename(pf1), "-> Range",
+    paste(round(range(unlist(p_chk[vp]), na.rm = TRUE), 1), collapse = " .. "), "\n")
+# Erwartung: 1155 z.B. "-5 .. 25" (Temp), 1157 z.B. "15 .. 130" (Nied.).
+# Steht im 1155-Range etwas wie "30 .. 70", ist die 1155-Datei/Variable falsch
+# -> Quelle der NR-1155-Dateien bzw. nc.1155_function(varname=) korrigieren und
+#    Abschnitt 6.8 (NR-Monat) neu laufen lassen.
+
+
+## 6.14  Regions-Mittel-WL je Lauf fuer EINE Region (NR-08) -------------------
+# Ein WL-Diagramm je Lauf, gemittelt ueber ALLE MASTER_ID der Region. wl_region_
+# diagram() liest die fertige Region/Lauf-CSV (out_base/<Region>/<Lauf>.csv),
+# mittelt T_mean/P_sum (und altitude/Lon/Lat) ueber alle MASTER_ID und zeichnet.
+# (Ersetzt den verlorenen Aufruf plot_walther_lieth_from_long(wl_csvs, id_val =
+#  "NR-08", ...) - der ging nicht: wl_csvs sind Pfade und "NR-08" ist keine ID.)
+library(ggplot2)
+
+wl_region  <- "NR-08"
+wl_reg_dir <- file.path("04_results", "WL_region", wl_region)
+dir.create(wl_reg_dir, recursive = TRUE, showWarnings = FALSE)
+
+wl_csvs <- list.files(file.path(out_base, wl_region), pattern = "\\.csv$",
+                      full.names = TRUE)
+
+for (csv in wl_csvs) {
+  run <- sub("\\.csv$", "", basename(csv))      # Lauf = Dateistamm
+  p <- tryCatch(wl_region_diagram(csv),
+                error = function(e) { warning(run, ": ", conditionMessage(e),
+                                              call. = FALSE); NULL })
+  if (is.null(p)) next
+  ggsave(file.path(wl_reg_dir, paste0(wl_region, "_", run, ".png")),
+         p, width = 8, height = 6, dpi = 200)
+}
+# -> je Lauf eine PNG NR-08_<Lauf>.png in 04_results/WL_region/NR-08/
+#    (Einzeldiagramme JE MASTER_ID liefert weiterhin Abschnitt 6.10.)
+
+
 # =============================================================================
 # Optional / Demos (mit Testdaten) -- bei Bedarf einkommentieren
 # =============================================================================

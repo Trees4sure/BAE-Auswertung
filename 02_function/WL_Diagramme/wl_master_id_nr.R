@@ -176,6 +176,18 @@ nr_extract_long <- function(r, poly_region, value_name, period_name = "Monat"){
       dplyr::mutate(quelle = region, Zeitlauf = run)
     res[[value_t]] <- res[[value_t]] * fac
     res[[value_p]] <- res[[value_p]] * fac
+
+    # --- Plausibilitaets-Guard gegen Temp/Niederschlag-Verwechslung ----------
+    # value_t (aus tf, 1155) und value_p (aus pf, 1157) stammen aus VERSCHIEDENEN
+    # Dateien und duerfen nicht (nahezu) identisch sein. Sind sie es, wurde
+    # zweimal dieselbe Groesse gelesen (falsche Datei/Variable) -> laut warnen,
+    # statt still falsche CSVs (T_mean = Niederschlag) zu schreiben.
+    d_tp <- suppressWarnings(max(abs(res[[value_t]] - res[[value_p]]), na.rm = TRUE))
+    if (is.finite(d_tp) && d_tp < 1e-6)
+      warning("[", region, " ", run, "] ", value_t, " ist identisch mit ",
+              value_p, " - Temperatur/Niederschlag vertauscht? Variable in ",
+              basename(tf), " (gelesen oben per message) und 1155- vs. 1157-Datei ",
+              "pruefen.", call. = FALSE)
     if(isTRUE(add_calendar)){
       # Kalenderjahr aus den Jahres-Spaltennamen (Position -> Jahr); nur echte Jahre
       kj <- suppressWarnings(as.integer(vc_t)); kj[kj < 1900] <- NA_integer_
