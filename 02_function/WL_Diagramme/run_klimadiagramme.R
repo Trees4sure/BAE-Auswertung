@@ -403,145 +403,113 @@ for (csv in wl_csvs) {
 
 
 ## 6.11  NR Walther-Lieth-VERGLEICHE je MASTER_ID (Referenz vs. Modell-Laeufe) -
-# Wie 6.10, aber statt EINES Diagramms je Lauf die VERGLEICHS-Grafiken:
-#   (a) Small Multiples (Referenz | 2021-2050 | 2071-2100) + Delta-Diagramme
-#       -> compare_walther_lieth(..., mode = "both")
-#   (b) dieselben Small Multiples + Empfehlungs-Leiste (falls Empfehlungs-CSV da)
-#       -> combine_climate_recommendation(...)
-# Referenz ist OBS_DWD_1991-2020; je Modell (Szenario+GCM) werden dessen
-# Zukunfts-Laeufe 2021-2050 und 2071-2100 dagegen gestellt.
+# Wie 6.10, aber als VERGLEICH: oben die Klimadiagramme nebeneinander
+# (Referenz | 2021-2050 | 2071-2100), darunter die Differenz Zukunft - Referenz.
+# Referenz ist OBS_DWD_1991-2020; je Modell (Szenario+GCM) dessen Zukunftslaeufe.
 #
-# Die Vergleichs-Funktionen erwarten 'id' und 'Zeitlauf' in EINER Tabelle. Die
-# abgelegten Region-CSVs sind dagegen je Lauf eine Datei mit 'MASTER_ID'. ->
-# alle benoetigten Lauf-CSVs einlesen, auf die gewuenschten IDs filtern, 'id'
-# (= MASTER_ID) und 'Zeitlauf' (= Dateistamm) ergaenzen und stapeln.
+# BEWUSST FLACH: alles in den Schleifen, beide Diagramme als direkte ggplot()-
+# Aufrufe (Achsen/Farben/Layer hier im Skript aenderbar, kein Helfer dazwischen).
+# Die Region-CSVs liegen je Lauf einzeln vor (Spalte MASTER_ID, Dateistamm =
+# Zeitlauf); pro Modell werden die noetigen CSVs eingelesen und gestapelt.
 
-wl_ref_run <- "OBS_DWD_1991-2020"          # Referenzlauf (oben/erste Spalte)
-# Zukunfts-Perioden ueber das ANFANGSJAHR waehlen, nicht ueber den exakten
-# String: manche Laeufe enden abweichend (z.B. RCP85_HADWRF_2071-2099) und
-# wuerden bei "2071-2100" sonst durchs Raster fallen. "2021" = nah, "2071" = fern.
-wl_period_starts <- c("2021", "2071")
+library(ggplot2)
+library(patchwork)
 
+wl_ref_run <- "OBS_DWD_1991-2020"           # Referenzlauf (links/oben)
+wl_monlab  <- c("J","F","M","A","M","J","J","A","S","O","N","D")
 wl_cmp_dir <- file.path("04_results", "WL_compare", wl_region)
 dir.create(wl_cmp_dir, recursive = TRUE, showWarnings = FALSE)
 
-# Optional: Empfehlungen je MASTER_ID/Lauf (id | Zeitlauf | Baumart | Empfehlung).
-# Fehlt die Datei, werden nur die Klima-Vergleiche (a) gezeichnet.
-wl_rec_csv <- file.path("03_parameters", "WL_recommendations", wl_region, "recommendations.csv")
-wl_rec <- if (file.exists(wl_rec_csv)) {
-  r <- as.data.frame(data.table::fread(wl_rec_csv))
-  if (!"id" %in% names(r) && "MASTER_ID" %in% names(r)) r$id <- r$MASTER_ID
-  r
-} else NULL
+# --- Laufnamen in Periode (JJJJ-JJJJ) und Modell (Name ohne Periode) zerlegen --
+# [0-9]{4}, NICHT (19|20)..: sonst faellt das Endjahr 2100 (in 2071-2100) weg.
+all_runs <- sub("\\.csv$", "", basename(wl_csvs))             # Lauf = Dateistamm
+period   <- sub(".*([0-9]{4}-[0-9]{4}).*", "\\1", all_runs)   # "2071-2100"
+start    <- substr(period, 1, 4)                              # "2071"
+model    <- sub("[0-9]{4}-[0-9]{4}", "", all_runs)           # Name ohne Periode
+model    <- sub("^_|_$", "", gsub("[_-]+", "_", model))       # "RCP85_MPIWRF"
 
-# run-Name -> CSV-Pfad (Dateistamm == Zeitlauf), aus den in 6.10 gesammelten CSVs.
-wl_run_path <- setNames(wl_csvs, sub("\\.csv$", "", basename(wl_csvs)))
+# Zukunft = Anfangsjahr 2021 (nah) oder 2071 (fern). Modelle mit >=1 Zukunftslauf.
+is_future     <- start %in% c("2021", "2071")
+future_models <- unique(model[is_future])
 
-# Eine Lauf-CSV einlesen, auf die gewuenschten IDs reduzieren, id/Zeitlauf setzen
-# und auf die fuer den Vergleich noetigen Kernspalten beschneiden (sichert rbind
-# ueber Laeufe, falls einzelne CSVs Zusatzspalten tragen). Cache: die Referenz
-# kommt so nicht je Modell neu von Platte.
-.wl_cache  <- new.env(parent = emptyenv())
-wl_core    <- c("id", "Zeitlauf", "Monat", "T_mean", "P_sum")
-load_run_long <- function(run) {
-  if (!is.null(.wl_cache[[run]])) return(.wl_cache[[run]])
-  path <- wl_run_path[[run]]
-  if (is.null(path)) { warning("kein CSV fuer Lauf ", run, call. = FALSE); return(NULL) }
-  d <- as.data.frame(data.table::fread(path))
-  d <- d[d$MASTER_ID %in% wl_ids, , drop = FALSE]
-  d$id <- d$MASTER_ID
-  d$Zeitlauf <- run
-  d <- d[, wl_core, drop = FALSE]
-  .wl_cache[[run]] <- d
-  d
-}
+# --- je Modell und ID ein Vergleichsdiagramm ---------------------------------
+for (mod in future_models) {
 
-# Perioden-Muster JJJJ-JJJJ. Bewusst [0-9]{4}, NICHT (19|20)[0-9]{2}: das
-# Endjahr 2100 (in "2071-2100") beginnt mit "21" und wuerde sonst NICHT matchen
-# -> alle Fernlaeufe ...-2100 fielen durch die Auswahl.
-WL_PERIOD_RE <- "[0-9]{4}-[0-9]{4}"
+  # Laeufe dieses Modells: Referenz + dessen Zukunftslaeufe, nach Periode sortiert.
+  sel  <- model == mod & is_future
+  futs <- all_runs[sel][order(period[sel])]   # z.B. ..._2021-2050, ..._2071-2100
+  runs <- c(wl_ref_run, futs)
 
-# Modell-Schluessel = Laufname OHNE die Perioden-Jahreszahl (v2/v3 bleiben drin,
-# damit nachprediziert/Original getrennte Vergleiche ergeben).
-wl_model_key <- function(run) {
-  m <- sub(WL_PERIOD_RE, "", run)   # Periode entfernen
-  m <- gsub("[_-]+", "_", m)        # Trenner zusammenziehen
-  sub("^_|_$", "", m)               # Raender trimmen
-}
-# Perioden-Jahreszahl je Lauf - LAENGEN-STABIL (NA, wenn kein Treffer). NICHT
-# 'regmatches(x, regexpr(x))' direkt: das WIRFT treffer-lose Elemente raus und
-# verschiebt damit jeden logischen Filter (-> sonst rutschen falsche Laeufe wie
-# 1961-1990 durch und ein Modell-Set bleibt nur mit der Referenz zurueck).
-wl_period_of <- function(run) {
-  out <- rep(NA_character_, length(run))
-  m   <- regexpr(WL_PERIOD_RE, run)
-  out[m > 0] <- regmatches(run, m)
-  out
-}
-
-# Zukunfts-Laeufe (nur die gewuenschten Perioden) nach Modell gruppieren.
-# Auswahl ueber das Anfangsjahr der Periode (substr 1:4) -> robust gegen
-# abweichende Endjahre; NA (kein Perioden-Treffer) faellt automatisch raus.
-wl_future <- setdiff(names(wl_run_path), wl_ref_run)
-wl_future <- wl_future[substr(wl_period_of(wl_future), 1, 4) %in% wl_period_starts]
-if (length(wl_future) == 0)
-  warning("keine Zukunfts-Laeufe mit Anfangsjahr ",
-          paste(wl_period_starts, collapse = "/"),
-          " gefunden - nichts zu vergleichen.", call. = FALSE)
-wl_models <- split(wl_future, vapply(wl_future, wl_model_key, character(1)))
-
-# Laeufe mit GENAU 12 Monatszeilen fuer diese id (sonst kein gueltiges WL/Delta).
-wl_runs_ok <- function(df, id, runs)
-  runs[vapply(runs, function(r)
-    sum(df$id == id & df$Zeitlauf == r) == 12L, logical(1))]
-
-for (model in names(wl_models)) {
-  # Laeufe dieses Modells nach Periode sortieren (2021-2050 vor 2071-2100).
-  m_runs   <- wl_models[[model]]
-  m_runs   <- m_runs[order(wl_period_of(m_runs))]
-  runs_cmp <- c(wl_ref_run, m_runs)         # Referenz zuerst -> erste Facet/Spalte
-
-  # Referenz + Modell-Laeufe in EINE Long-Tabelle (nur die gewuenschten IDs).
-  df_long <- do.call(rbind, Filter(Negate(is.null), lapply(runs_cmp, load_run_long)))
-  if (is.null(df_long) || nrow(df_long) == 0) {
-    warning("keine Daten fuer Modell ", model, call. = FALSE); next }
+  # benoetigte CSVs einlesen, auf die Wunsch-IDs reduzieren, zu EINER Tabelle.
+  dat <- data.frame()
+  for (r in runs) {
+    f <- file.path(out_base, wl_region, paste0(r, ".csv"))
+    if (!file.exists(f)) { warning("fehlt: ", f, call. = FALSE); next }
+    d <- as.data.frame(data.table::fread(f))
+    d <- d[d$MASTER_ID %in% wl_ids, c("MASTER_ID", "Monat", "T_mean", "P_sum")]
+    d$Zeitlauf <- r
+    dat <- rbind(dat, d)
+  }
+  dat$Zeitlauf <- factor(dat$Zeitlauf, levels = runs)   # Referenz bleibt links
 
   for (id in wl_ids) {
-    # Nur Laeufe mit vollstaendigen 12 Monaten; Referenz MUSS dabei sein und es
-    # braucht mind. einen Zukunftslauf - sonst hat compare_walther_lieth() eine
-    # leere Delta-Liste (-> patchwork ncol = 0 -> "nrow * ncol < n"-Fehler).
-    runs_ok <- wl_runs_ok(df_long, id, runs_cmp)
-    if (!wl_ref_run %in% runs_ok || length(runs_ok) < 2) {
-      warning(id, " / ", model, ": <2 vollstaendige Laeufe (",
-              paste(runs_ok, collapse = ", "), ") - uebersprungen.",
-              call. = FALSE); next }
+    pt <- dat[dat$MASTER_ID == id, ]
+    if (nrow(pt) == 0) { warning(id, " fehlt fuer ", mod, call. = FALSE); next }
 
-    # (a) Small Multiples + Delta-Diagramme ("Walther-Lieth-Vergleich")
-    p_both <- tryCatch(
-      compare_walther_lieth(df_long, id, runs = runs_ok, mode = "both",
-                            ref = wl_ref_run),
-      error = function(e) { warning(id, " / ", model, " (both): ",
-                                    conditionMessage(e), call. = FALSE); NULL })
-    if (!is.null(p_both))
-      ggplot2::ggsave(file.path(wl_cmp_dir, paste0(id, "_", model, "_WLdelta.png")),
-                      p_both, width = 11, height = 9, dpi = 200)
+    # ---- oben: Klimadiagramme nebeneinander (ein Panel je Lauf) --------------
+    # Walther-Lieth-Kopplung: Niederschlag auf die Temperaturachse, 1 degC = 2 mm.
+    pt$P_temp <- pt$P_sum / 2
+    p_oben <- ggplot(pt, aes(Monat)) +
+      geom_ribbon(aes(ymin = pmin(T_mean, P_temp), ymax = pmax(T_mean, P_temp)),
+                  fill = "#9ecae1", alpha = 0.6) +
+      geom_line(aes(y = T_mean), colour = "#c0392b", linewidth = 0.8) +   # Temp rot
+      geom_line(aes(y = P_temp), colour = "#2c5fa8", linewidth = 0.8) +   # Nied. blau
+      facet_wrap(~ Zeitlauf, nrow = 1) +
+      scale_x_continuous(breaks = 1:12, labels = wl_monlab) +
+      scale_y_continuous("Temperatur [\u00b0C]",
+        sec.axis = sec_axis(~ . * 2, name = "Niederschlag [mm]")) +
+      labs(title = paste0("Walther-Lieth-Vergleich \u00b7 ", id), x = "Monat") +
+      theme_minimal()
 
-    # (b) Small Multiples + Empfehlungs-Leiste (nur falls Empfehlungen vorliegen)
-    if (!is.null(wl_rec)) {
-      p_rec <- tryCatch(
-        combine_climate_recommendation(
-          plot_walther_lieth_facets(df_long, id, runs = runs_ok),
-          wl_rec, id, runs = runs_ok),
-        error = function(e) { warning(id, " / ", model, " (rec): ",
-                                      conditionMessage(e), call. = FALSE); NULL })
-      if (!is.null(p_rec))
-        ggplot2::ggsave(file.path(wl_cmp_dir, paste0(id, "_", model, "_WLempf.png")),
-                        p_rec, width = 11, height = 9, dpi = 200)
+    # ---- unten: Differenz Zukunft - Referenz (je Zukunftslauf ein Panel) -----
+    ref <- pt[pt$Zeitlauf == wl_ref_run, c("Monat", "T_mean", "P_sum")]
+    del <- data.frame()
+    for (r in futs) {
+      cur <- pt[pt$Zeitlauf == r, c("Monat", "T_mean", "P_sum")]
+      if (nrow(cur) < 12 || nrow(ref) < 12) next       # unvollstaendig -> weg
+      e <- data.frame(Monat = ref$Monat,
+                      dT = cur$T_mean - ref$T_mean,
+                      dP = cur$P_sum  - ref$P_sum,
+                      Zeitlauf = r)
+      del <- rbind(del, e)
     }
+    if (nrow(del) == 0) { warning(id, " / ", mod, ": kein Delta moeglich.",
+                                  call. = FALSE); next }
+    del$Zeitlauf <- factor(del$Zeitlauf, levels = futs)
+    del$Richtung <- ifelse(del$dP < 0, "trockener", "feuchter")
+
+    p_unten <- ggplot(del, aes(Monat)) +
+      geom_col(aes(y = dP / 2, fill = Richtung), alpha = 0.5) +   # dP auf Temp-Achse
+      geom_hline(yintercept = 0, colour = "grey50") +
+      geom_line(aes(y = dT), colour = "#c0392b", linewidth = 0.8) +
+      geom_point(aes(y = dT), colour = "#c0392b", size = 1.3) +
+      facet_wrap(~ Zeitlauf, nrow = 1) +
+      scale_fill_manual(values = c(feuchter = "#9ecae1", trockener = "#d8b365"),
+                        name = NULL) +
+      scale_x_continuous(breaks = 1:12, labels = wl_monlab) +
+      scale_y_continuous("\u0394Temperatur [\u00b0C]",
+        sec.axis = sec_axis(~ . * 2, name = "\u0394Niederschlag [mm]")) +
+      labs(title = paste0("\u0394 zur Referenz \u00b7 ", id), x = "Monat") +
+      theme_minimal()
+
+    # ---- beide stapeln und speichern ----------------------------------------
+    p <- p_oben / p_unten + plot_layout(heights = c(2, 1.4))
+    ggsave(file.path(wl_cmp_dir, paste0(id, "_", mod, ".png")),
+           p, width = 11, height = 8, dpi = 200)
   }
 }
-# -> je MASTER_ID und Modell: <id>_<Modell>_WLdelta.png (+ _WLempf.png mit Empf.)
-#    in 04_results/WL_compare/NR-08/
+# -> je MASTER_ID und Modell eine PNG <id>_<Modell>.png in
+#    04_results/WL_compare/NR-08/  (oben WL-Vergleich, unten Differenz)
 
 
 # =============================================================================
