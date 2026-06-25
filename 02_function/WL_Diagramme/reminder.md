@@ -3,7 +3,13 @@
 Kurzgedächtnis, was in `02_function/WL_Diagramme/` gebaut wurde, wie es
 zusammenhängt und was noch offen ist.
 
-## Letzter Stand (Session-Updates, Branch-HEAD `363f53f`)
+## Letzter Stand (Session-Updates, Branch-HEAD `f60c81f`)
+- **WL-Plot Fix (`plot_walther_lieth.R`, `wl_panel`), perhumide Zone:** (1) humide
+  Schraffur bei `pt=50` kappen (`yend=pmin(ptf,50)`); (2) perhumide Fläche als EIN
+  `geom_ribbon` (`ymax=pmax(ptf,50)`, `ymin=50`, `has_wet`) statt `wet`/`grp` →
+  läuft am 100-mm-Punkt aus; (3) `ptf` im pt-Raum interpolieren
+  (`approx(monate, monthly$pt, xf)`) wg. `wl_p2t`-Knick bei 100 mm. **Sichtbar nur
+  bei dicker Fläche** — sonst Ausgabe neu erzeugen (`source()` / PNGs neu rendern).
 - **Code-Stil-Wunsch des Nutzers (in `CLAUDE.md` festgehalten):** flach statt
   verschachtelt, sichtbare/anpassbare `ggplot()`-Aufrufe im Skript, debugbar,
   Logik in Schleifen statt in Helfer-/Wrapper-Funktionen. Neue Abschnitte 6.11/
@@ -133,7 +139,8 @@ App: Klick wählt Region+Lauf → passende (schon vorgefilterte) CSV laden →
   matcht `_` überall) und NICHT nur `_v[23]` (verfehlt die NR-Bindestrich-Variante).
 - **`nbrg` aus MASTER_ID:** Stellen 8-9 = Regionsnummer (Stellen 6-7 = "nr").
 - **Encoding:** ältere Dateien als `\u`-Escapes; neue nutzen UTF-8 direkt.
-- **Nicht in R getestet** (Entwicklung ohne lokale R-Installation).
+- **R im Web-Container:** CRAN gesperrt (403). Pakete via apt: `apt-get install
+  r-base-core r-cran-ggplot2 r-cran-patchwork` → Plots real renderbar.
 
 ## Offene Checks / TODOs
 - [ ] `table(polygons$nbrg)` == NR-01..NR-11? (Region-Join verifizieren)
@@ -154,7 +161,8 @@ App: Klick wählt Region+Lauf → passende (schon vorgefilterte) CSV laden →
       gestrippt; aktuell sind RCP45-v2/v3 = 30 J. → unkritisch).
 - [ ] Echte Baumartenempfehlung über `master_id_boden` anbinden; DGM-Lage
       (Aspect/Slope/Exposition/Hangseite) steht in den NR-CSVs bereit.
-- [ ] **Noch in R durchlaufen lassen** (Entwicklung ohne lokale R-Installation).
+- [x] **WL-Plot in R gerendert/verifiziert** (ggplot2 via apt). **Daten-Pipeline**
+      (6.x, NR/BWI `.nc`→CSV) noch nicht durchgelaufen → offen.
 
 ## Branch
 Entwicklung auf `claude/kind-hopper-30mip3`.
