@@ -4,6 +4,20 @@ Kurzgedächtnis, was in `02_function/WL_Diagramme/` gebaut wurde, wie es
 zusammenhängt und was noch offen ist.
 
 ## Letzter Stand (Session-Updates, Branch-HEAD `f60c81f`)
+- **NEU 6.15 — Klima-Wolken-Diagramm (`cloud_diagram.R`, `Cloud_diagram_function()`):**
+  Streudiagramm **x=MAP / y=MAT** über alle BWI-BZE-Punkte aus dem MAT/MAP-RDS (6.6,
+  aus **1049/1050**). **BL** kommt aus dem **NUTS1-Lookup** (`st_within`-Join →
+  `id`→`NUTS_NAME`, einmal als `nuts_id.RDS` vorgerechnet; gilt für JEDEN Punkt —
+  nicht nur wo Bodendaten da sind), **MASTER_ID** aus der Boden-Join-CSV. BL+MASTER_ID
+  werden EINMAL an alle Läufe gehängt und als **Cache-RDS** abgelegt (`rebuild_cache`).
+  Plot: Wolke (DE dunkelgrau, BL hellgrau) + **Klima-Schwerpunkte je Lauf** (DE-Mittel
+  Dreieck, MASTER_ID-Station Kreis); `Klimalauf_compare` (Vektor) zeichnet die
+  **Mittelpunktverschiebung** als Pfeil Referenz→Vergleich. Normale Legende
+  (Farbe=Lauf/Klasse, Form=DE-Mittel/Station), **kein** alpha, **keine** Boxen/Text.
+  Achsentitel ausgeschrieben. Eingebunden in `run_klimadiagramme.R` 6.15.
+  - Reine df-Variante mit denselben drei Ebenen: `climate_space.R` → `plot_climate_space()`.
+  - `BL`-aus-`MASTER_ID` (Länderschlüssel*10, z. B. `BWI_090…`→9→BY) verworfen, weil
+    es BL nur dort liefert, wo eine MASTER_ID/Boden existiert → NUTS1-Join ist robuster.
 - **WL-Plot Fix (`plot_walther_lieth.R`, `wl_panel`), perhumide Zone:** (1) humide
   Schraffur bei `pt=50` kappen (`yend=pmin(ptf,50)`); (2) perhumide Fläche als EIN
   `geom_ribbon` (`ymax=pmax(ptf,50)`, `ymin=50`, `has_wet`) statt `wet`/`grp` →
