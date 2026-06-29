@@ -46,6 +46,14 @@ bae_variante <- function(szenario, modell) {
   ifelse(is.na(v), "Basis", tolower(v))
 }
 
+# Szenario-Label inkl. Variante fuer Achsen-/Facet-Beschriftung:
+# "RCP45" -> "RCP45_v2"/"RCP45_v3" wenn eine Variante vorhanden ist,
+# sonst unveraendert ("RCP45", "RCP85", "OBS").
+bae_szenario_label <- function(szenario, modell) {
+  v <- bae_variante(szenario, modell)
+  ifelse(v == "Basis", as.character(szenario), paste0(szenario, "_", v))
+}
+
 # ---- 2. Farbpaletten ----
 
 kat_palette <- c(

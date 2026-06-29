@@ -274,12 +274,16 @@ heatmap_standort_ggplot <- function(df, stufe = "BAE_4ST",
   d$TV  <- factor(d$TV,  levels = sort(unique(d$TV), decreasing = TRUE))
   d$Baumart <- factor(d$Baumart, levels = sort(unique(d$Baumart)))
   d$Zeitraum_kurz <- sub(".*_", "", d$Zeitlauf)
-  
+  # Variante (v2/v3) in die Facet-Zeile aufnehmen, damit RCP45_v2/RCP45_v3
+  # eigene, beschriftete Zeilen bekommen (sonst Ueberlagerung in "RCP45").
+  d$Szenario_var <- factor(bae_szenario_label(d$Szenario, d$Modell),
+                           levels = sort(unique(bae_szenario_label(d$Szenario, d$Modell))))
+
   ggplot2::ggplot(d, ggplot2::aes(x = Baumart, y = TV, fill = Kat)) +
     ggplot2::geom_tile(color = "white", linewidth = 0.5) +
     ggplot2::scale_fill_manual(values = kat_palette, na.value = "#B0B0B0",
                                breaks = names(kat_palette), drop = TRUE) +
-    ggplot2::facet_grid(Szenario ~ Zeitraum) +
+    ggplot2::facet_grid(Szenario_var ~ Zeitraum) +
     ggplot2::scale_x_discrete(position = "top") +
     ggplot2::labs(
       title    = paste0("BAE-Heatmap \u2013 ", unique(d$MASTER_ID)[1]),
@@ -368,13 +372,16 @@ heatmap_bae_zukunft_function <- function(
   d$Kat     <- factor(d$Kat, levels = names(kat_palette))
   d$TV      <- factor(d$TV,  levels = sort(unique(d$TV), decreasing = TRUE))
   d$Baumart <- factor(d$Baumart, levels = sort(unique(d$Baumart)))
+  # Variante (v2/v3) in die Facet-Zeile aufnehmen (eigene RCP45_v2/_v3-Zeilen).
+  d$Szenario_var <- factor(bae_szenario_label(d$Szenario, d$Modell),
+                           levels = sort(unique(bae_szenario_label(d$Szenario, d$Modell))))
 
   # 4. Plot: Szenario (Zeilen) x Zeitraum (Spalten), Baumart x TV je Block
   p <- ggplot2::ggplot(d, ggplot2::aes(x = Baumart, y = TV, fill = Kat)) +
     ggplot2::geom_tile(color = "white", linewidth = 0.5) +
     ggplot2::scale_fill_manual(values = kat_palette, na.value = "#B0B0B0",
                                breaks = names(kat_palette), drop = TRUE) +
-    ggplot2::facet_grid(Szenario ~ Zeitraum) +
+    ggplot2::facet_grid(Szenario_var ~ Zeitraum) +
     ggplot2::scale_x_discrete(position = "top") +
     ggplot2::labs(
       title    = paste0("BAE-Heatmap Zukunft – ", as.character(master_id)),

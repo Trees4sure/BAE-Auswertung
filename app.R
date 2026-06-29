@@ -569,10 +569,15 @@ ui <- tagList(
                    # RCP45-Varianten (Basis/v2/v3) explizit ein-/ausschalten.
                    # Nur einblenden, wenn es ueberhaupt Varianten gibt.
                    if (length(rcp45_var_choices) > 1)
-                     checkboxGroupInput("sa_rcp45_var", "RCP45-Varianten:",
-                                        choices  = rcp45_var_choices,
-                                        selected = rcp45_var_choices,
-                                        inline   = TRUE),
+                     checkboxGroupInput(
+                       "sa_rcp45_var", "RCP45-Varianten:",
+                       choices  = setNames(
+                         rcp45_var_choices,
+                         ifelse(rcp45_var_choices == "Basis",
+                                "RCP45 (Basis)",
+                                paste0("RCP45_", rcp45_var_choices))),
+                       selected = rcp45_var_choices,
+                       inline   = TRUE),
                    tags$label(class = "control-label", "Bewertungsstufe:"),
                    radioButtons("sa_stufe", label = NULL,
                                 choices  = c("3-stufig"="BAE_3ST","4-stufig"="BAE_4ST",
