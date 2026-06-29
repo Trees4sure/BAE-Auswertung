@@ -1,34 +1,35 @@
 # =============================================================================
-# Klima-Wolken-Diagramm (MAT vs. MAP) als parametrisierte Funktion
+# Klima-Wolken-Diagramm (MAP vs. MAT) als parametrisierte Funktion
 #
 # Cloud_diagram_function() zeichnet die deutschlandweite Klima-Punktwolke fuer
-# EINEN Klimalauf und hebt hervor:
-#   - alle DE-Punkte            -> dunkelgrau
-#   - ein Bundesland (BL)        -> hellgrau
-#   - eine/mehrere MASTER_ID(s)  -> rot (Station) + Beschriftung
-#   - Referenz-Klimaraum         -> blaue 95%-Perzentil-Box + Mittel (Dreieck)
-# Optional ein Vergleichslauf (Klimalauf_compare):
-#   - darkred 95%-Perzentil-Box + Mittel + Beschriftung UEBER der Box
-#   - erwartete Lage der MASTER_ID im Vergleichslauf (darkred Punkt) + Pfeil von
-#     der Referenz-Lage dorthin
-#   - Delta-Text (\u00d8 MAT/MAP Vergleich - Referenz)
+# EINEN Referenzlauf:
+#   - alle DE-Punkte    -> dunkelgrau
+#   - ein Bundesland (BL) -> hellgrau
+# und darueber die MITTELPUNKTE (Klima-Schwerpunkte) als Punkte:
+#   - DE-Mittel (Dreieck) und die ausgewaehlte MASTER_ID-Station (Kreis),
+#     je Lauf in einer eigenen Farbe.
+# Optional ein/mehrere Vergleichslauf(e) (Klimalauf_compare als Vektor): deren
+# DE-Mittel + Stationslage werden ebenfalls gezeichnet und mit einem Pfeil von
+# der Referenz-Lage verbunden -> sichtbare "Mittelpunktverschiebung".
+#
+# Keine Boxen, keine Text-Bloecke - die Zuordnung laeuft ueber eine normale
+# Legende (Farbe = Lauf bzw. Punkt-Klasse, Form = DE-Mittel/Station).
+# Achsen: x = MAP (Niederschlag), y = MAT (Temperatur).
 #
 # MAT/MAP kommen aus 6.6 (BWI_Klimadaten_MATMAP.RDS, dort aus 1049/1050 gemittelt).
-# BL wird RAEUMLICH ueber die NUTS1-Landesgrenzen bestimmt (Lookup id -> NUTS_NAME,
-# einmal vorgerechnet als nuts_id.RDS), MASTER_ID aus der Boden-Join-CSV. Beide
-# sind je Punkt (id) lauf-unabhaengig -> sie werden EINMAL an alle Laeufe gehaengt
-# und als Cache-RDS abgelegt; weitere Aufrufe lesen nur noch + filtern.
+# BL ueber den NUTS1-Lookup (id -> NUTS_NAME), MASTER_ID aus der Boden-Join-CSV;
+# beide sind je Punkt (id) lauf-unabhaengig -> EINMAL anreichern + Cache-RDS.
 #
-# Pakete: dplyr, ggplot2 (grid fuer den Pfeil; base). sf nur fuer das einmalige
+# Pakete: dplyr, ggplot2 (grid fuer den Pfeil). sf nur fuer das einmalige
 # Erzeugen von nuts_id.RDS (s. Block am Dateiende), nicht im Normalbetrieb.
 # =============================================================================
 
 
-#' @param Klimalauf.choose  Referenzlauf (x/y der Wolke), Default OBS_DWD_1991-2020.
-#' @param Klimalauf_compare Optionaler Vergleichslauf (NULL = keiner).
-#' @param MASTER_ID.choose  Eine (oder mehrere) MASTER_ID(s) fuer die rote Station.
+#' @param Klimalauf.choose  Referenzlauf (Wolke), Default OBS_DWD_1991-2020.
+#' @param Klimalauf_compare Optionale(r) Vergleichslauf/-laeufe (Vektor; NULL = keiner).
+#' @param MASTER_ID.choose  Eine (oder mehrere) MASTER_ID(s) fuer die Station.
 #' @param BL_choose         Bundesland-Kuerzel fuer die hellgraue Ebene.
-#' @param New_label         Anderes Label fuer die Station (NULL = MASTER_ID).
+#' @param New_label         Label fuer die Station in der Form-Legende (NULL = "Station").
 #' @param rds_path          MAT/MAP-RDS aus 6.6.
 #' @param nuts_rds          Lookup id -> NUTS_NAME (einmal vorgerechnet).
 #' @param boden_csv         BWI-BZE_Klima_Boden_Join.csv (id_bwi_bze -> MASTER_ID).
@@ -102,7 +103,7 @@ Cloud_diagram_function <- function(
     if (!is.null(cache_rds)) saveRDS(clim, cache_rds)
   }
 
-  # -- (b) Referenzlauf + (optional) Vergleichslauf herausziehen ---------------
+  # -- (b) Referenzlauf herausziehen + Ebenen-Daten ----------------------------
   fin   <- function(d) d[is.finite(d$MAT) & is.finite(d$MAP), , drop = FALSE]
   cloud <- fin(clim[clim$Zeitlauf == Klimalauf.choose, , drop = FALSE])
   if (nrow(cloud) == 0)
@@ -110,124 +111,94 @@ Cloud_diagram_function <- function(
 
   bl_pick  <- BL_choose
   mid_pick <- MASTER_ID.choose
-  new_label <- if (!is.null(New_label)) New_label else paste(mid_pick, collapse = ", ")
+  typ_stat <- if (!is.null(New_label)) New_label else "Station"
 
   cloud_bl <- cloud[!is.na(cloud$BL) & cloud$BL == bl_pick, , drop = FALSE]
   if (nrow(cloud_bl) == 0)
     warning("Keine Punkte fuer Bundesland '", bl_pick, "'.", call. = FALSE)
 
-  # je MASTER_ID EIN roter Punkt (mehrere Zellen je MASTER_ID -> Mittel)
-  cloud_sel <- aggregate(cbind(MAT, MAP) ~ MASTER_ID,
-                         cloud[cloud$MASTER_ID %in% mid_pick, , drop = FALSE], mean)
-  if (nrow(cloud_sel) == 0)
-    stop("MASTER_ID '", paste(mid_pick, collapse = ", "),
-         "' nicht im Lauf ", Klimalauf.choose, ".")
-  cloud_sel$lab <- if (nrow(cloud_sel) == 1) new_label else cloud_sel$MASTER_ID
+  cat_all <- "alle DE-Punkte"
+  cat_bl  <- paste0("Bundesland ", bl_pick)
 
-  # -- (c) Referenz-Klimaraum: 95%-Box (2.5/97.5) + Mittel ---------------------
-  mat_pct <- quantile(cloud$MAT, c(0.025, 0.975), na.rm = TRUE)
-  map_pct <- quantile(cloud$MAP, c(0.025, 0.975), na.rm = TRUE)
-
-  txt <- paste0(
-    "DE: ",     round(mean(cloud$MAT), 1),    "\u00b0C, ", round(mean(cloud$MAP)),    " mm\n",
-    bl_pick, ": ", round(mean(cloud_bl$MAT), 1), "\u00b0C, ", round(mean(cloud_bl$MAP)), " mm\n",
-    paste0(cloud_sel$lab, ": ", round(cloud_sel$MAT, 1), "\u00b0C, ",
-           round(cloud_sel$MAP), " mm", collapse = "\n"))
-
-  # -- (d) Plot von hinten nach vorne ------------------------------------------
-  p <- ggplot() +
-    geom_point(data = cloud,    aes(MAT, MAP),
-               colour = "grey30", size = 0.75, alpha = 0.35) +   # alle DE
-    geom_point(data = cloud_bl, aes(MAT, MAP),
-               colour = "grey75", size = 0.75, alpha = 0.9) +    # Bundesland
-    # Referenz-Klimaraum (blau)
-    annotate("rect", xmin = mat_pct[1], xmax = mat_pct[2],
-             ymin = map_pct[1], ymax = map_pct[2],
-             fill = NA, colour = "blue", linewidth = 1) +
-    annotate("point", x = mean(cloud$MAT, na.rm = TRUE),
-             y = mean(cloud$MAP, na.rm = TRUE),
-             colour = "blue", size = 4, shape = 17) +
-    annotate("text", x = mean(mat_pct), y = map_pct[2], label = Klimalauf.choose,
-             colour = "blue", size = 3.5, vjust = -0.6, fontface = "bold") +
-    # ausgewaehlte Station (Referenz, rot)
-    geom_point(data = cloud_sel, aes(MAT, MAP),
-               colour = "white", fill = "#c0392b",
-               shape = 21, size = 3, stroke = 0.8) +
-    geom_text(data = cloud_sel, aes(MAT, MAP, label = lab),
-              colour = "#c0392b", size = 5, vjust = 2) +
-    # Kennzahlen-Block oben links (datenrelativ verankert)
-    annotate("text", x = -Inf, y = Inf, label = txt,
-             colour = "black", size = 4, hjust = -0.05, vjust = 1.1)
-
-  # -- (e) Vergleichslauf (optional): Box + Beschriftung + erwartete Lage ------
-  if (!is.null(Klimalauf_compare)) {
-    cmp <- fin(clim[clim$Zeitlauf == Klimalauf_compare, , drop = FALSE])
-    if (nrow(cmp) == 0) {
-      warning("Vergleichslauf '", Klimalauf_compare,
-              "' nicht in den Daten - Box uebersprungen.", call. = FALSE)
-    } else {
-      mat_pct_c <- quantile(cmp$MAT, c(0.025, 0.975), na.rm = TRUE)
-      map_pct_c <- quantile(cmp$MAP, c(0.025, 0.975), na.rm = TRUE)
-      dMAT <- mean(cmp$MAT, na.rm = TRUE) - mean(cloud$MAT, na.rm = TRUE)
-      dMAP <- mean(cmp$MAP, na.rm = TRUE) - mean(cloud$MAP, na.rm = TRUE)
-
-      # erwartete Lage der Station(en) im Vergleichslauf (Mittel je MASTER_ID)
-      sel_c <- aggregate(cbind(MAT, MAP) ~ MASTER_ID,
-                         cmp[cmp$MASTER_ID %in% mid_pick, , drop = FALSE], mean)
-
-      p <- p +
-        annotate("rect", xmin = mat_pct_c[1], xmax = mat_pct_c[2],
-                 ymin = map_pct_c[1], ymax = map_pct_c[2],
-                 fill = NA, colour = "darkred", linewidth = 1) +
-        annotate("point", x = mean(cmp$MAT, na.rm = TRUE),
-                 y = mean(cmp$MAP, na.rm = TRUE),
-                 colour = "darkred", size = 4, shape = 17) +
-        # Bezeichnung UEBER dem darkred-Kasten
-        annotate("text", x = mean(mat_pct_c), y = map_pct_c[2], label = Klimalauf_compare,
-                 colour = "darkred", size = 3.5, vjust = -0.6, fontface = "bold") +
-        # Delta-Text oben rechts
-        annotate("text", x = Inf, y = Inf,
-                 label = paste0("\u0394 zu ", Klimalauf_compare, ": MAT ",
-                                round(dMAT, 1), "\u00b0C, MAP ", round(dMAP), " mm"),
-                 colour = "darkred", size = 4, hjust = 1.1, vjust = 1.1)
-
-      if (nrow(sel_c) > 0) {
-        sel_c$lab <- if (nrow(sel_c) == 1) new_label else sel_c$MASTER_ID
-        # Pfeil von der Referenz-Lage zur erwarteten Zukunfts-Lage je MASTER_ID
-        seg <- merge(cloud_sel[, c("MASTER_ID", "MAT", "MAP")],
-                     sel_c[, c("MASTER_ID", "MAT", "MAP")],
-                     by = "MASTER_ID", suffixes = c("_ref", "_cmp"))
-        p <- p +
-          geom_segment(data = seg,
-                       aes(x = MAT_ref, y = MAP_ref, xend = MAT_cmp, yend = MAP_cmp),
-                       colour = "darkred", linewidth = 0.6, linetype = "dashed",
-                       arrow = grid::arrow(length = grid::unit(0.18, "cm"))) +
-          geom_point(data = sel_c, aes(MAT, MAP),
-                     colour = "white", fill = "darkred",
-                     shape = 21, size = 3, stroke = 0.8) +
-          geom_text(data = sel_c, aes(MAT, MAP, label = lab),
-                    colour = "darkred", size = 4, vjust = 2)
-      }
+  # -- (c) Mittelpunkte je Lauf: DE-Mittel + Stationslage ----------------------
+  # helper: Klima-Schwerpunkte eines Laufs (DE-Mittel + Mittel je MASTER_ID)
+  mids_of <- function(d, lauf) {
+    de <- data.frame(MAP = mean(d$MAP, na.rm = TRUE), MAT = mean(d$MAT, na.rm = TRUE),
+                     MASTER_ID = NA_character_, Lauf = lauf, Typ = "DE-Mittel")
+    sub <- d[d$MASTER_ID %in% mid_pick, , drop = FALSE]
+    st <- if (nrow(sub) == 0) NULL else {
+      a <- aggregate(cbind(MAP, MAT) ~ MASTER_ID, sub, mean)
+      data.frame(MAP = a$MAP, MAT = a$MAT, MASTER_ID = a$MASTER_ID,
+                 Lauf = lauf, Typ = typ_stat)
     }
+    rbind(de, st)
   }
 
-  # -- (f) Achsen / Stil --------------------------------------------------------
+  ref   <- Klimalauf.choose
+  mids  <- mids_of(cloud, ref)
+
+  cmp_runs <- if (is.null(Klimalauf_compare)) character(0) else as.character(Klimalauf_compare)
+  segs <- data.frame()                      # Pfeile Referenz -> Vergleich
+  for (r in cmp_runs) {
+    cmp <- fin(clim[clim$Zeitlauf == r, , drop = FALSE])
+    if (nrow(cmp) == 0) {
+      warning("Vergleichslauf '", r, "' nicht in den Daten - uebersprungen.",
+              call. = FALSE); next
+    }
+    m_r  <- mids_of(cmp, r)
+    mids <- rbind(mids, m_r)
+    # Pfeil je Typ (DE-Mittel + je MASTER_ID) von der Referenz-Lage zur Vergleichs-Lage
+    a <- merge(mids[mids$Lauf == ref, c("Typ", "MASTER_ID", "MAP", "MAT")],
+               m_r[, c("Typ", "MASTER_ID", "MAP", "MAT")],
+               by = c("Typ", "MASTER_ID"), suffixes = c("", "_end"))
+    if (nrow(a) > 0)
+      segs <- rbind(segs, data.frame(MAP = a$MAP, MAT = a$MAT,
+                                     xend = a$MAP_end, yend = a$MAT_end, Lauf = r))
+  }
+
+  # -- (d) Farb-/Form-Skalen ----------------------------------------------------
+  run_levels <- c(ref, cmp_runs)
+  run_pal    <- c("#2166ac", "#b2182b", "#e08214", "#1b7837", "#762a83", "#5e3c99")
+  run_cols   <- stats::setNames(run_pal[seq_along(run_levels)], run_levels)
+  col_vals   <- c(stats::setNames("grey30", cat_all),
+                  stats::setNames("grey75", cat_bl), run_cols)
+
+  mids$Lauf <- factor(mids$Lauf, levels = run_levels)
+  if (nrow(segs) > 0) segs$Lauf <- factor(segs$Lauf, levels = run_levels)
+
+  # -- (e) Plot: Wolke + Mittelpunkte + Verschiebungs-Pfeile -------------------
+  p <- ggplot() +
+    geom_point(data = cloud,    aes(MAP, MAT, colour = cat_all), size = 0.75) +
+    geom_point(data = cloud_bl, aes(MAP, MAT, colour = cat_bl),  size = 0.75)
+  if (nrow(segs) > 0)
+    p <- p + geom_segment(data = segs,
+                          aes(x = MAP, y = MAT, xend = xend, yend = yend, colour = Lauf),
+                          linewidth = 0.6, linetype = "dashed",
+                          arrow = grid::arrow(length = grid::unit(0.18, "cm")))
   p <- p +
-    coord_cartesian(clip = "off") +
-    labs(title    = "Vergleich Jahres-Temperatur (MAT) und Niederschlag (MAP)",
-         subtitle = paste0(Klimalauf.choose, "  \u00b7  alle DE (dunkelgrau)  \u00b7  ",
-                           bl_pick, " (hellgrau)  \u00b7  Auswahl (rot)"),
-         x = "MAT [\u00b0C]", y = "MAP [mm]") +
-    theme_minimal(base_size = 11) +
+    geom_point(data = mids, aes(MAP, MAT, colour = Lauf, shape = Typ),
+               size = 3.5, stroke = 1) +
+    scale_colour_manual(name = NULL, values = col_vals,
+                        limits = names(col_vals), breaks = names(col_vals)) +
+    scale_shape_manual(name = NULL,
+                       values = stats::setNames(c(17, 19), c("DE-Mittel", typ_stat))) +
+    guides(colour = guide_legend(order = 1,
+                                 override.aes = list(shape = 16, size = 3, linetype = 0)),
+           shape  = guide_legend(order = 2,
+                                 override.aes = list(size = 3, colour = "black"))) +
+    labs(title = "Klimaraum MAP vs. MAT \u2013 Mittelpunktverschiebung",
+         subtitle = paste(run_levels, collapse = "  \u2192  "),
+         x = "Jahresniederschlag MAP [mm]",
+         y = "Jahresmitteltemperatur MAT [\u00b0C]") +
+    theme_minimal(base_size = 12) +
     theme(panel.grid.minor = element_blank())
 
-  # -- (g) optional speichern ---------------------------------------------------
+  # -- (f) optional speichern ---------------------------------------------------
   if (!is.null(save_dir)) {
     dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
     tag <- gsub("[^A-Za-z0-9]+", "_", mid_pick[1])
-    fn  <- paste0("MATMAP_", bl_pick, "_", tag, "_", Klimalauf.choose,
-                  if (!is.null(Klimalauf_compare)) paste0("_vs_", Klimalauf_compare) else "",
-                  ".png")
+    cmp_tag <- if (length(cmp_runs)) paste0("_vs_", paste(cmp_runs, collapse = "_")) else ""
+    fn  <- paste0("MATMAP_", bl_pick, "_", tag, "_", Klimalauf.choose, cmp_tag, ".png")
     ggsave(file.path(save_dir, fn), p, width = 8, height = 6, dpi = 200)
   }
 

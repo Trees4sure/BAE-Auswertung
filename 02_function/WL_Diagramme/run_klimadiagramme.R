@@ -666,16 +666,16 @@ for (csv in wl_csvs) {
 #    (Einzeldiagramme JE MASTER_ID liefert weiterhin Abschnitt 6.10.)
 
 
-## 6.15  Klima-Wolken-Diagramm (MAT vs. MAP) ueber ALLE BWI-BZE-Punkte --------
-# Streudiagramm der Klima-Nische ganz Deutschlands: x = MAT (1049, Jahresmittel-
-# temperatur), y = MAP (1050, Jahresniederschlag), ein Punkt je BWI-BZE-Standort.
+## 6.15  Klima-Wolken-Diagramm (MAP vs. MAT) ueber ALLE BWI-BZE-Punkte --------
+# Streudiagramm der Klima-Nische ganz Deutschlands (x = MAP/1050 Jahresnieder-
+# schlag, y = MAT/1049 Jahresmitteltemperatur), ein Punkt je BWI-BZE-Standort.
 # Cloud_diagram_function() (in cloud_diagram.R) reichert das MAT/MAP-RDS (6.6)
 # EINMAL mit BL (NUTS1-Lookup, fuer JEDEN Punkt - auch ohne Boden) und MASTER_ID
 # (Boden-Join-CSV) an, legt es als Cache-RDS ab und plottet:
-#   - alle DE-Punkte dunkelgrau, gewaehltes Bundesland hellgrau, MASTER_ID rot
-#   - Referenz-Klimaraum: blaue 95%-Box + Mittel + Lauf-Beschriftung
-#   - optional Vergleichslauf: darkred 95%-Box + Mittel + Beschriftung darueber,
-#     erwartete Lage der MASTER_ID im Vergleichslauf (Punkt + Pfeil), Delta-Text
+#   - alle DE-Punkte dunkelgrau, gewaehltes Bundesland hellgrau (normale Legende)
+#   - Klima-Schwerpunkte je Lauf: DE-Mittel (Dreieck) + MASTER_ID-Station (Kreis)
+#   - optional ein/mehrere Vergleichslauf(e): deren Schwerpunkte + gestrichelter
+#     Pfeil von der Referenz-Lage -> sichtbare MITTELPUNKTVERSCHIEBUNG
 #
 # Voraussetzung: nuts_id.RDS (Lookup id -> NUTS_NAME) liegt vor - einmal mit dem
 # Block am Ende von cloud_diagram.R aus dem NUTS1-Shapefile erzeugen.
@@ -683,8 +683,8 @@ source(file.path(wl_dir, "cloud_diagram.R"))
 
 p_cloud <- Cloud_diagram_function(
   Klimalauf.choose  = "OBS_DWD_1991-2020",
-  Klimalauf_compare = "RCP85_MPICLM_2071-2100",   # NULL = ohne Vergleich
-  MASTER_ID.choose  = "BWI_130_36567_4",          # Station (rot), z.B. Kali\u00df
+  Klimalauf_compare = "RCP85_MPICLM_2071-2100",   # NULL oder Vektor mehrerer Laeufe
+  MASTER_ID.choose  = "BWI_130_36567_4",          # Station, z.B. Kali\u00df
   BL_choose         = "MV",
   New_label         = "Kali\u00df",
   save_dir          = file.path("04_results", "WL_cloud"))
