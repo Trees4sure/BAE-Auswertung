@@ -313,12 +313,15 @@ heatmap_standort_ggplot <- function(df, stufe = "BAE_4ST",
 #           MASTER_ID, Baumart, TV, Zeitlauf, Szenario, Zeitraum, BAE_*ST.
 # stufe   : "BAE_3ST" | "BAE_4ST" | "BAE_5ST" | "BAE_7ST"
 # zukunft : Vektor regulaerer Ausdruecke, die gegen Zeitlauf gematcht werden.
-#           Default = alle RCP45-Laeufe + RCP85_MPICLM_2071-2100.
+#           Default = alle RCP45-Laeufe (inkl. Varianten RCP45-v2/-v3 bzw.
+#           Modellvarianten ECECMO-v2/MPICLM-v2) + RCP85_MPICLM_2071-2100
+#           (inkl. MPICLM-Varianten). Hinweis: "^RCP45" ohne abschliessenden
+#           Unterstrich, damit auch "RCP45-v2_..." (Bindestrich) gematcht wird.
 
 heatmap_bae_zukunft_function <- function(
     data, master_id,
     stufe   = "BAE_4ST",
-    zukunft = c("^RCP45_", "^RCP85_MPICLM_2071-2100$"),
+    zukunft = c("^RCP45", "^RCP85_MPICLM.*2071-2100$"),
     out_dir = "04_results/BAE_Auswertung/heatmap") {
 
   kat_col <- toupper(stufe)
