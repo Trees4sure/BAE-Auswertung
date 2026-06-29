@@ -146,10 +146,13 @@ Boden_BZT.dir.NR     <- bzt_data$NR
 
 # project_root als local_dir uebergeben: absoluter Projektstamm-Pfad,
 # wird in init_karte_daten() fuer den NR-Geodaten-Pfad benoetigt
+# init_wm() ZUERST: haengt nur an WM_DIR (oben gesetzt) und ist unabhaengig von
+# init_karte_daten(). So bleibt der WM-Pfad fuer den Karten-Klick auch dann
+# initialisiert, falls init_karte_daten() einmal mit einem Fehler abbricht.
+init_wm(wm_dir = WM_DIR)
 init_karte_daten(geo_dir    = geo_dir,
                  result_dir = result_dir,
                  local_dir  = LOCAL_DIR)
-init_wm(wm_dir = WM_DIR)
 init_app_cache()
 
 ## ---- 0.6 Globals fuer reaktive Funktionen spiegeln ----

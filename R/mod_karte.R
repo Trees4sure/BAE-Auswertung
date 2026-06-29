@@ -140,13 +140,22 @@ init_karte_daten <- function(geo_dir    = NULL,
                                   pattern = "\\.csv$", full.names = TRUE)
   klima_meta       <<- parse_klimalauf(csv_files)
   szenario_choices <<- sort(unique(klima_meta$Szenario))
-  modell_choices   <<- sort(unique(klima_meta$Modell))
-  zeitraum_choices <<- sort(unique(klima_meta$Zeitraum))
-  # RCP45-Varianten (Basis/v2/v3/...) – nur die real vorhandenen
-  rcp45_var_choices <<- {
-    rc <- startsWith(klima_meta$Szenario, "RCP45")
-    sort(unique(bae_variante(klima_meta$Szenario[rc], klima_meta$Modell[rc])))
-  }
+  # Zusatz-Choices defensiv ableiten: ein Fehler hier darf init_karte_daten()
+  # NICHT abbrechen, sonst wuerde das nachfolgende init_wm() uebersprungen und
+  # der Karten-Klick faende keine WM-Daten mehr.
+  tryCatch({
+    modell_choices    <<- sort(unique(klima_meta$Modell))
+    zeitraum_choices  <<- sort(unique(klima_meta$Zeitraum))
+    rc                <- startsWith(as.character(klima_meta$Szenario), "RCP45")
+    rcp45_var_choices <<- sort(unique(bae_variante(klima_meta$Szenario[rc],
+                                                   klima_meta$Modell[rc])))
+  }, error = function(e) {
+    message("Zusatz-Choices (Modell/Zeitraum/RCP45-Varianten) nicht ableitbar: ",
+            e$message)
+    modell_choices    <<- character(0)
+    zeitraum_choices  <<- character(0)
+    rcp45_var_choices <<- character(0)
+  })
 
   sample_df       <- data.table::fread(csv_files[1])
   baumart_choices <<- sort(unique(sample_df$Baumart))
