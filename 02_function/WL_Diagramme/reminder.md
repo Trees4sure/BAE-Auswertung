@@ -96,6 +96,7 @@ vergleichen und den **Grund** für einen Empfehlungswechsel sichtbar zu machen.
 | `wl_master_id.R` | `wl_split_quelle()` (idempotent), `read_nc_id_grid()`, `build_bwi_master_lookup(geom=)`, `attach_master_id()`, `wl_aggregate_master()`, `attach_bwi_geometry()`, `write_region_csvs()`, **`write_run_csvs()`**, **`wl_region_diagram(csv_path)`** (WL aus fertiger CSV) |
 | `wl_master_id_nr.R` | NR-Pfad (streamend): `load_nr_polygons()`, `nr_build_raster()`, `nr_extract_long()`, `wl_month_nr_from_files(..., run_label=)`, `wl_trend_nr_from_files(..., run_label=)` (`run_label`=positionale 1:1-Paarung für v2/v3) |
 | `recommendation_strip.R` / `compose_overview.R` | Empfehlungs-Leiste / Gesamtgrafik |
+| `climate_space.R` | `plot_climate_space()` — Klima-Wolken-Diagramm MAT(x)/MAP(y): alle Punkte dunkelgrau, Bundesland (`BL`, Default `MV`) hellgrau, ausgewählte `MASTER_ID`s rot; `climate_space_from_wali_trend()` als Brücke aus dem WaLi-Trend-Long-Format |
 | `run_klimadiagramme.R` | **Orchestrator** (6.1–6.14): laden → WL/Trend → Region/Lauf-CSVs (6.1–6.9); je-MASTER_ID-Einzeldiagramme (6.10); Lauf-Vergleich Ref vs. Zukunft (6.11); gestaffelter WL + De-Martonne (6.12); T/P-Debug (6.13); Regions-Mittel-WL je Lauf (6.14) |
 
 Pakete: `terra, sf, exactextractr, ncdf4, dplyr, tidyr, ggplot2, patchwork`.

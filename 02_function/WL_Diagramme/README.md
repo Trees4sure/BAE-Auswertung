@@ -178,6 +178,48 @@ compose_scenario_overview(wl, rec, 70041234,
 
 Komplettes Beispiel: `source("02_function/WL_Diagramme/testdata/demo_compare.R")`.
 
+## Klima-Wolken-Diagramm (MAT vs. MAP über alle BWI-BZE-Punkte)
+
+`climate_space.R` → `plot_climate_space()` zeichnet die deutschlandweite
+**Klima-Punktwolke** (Streudiagramm Jahresmitteltemperatur **MAT** auf der
+x-Achse gegen Jahresniederschlag **MAP** auf der y-Achse) für einen Klimalauf
+(Default `OBS_DWD_1991-2020`). Drei Ebenen, von hinten nach vorne:
+
+1. **alle** BWI-BZE-Punkte → dunkelgrau (`grey30`),
+2. ein **Bundesland** (Spalte `BL`, Default `"MV"`) → hellgrau (`grey75`),
+3. **ausgewählte MASTER_IDs** → rot (`COL_TEMP`), beschriftet (ggrepel, sonst
+   `geom_text`).
+
+Bundesland **und** MASTER_ID(s) sind frei wählbar; alle Spaltennamen lassen
+sich über die `*_col`-Argumente anpassen.
+
+```r
+source("02_function/WL_Diagramme/walther_lieth_helpers.R")  # COL_TEMP (Rot)
+source("02_function/WL_Diagramme/climate_space.R")
+
+# df: eine Zeile je Punkt (je Lauf): MASTER_ID | BL | Zeitlauf | MAT | MAP
+plot_climate_space(df,
+  master_ids   = c(70000123, 70000456),   # zwei Standorte rot
+  highlight_bl = "MV",                     # Bundesland hellgrau
+  run          = "OBS_DWD_1991-2020")      # Klimalauf-Filter
+
+# beliebiges anderes Bundesland / andere IDs:
+plot_climate_space(df, master_ids = 70012345, highlight_bl = "BY")
+```
+
+Liegen die Jahreswerte nur als WaLi-Trend-Long-Format vor (`id | Zeitlauf |
+T_year | P_year`), erzeugt `climate_space_from_wali_trend()` daraus die
+Punkt-MAT/MAP (Mittel über die Jahre) und benennt `id → MASTER_ID`:
+
+```r
+cs <- climate_space_from_wali_trend(ts, run = "OBS_DWD_1991-2020")
+plot_climate_space(cs, master_ids = c(...), highlight_bl = "MV", run = NULL)
+```
+
+Beispieldaten: `source("02_function/WL_Diagramme/testdata/make_climate_space_test.R")`
+schreibt `testdata/climate_space_test.csv`
+(`MASTER_ID | BL | Zeitlauf | MAT | MAP`) und zeichnet einen Kontroll-Plot.
+
 ## Hinweise
 
 - `scale = NULL` prüft automatisch per Plausibilität, ob noch ×10 in den
