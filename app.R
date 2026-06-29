@@ -566,6 +566,13 @@ ui <- tagList(
                                   multiple = TRUE,
                                   options  = list(placeholder = "leer = alle",
                                                   plugins = list("remove_button"))),
+                   # RCP45-Varianten (Basis/v2/v3) explizit ein-/ausschalten.
+                   # Nur einblenden, wenn es ueberhaupt Varianten gibt.
+                   if (length(rcp45_var_choices) > 1)
+                     checkboxGroupInput("sa_rcp45_var", "RCP45-Varianten:",
+                                        choices  = rcp45_var_choices,
+                                        selected = rcp45_var_choices,
+                                        inline   = TRUE),
                    tags$label(class = "control-label", "Bewertungsstufe:"),
                    radioButtons("sa_stufe", label = NULL,
                                 choices  = c("3-stufig"="BAE_3ST","4-stufig"="BAE_4ST",
@@ -2272,6 +2279,16 @@ server <- function(input, output, session) {
                      nr_id     = sel$nr_id
                    )
                    incProgress(0.9)
+
+                   # RCP45-Varianten (Basis/v2/v3) explizit ein-/ausblenden.
+                   # Nicht-RCP45-Laeufe bleiben unberuehrt. Sind alle Varianten
+                   # abgewaehlt, werden alle RCP45-Laeufe ausgeblendet.
+                   if (length(rcp45_var_choices) > 1 && nrow(df) > 0) {
+                     erlaubt  <- input$sa_rcp45_var %||% character(0)
+                     is_rcp45 <- startsWith(as.character(df$Szenario), "RCP45")
+                     vtag     <- bae_variante(df$Szenario, df$Modell)
+                     df <- df[!is_rcp45 | vtag %in% erlaubt, , drop = FALSE]
+                   }
                    df
                  })
   })

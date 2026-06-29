@@ -12,6 +12,7 @@ if (!exists("csv_files"))        csv_files         <- NULL
 if (!exists("szenario_choices")) szenario_choices  <- character(0)
 if (!exists("modell_choices"))   modell_choices    <- character(0)
 if (!exists("zeitraum_choices")) zeitraum_choices  <- character(0)
+if (!exists("rcp45_var_choices")) rcp45_var_choices <- character(0)
 if (!exists("baumart_choices"))  baumart_choices   <- character(0)
 if (!exists("tv_choices"))       tv_choices        <- character(0)
 if (!exists("tv_bezeichnung"))   tv_bezeichnung    <- character(0)
@@ -34,6 +35,15 @@ parse_klimalauf <- function(files) {
              Modell   = modell,
              Zeitraum = zeitraum,
              stringsAsFactors = FALSE)
+}
+
+# Variante (v2/v3/...) eines Klimalaufs aus Szenario + Modell ableiten.
+# Erkennt eine "vN"-Markierung egal ob sie im Szenario (z.B. "RCP45-v2")
+# oder im Modell (z.B. "MPICLM_v2", "ECECMO-v3") steckt. Ohne Markierung
+# -> "Basis". Vektorisiert.
+bae_variante <- function(szenario, modell) {
+  v <- stringr::str_extract(paste(szenario, modell), "[vV][0-9]+")
+  ifelse(is.na(v), "Basis", tolower(v))
 }
 
 # ---- 2. Farbpaletten ----
@@ -124,7 +134,12 @@ init_karte_daten <- function(geo_dir    = NULL,
   szenario_choices <<- sort(unique(klima_meta$Szenario))
   modell_choices   <<- sort(unique(klima_meta$Modell))
   zeitraum_choices <<- sort(unique(klima_meta$Zeitraum))
-  
+  # RCP45-Varianten (Basis/v2/v3/...) – nur die real vorhandenen
+  rcp45_var_choices <<- {
+    rc <- startsWith(klima_meta$Szenario, "RCP45")
+    sort(unique(bae_variante(klima_meta$Szenario[rc], klima_meta$Modell[rc])))
+  }
+
   sample_df       <- data.table::fread(csv_files[1])
   baumart_choices <<- sort(unique(sample_df$Baumart))
   
