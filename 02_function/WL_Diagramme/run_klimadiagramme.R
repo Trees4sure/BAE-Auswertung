@@ -667,64 +667,69 @@ for (csv in wl_csvs) {
 
 
 ## 6.15  Klima-Wolken-Diagramm (MAT vs. MAP) ueber ALLE BWI-BZE-Punkte --------
-# Streudiagramm der Klima-Nische ganz Deutschlands: x = MAT (Jahresmittel-
-# temperatur), y = MAP (Jahresniederschlag), ein Punkt je BWI-BZE-Standort fuer
-# den Lauf OBS_DWD_1991-2020. Drei Ebenen, von hinten nach vorne:
-#   - alle DE-Punkte           -> dunkelgrau
-#   - ein Bundesland (BL)       -> hellgrau   (frei waehlbar, hier "MV")
-#   - zwei ausgewaehlte MASTER_IDs -> rot     (frei waehlbar)
+# Streudiagramm der Klima-Nische ganz Deutschlands: x = MAT (1049, Jahresmittel-
+# temperatur), y = MAP (1050, Jahresniederschlag), ein Punkt je BWI-BZE-Standort
+# fuer den Lauf OBS_DWD_1991-2020. Drei Ebenen, von hinten nach vorne:
+#   - alle DE-Punkte               -> dunkelgrau
+#   - ein Bundesland (BL)           -> hellgrau   (frei waehlbar, hier "MV")
+#   - zwei ausgewaehlte MASTER_IDs  -> rot        (frei waehlbar)
 #
-# BEWUSST FLACH: MAT/MAP kommen fertig aus 6.6 (RDS), MASTER_ID + Bundesland
-# werden hier per Join angehaengt, der Plot ist EIN direkter ggplot()-Aufruf
-# (Achsen/Farben/Layer hier im Skript aenderbar, kein Helfer dazwischen).
+# BEWUSST FLACH: MAT/MAP kommen fertig aus 6.6 (RDS, dort aus 1049/1050 gemittelt).
+# Das Bundesland (BL) steckt bereits in der MASTER_ID (s.u.) - es wird also weder
+# eine Tabelle noch ein Shapefile gebraucht. MASTER_ID kommt aus der Boden-Join-
+# CSV (clim$id IST id_bwi_bze). Der Plot ist EIN direkter ggplot()-Aufruf.
 library(ggplot2)
 
 # -- (a) MAT/MAP je Punkt + Lauf laden (in 6.6 erzeugt und als RDS abgelegt) ---
 clim <- readRDS(file.path(out_base, "BWI_Klimadaten_MATMAP.RDS"))
 # Spalten: Lon | Lat | altitude | id | id_7004 | Zeitlauf | MAT | MAP
-# clim$id == id_bwi_bze (Werte des 8002-Rasters; vgl. 6.5, wo geom_bwi$id in
-# build_bwi_master_lookup() genau als id_bwi_bze gejoint wird) -> Schluessel zur
-# Boden-/MASTER_ID-Tabelle.
+# clim$id == id_bwi_bze -> Schluessel zur Boden-/MASTER_ID-Tabelle.
 
-# -- (b) MASTER_ID + Bundesland (BL) je Punkt anhaengen -----------------------
-# build_bwi_master_lookup() liest die Boden-Join-CSV und liefert cell_id ->
-# MASTER_ID. Unser 'id' ist aber bereits id_bwi_bze (NICHT die cell_id), darum
-# joinen wir hier direkt auf id_bwi_bze gegen DIESELBE CSV - so passen Schluessel
-# und Bundesland sicher zusammen (und wir bekommen die BL-Spalte gleich mit).
-join_csv <- file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv")
-boden    <- read.csv2(join_csv, stringsAsFactors = FALSE)
+run_cloud <- "OBS_DWD_1991-2020"
+clim <- clim[clim$Zeitlauf == run_cloud &
+             is.finite(clim$MAT) & is.finite(clim$MAP), ]   # nur dieser Lauf
 
-# Spaltennamen der Join-CSV (bei Bedarf hier anpassen):
-id_join_col     <- "id_bwi_bze"        # Schluessel = clim$id
-master_join_col <- "master_id_boden"   # -> MASTER_ID
-
-# Bundesland-Spalte automatisch finden: die Spalte, deren Werte ueberwiegend den
-# 16 amtlichen BL-Kuerzeln entsprechen. Greift das daneben, 'bl_join_col' unten
-# einfach fest setzen (z.B. bl_join_col <- "Bundesland").
-bl_codes <- c("BW","BY","BE","BB","HB","HH","HE","MV","NI","NW",
-              "RP","SL","SN","ST","SH","TH")
-bl_match    <- sapply(boden, function(s)
-  mean(toupper(trimws(as.character(s))) %in% bl_codes, na.rm = TRUE))
-bl_join_col <- names(which.max(bl_match))
-if (max(bl_match, na.rm = TRUE) < 0.5)
-  warning("Keine eindeutige Bundesland-Spalte gefunden (beste: '", bl_join_col,
-          "', ", round(100 * max(bl_match, na.rm = TRUE)), "% Treffer). ",
-          "'bl_join_col' manuell setzen.", call. = FALSE)
-message("Bundesland-Spalte: '", bl_join_col, "'")
-
+# -- (b) MASTER_ID je Punkt anhaengen (Boden-Join-CSV) ------------------------
+# id_bwi_bze -> master_id_boden. clim$id IST id_bwi_bze, darum direkt darauf
+# joinen (build_bwi_master_lookup liest dieselbe CSV, keyt aber auf cell_id - das
+# passt hier nicht zu unserem id).
+boden <- read.csv2(file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv"),
+                   stringsAsFactors = FALSE)
 boden_sel <- data.frame(
-  id_bwi_bze = as.integer(boden[[id_join_col]]),      # Typ wie clim$id (<int>)
-  MASTER_ID  = as.character(boden[[master_join_col]]),
-  BL         = toupper(trimws(as.character(boden[[bl_join_col]]))),
+  id_bwi_bze = as.integer(boden$id_bwi_bze),
+  MASTER_ID  = as.character(boden$master_id_boden),
   stringsAsFactors = FALSE)
-boden_sel <- boden_sel[grepl("\\S", boden_sel$MASTER_ID), ]   # ohne Boden raus
-
+boden_sel <- boden_sel[grepl("\\S", boden_sel$MASTER_ID), ]    # ohne Boden raus
 clim <- dplyr::left_join(clim, boden_sel, by = c("id" = "id_bwi_bze"))
 
-# -- (c) auf den Lauf filtern + nur gueltige MAT/MAP --------------------------
-run_cloud <- "OBS_DWD_1991-2020"
-cloud <- clim[clim$Zeitlauf == run_cloud &
-              is.finite(clim$MAT) & is.finite(clim$MAP), ]
+# -- (c) Bundesland (BL) direkt aus der MASTER_ID ableiten --------------------
+# Die MASTER_ID traegt den BL-Schluessel als Zahl = amtlicher Laenderschluessel*10:
+#   BWI_090_334_4 -> Token "090" = 90  -> 90/10 = 9  -> Bayern
+#   BZE_80220     -> "80"        = 80  -> 80/10 = 8  -> Baden-Wuerttemberg
+#   NR_130_08_... -> "130"       = 130 -> 130/10= 13 -> Mecklenburg-Vorpommern
+# BWI/NR tragen den Code als eigenen "_"-Token; BZE klebt ihn vorn an die Nummer
+# -> dort den laengsten gueltigen Prefix nehmen (3- vor 2-stellig). (Einzige
+# Rest-Unschaerfe: BZE "10xxx" koennte SL(100) statt SH(10) sein - wenige Punkte.)
+valid3 <- c("100","110","120","130","140","150","160")
+valid2 <- c("10","20","30","40","50","60","70","80","90")
+
+after <- sub("^[A-Za-z]+_", "", clim$MASTER_ID)         # Prefix BWI_/BZE_/NR_ weg
+tok   <- ifelse(grepl("_", after), sub("_.*$", "", after),   # BWI/NR: erster Token
+                sub("[^0-9].*$", "", after))                 # BZE: fuehrende Ziffern
+p3 <- substr(tok, 1, 3); p2 <- substr(tok, 1, 2)
+code <- ifelse(grepl("_", after), suppressWarnings(as.integer(tok)),
+               ifelse(p3 %in% valid3, as.integer(p3),
+                      ifelse(p2 %in% valid2, as.integer(p2), NA_integer_)))
+key  <- code / 10                                       # amtlicher Laenderschluessel
+
+# Schluessel -> Kuerzel (Kodierung wie in der Vorlage: NRW/SA, Stadtstaaten
+# zugeschlagen: Hamburg->SH, Bremen->NI, Berlin->BB).
+bl_lookup <- c("1"="SH","2"="SH","3"="NI","4"="NI","5"="NRW","6"="HE","7"="RP",
+               "8"="BW","9"="BY","10"="SL","11"="BB","12"="BB","13"="MV",
+               "14"="SN","15"="SA","16"="TH")
+clim$BL <- unname(bl_lookup[as.character(key)])
+
+cloud <- clim[is.finite(clim$MAT) & is.finite(clim$MAP), ]
 
 # -- (d) Auswahl: Bundesland (hellgrau) + zwei MASTER_IDs (rot) ----------------
 bl_pick  <- "MV"                                   # beliebiges Bundesland
@@ -752,8 +757,8 @@ p_cloud <- ggplot() +
   labs(title    = "Klima-Wolken-Diagramm \u00b7 MAT vs. MAP (BWI-BZE)",
        subtitle = paste0(run_cloud, "  \u00b7  alle DE (dunkelgrau)  \u00b7  ",
                          bl_pick, " (hellgrau)  \u00b7  Auswahl (rot)"),
-       x = "Jahresmitteltemperatur MAT [\u00b0C]",
-       y = "Jahresniederschlag MAP [mm]") +
+       x = "MAT [\u00b0C]",
+       y = "MAP [mm]") +
   theme_minimal(base_size = 11) +
   theme(panel.grid.minor = element_blank())
 
@@ -766,9 +771,8 @@ ggsave(file.path(wl_cloud_dir, paste0("MATMAP_", bl_pick, "_", run_cloud, ".png"
 # -> 04_results/WL_cloud/MATMAP_MV_OBS_DWD_1991-2020.png
 #
 # Beliebig anderes Bundesland / andere IDs: bl_pick / mid_pick oben aendern.
-# (Reine Funktions-Variante mit denselben drei Ebenen: climate_space.R ->
-#  plot_climate_space(cloud, master_ids = mid_pick, highlight_bl = bl_pick,
-#                     run = NULL).)
+# Facettierung nach BL (eine Kachel je Bundesland) wie in der Vorlage: einfach
+#   + facet_wrap(~ BL) an p_cloud anhaengen (cloud vorher auf !is.na(BL) filtern).
 
 
 # =============================================================================
