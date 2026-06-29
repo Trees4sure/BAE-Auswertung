@@ -122,6 +122,8 @@ lade_standort_alle_laeufe <- function(master_id,
                                       baumarten = NULL,
                                       tvs       = NULL,
                                       modelle   = NULL,
+                                      szenarien = NULL,
+                                      zeitraeume = NULL,
                                       region    = "BWI",
                                       nr_id     = NULL) {
   master_id_chr <- as.character(master_id)
@@ -221,6 +223,10 @@ lade_standort_alle_laeufe <- function(master_id,
     df <- df[df$TV %in% paste0("TV", tvs), ]
   if (!is.null(modelle) && length(modelle) > 0)
     df <- df[df$Modell %in% modelle, ]
+  if (!is.null(szenarien) && length(szenarien) > 0)
+    df <- df[df$Szenario %in% szenarien, ]
+  if (!is.null(zeitraeume) && length(zeitraeume) > 0)
+    df <- df[df$Zeitraum %in% zeitraeume, ]
 
   df
 }

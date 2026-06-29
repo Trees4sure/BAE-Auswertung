@@ -554,6 +554,18 @@ ui <- tagList(
                                   multiple = TRUE,
                                   options  = list(placeholder = "leer = alle",
                                                   plugins = list("remove_button"))),
+                   selectizeInput("sa_szenario", "Szenarien (RCP):",
+                                  choices  = szenario_choices,
+                                  selected = szenario_choices,   # alle vorausgewaehlt
+                                  multiple = TRUE,
+                                  options  = list(placeholder = "leer = alle",
+                                                  plugins = list("remove_button"))),
+                   selectizeInput("sa_zeitraum", "Zeiträume:",
+                                  choices  = zeitraum_choices,
+                                  selected = zeitraum_choices,   # alle vorausgewaehlt
+                                  multiple = TRUE,
+                                  options  = list(placeholder = "leer = alle",
+                                                  plugins = list("remove_button"))),
                    tags$label(class = "control-label", "Bewertungsstufe:"),
                    radioButtons("sa_stufe", label = NULL,
                                 choices  = c("3-stufig"="BAE_3ST","4-stufig"="BAE_4ST",
@@ -2254,6 +2266,8 @@ server <- function(input, output, session) {
                      baumarten = if (length(input$sa_baumart) > 0) input$sa_baumart else NULL,
                      tvs       = if (length(input$sa_tv)      > 0) input$sa_tv      else NULL,
                      modelle   = if (length(input$sa_modell)  > 0) input$sa_modell  else NULL,
+                     szenarien = if (length(input$sa_szenario)> 0) input$sa_szenario else NULL,
+                     zeitraeume = if (length(input$sa_zeitraum)> 0) input$sa_zeitraum else NULL,
                      region    = sel$region %||% "BWI",
                      nr_id     = sel$nr_id
                    )

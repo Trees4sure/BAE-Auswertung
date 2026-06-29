@@ -11,6 +11,7 @@ if (!exists("klima_meta"))       klima_meta        <- NULL
 if (!exists("csv_files"))        csv_files         <- NULL
 if (!exists("szenario_choices")) szenario_choices  <- character(0)
 if (!exists("modell_choices"))   modell_choices    <- character(0)
+if (!exists("zeitraum_choices")) zeitraum_choices  <- character(0)
 if (!exists("baumart_choices"))  baumart_choices   <- character(0)
 if (!exists("tv_choices"))       tv_choices        <- character(0)
 if (!exists("tv_bezeichnung"))   tv_bezeichnung    <- character(0)
@@ -122,6 +123,7 @@ init_karte_daten <- function(geo_dir    = NULL,
   klima_meta       <<- parse_klimalauf(csv_files)
   szenario_choices <<- sort(unique(klima_meta$Szenario))
   modell_choices   <<- sort(unique(klima_meta$Modell))
+  zeitraum_choices <<- sort(unique(klima_meta$Zeitraum))
   
   sample_df       <- data.table::fread(csv_files[1])
   baumart_choices <<- sort(unique(sample_df$Baumart))
