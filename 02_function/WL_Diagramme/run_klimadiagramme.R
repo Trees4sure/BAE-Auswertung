@@ -675,24 +675,68 @@ for (csv in wl_csvs) {
 #   - zwei ausgewaehlte MASTER_IDs  -> rot        (frei waehlbar)
 #
 # BEWUSST FLACH: MAT/MAP kommen fertig aus 6.6 (RDS, dort aus 1049/1050 gemittelt).
-# Das Bundesland (BL) steckt bereits in der MASTER_ID (s.u.) - es wird also weder
-# eine Tabelle noch ein Shapefile gebraucht. MASTER_ID kommt aus der Boden-Join-
-# CSV (clim$id IST id_bwi_bze). Der Plot ist EIN direkter ggplot()-Aufruf.
+# Das Bundesland (BL) wird wie in der bewaehrten Vorlage RAEUMLICH bestimmt:
+# Punkt-in-Polygon-Join (st_within) gegen die NUTS1-Landesgrenzen, dann
+# NUTS_NAME -> BL. So bekommt JEDER Punkt ein BL - auch ohne Bodendaten (die aus
+# der MASTER_ID abgeleitete BL gaebe es nur dort, wo eine MASTER_ID existiert).
+# MASTER_ID kommt aus der Boden-Join-CSV (nur fuer die rote Auswahl noetig). Der
+# Plot ist EIN direkter ggplot()-Aufruf.
 library(ggplot2)
+library(sf)
 
 # -- (a) MAT/MAP je Punkt + Lauf laden (in 6.6 erzeugt und als RDS abgelegt) ---
 clim <- readRDS(file.path(out_base, "BWI_Klimadaten_MATMAP.RDS"))
 # Spalten: Lon | Lat | altitude | id | id_7004 | Zeitlauf | MAT | MAP
+# Lon/Lat = Rechts-/Hochwert in EPSG:25832 (vgl. 6.5: rename Lon=x_25832 ...).
 # clim$id == id_bwi_bze -> Schluessel zur Boden-/MASTER_ID-Tabelle.
 
 run_cloud <- "OBS_DWD_1991-2020"
 clim <- clim[clim$Zeitlauf == run_cloud &
              is.finite(clim$MAT) & is.finite(clim$MAP), ]   # nur dieser Lauf
 
-# -- (b) MASTER_ID je Punkt anhaengen (Boden-Join-CSV) ------------------------
+# -- (b) Bundesland (BL) RAEUMLICH bestimmen: Punkt-in-NUTS1-Polygon ----------
+# Landesgrenze_DE_NUTS1 = sf der Bundeslaender (Spalte NUTS_NAME). Liegt sie nicht
+# schon im Environment, hier aus dem Shapefile laden (Pfad anpassen) und auf
+# EPSG:25832 transformieren (gleiches CRS wie die Punkte).
+if (!exists("Landesgrenze_DE_NUTS1")) {
+  nuts1_shp <- file.path("01_data", "Grundlagen/Geodaten/Landesgrenze_DE_NUTS1.shp")
+  if (!file.exists(nuts1_shp))
+    stop("Landesgrenze_DE_NUTS1 nicht im Environment und Shapefile nicht unter '",
+         nuts1_shp, "' - bitte Objekt laden oder Pfad anpassen.")
+  Landesgrenze_DE_NUTS1 <- sf::st_read(nuts1_shp, quiet = TRUE)
+}
+nuts1 <- sf::st_transform(Landesgrenze_DE_NUTS1, 25832)
+
+clim_sf <- sf::st_as_sf(clim, coords = c("Lon", "Lat"), crs = 25832, remove = FALSE)
+clim_sf <- sf::st_join(clim_sf, nuts1["NUTS_NAME"], join = sf::st_within)
+clim    <- sf::st_drop_geometry(clim_sf)
+
+# NUTS_NAME -> BL (Kodierung exakt wie in der Vorlage: NRW/SA + Stadtstaaten
+# zugeschlagen: Berlin->BB, Bremen->NI, Hamburg->SH).
+clim$BL <- dplyr::case_when(
+  clim$NUTS_NAME == "Bayern"                  ~ "BY",
+  clim$NUTS_NAME == "Baden-W\u00fcrttemberg"  ~ "BW",
+  clim$NUTS_NAME == "Rheinland-Pfalz"         ~ "RP",
+  clim$NUTS_NAME == "Hessen"                  ~ "HE",
+  clim$NUTS_NAME == "Nordrhein-Westfalen"     ~ "NRW",
+  clim$NUTS_NAME == "Th\u00fcringen"          ~ "TH",
+  clim$NUTS_NAME == "Niedersachsen"           ~ "NI",
+  clim$NUTS_NAME == "Sachsen-Anhalt"          ~ "SA",
+  clim$NUTS_NAME == "Berlin"                  ~ "BB",
+  clim$NUTS_NAME == "Brandenburg"             ~ "BB",
+  clim$NUTS_NAME == "Bremen"                  ~ "NI",
+  clim$NUTS_NAME == "Hamburg"                 ~ "SH",
+  clim$NUTS_NAME == "Schleswig-Holstein"      ~ "SH",
+  clim$NUTS_NAME == "Mecklenburg-Vorpommern"  ~ "MV",
+  clim$NUTS_NAME == "Sachsen"                 ~ "SN",
+  clim$NUTS_NAME == "Saarland"                ~ "SL",
+  TRUE                                        ~ NA_character_)
+
+# -- (c) MASTER_ID je Punkt anhaengen (nur fuer die rote Auswahl) -------------
 # id_bwi_bze -> master_id_boden. clim$id IST id_bwi_bze, darum direkt darauf
 # joinen (build_bwi_master_lookup liest dieselbe CSV, keyt aber auf cell_id - das
-# passt hier nicht zu unserem id).
+# passt hier nicht zu unserem id). Punkte ohne Boden bleiben MASTER_ID = NA, was
+# nur die rote Auswahl betrifft - das BL (oben) haben sie trotzdem.
 boden <- read.csv2(file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv"),
                    stringsAsFactors = FALSE)
 boden_sel <- data.frame(
@@ -701,33 +745,6 @@ boden_sel <- data.frame(
   stringsAsFactors = FALSE)
 boden_sel <- boden_sel[grepl("\\S", boden_sel$MASTER_ID), ]    # ohne Boden raus
 clim <- dplyr::left_join(clim, boden_sel, by = c("id" = "id_bwi_bze"))
-
-# -- (c) Bundesland (BL) direkt aus der MASTER_ID ableiten --------------------
-# Die MASTER_ID traegt den BL-Schluessel als Zahl = amtlicher Laenderschluessel*10:
-#   BWI_090_334_4 -> Token "090" = 90  -> 90/10 = 9  -> Bayern
-#   BZE_80220     -> "80"        = 80  -> 80/10 = 8  -> Baden-Wuerttemberg
-#   NR_130_08_... -> "130"       = 130 -> 130/10= 13 -> Mecklenburg-Vorpommern
-# BWI/NR tragen den Code als eigenen "_"-Token; BZE klebt ihn vorn an die Nummer
-# -> dort den laengsten gueltigen Prefix nehmen (3- vor 2-stellig). (Einzige
-# Rest-Unschaerfe: BZE "10xxx" koennte SL(100) statt SH(10) sein - wenige Punkte.)
-valid3 <- c("100","110","120","130","140","150","160")
-valid2 <- c("10","20","30","40","50","60","70","80","90")
-
-after <- sub("^[A-Za-z]+_", "", clim$MASTER_ID)         # Prefix BWI_/BZE_/NR_ weg
-tok   <- ifelse(grepl("_", after), sub("_.*$", "", after),   # BWI/NR: erster Token
-                sub("[^0-9].*$", "", after))                 # BZE: fuehrende Ziffern
-p3 <- substr(tok, 1, 3); p2 <- substr(tok, 1, 2)
-code <- ifelse(grepl("_", after), suppressWarnings(as.integer(tok)),
-               ifelse(p3 %in% valid3, as.integer(p3),
-                      ifelse(p2 %in% valid2, as.integer(p2), NA_integer_)))
-key  <- code / 10                                       # amtlicher Laenderschluessel
-
-# Schluessel -> Kuerzel (Kodierung wie in der Vorlage: NRW/SA, Stadtstaaten
-# zugeschlagen: Hamburg->SH, Bremen->NI, Berlin->BB).
-bl_lookup <- c("1"="SH","2"="SH","3"="NI","4"="NI","5"="NRW","6"="HE","7"="RP",
-               "8"="BW","9"="BY","10"="SL","11"="BB","12"="BB","13"="MV",
-               "14"="SN","15"="SA","16"="TH")
-clim$BL <- unname(bl_lookup[as.character(key)])
 
 cloud <- clim[is.finite(clim$MAT) & is.finite(clim$MAP), ]
 
