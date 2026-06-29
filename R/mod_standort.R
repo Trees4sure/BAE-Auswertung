@@ -121,6 +121,7 @@ nr_csv_inventar <- function(nr_id) {
 lade_standort_alle_laeufe <- function(master_id,
                                       baumarten = NULL,
                                       tvs       = NULL,
+                                      modelle   = NULL,
                                       region    = "BWI",
                                       nr_id     = NULL) {
   master_id_chr <- as.character(master_id)
@@ -218,7 +219,9 @@ lade_standort_alle_laeufe <- function(master_id,
     df <- df[df$Baumart %in% baumarten, ]
   if (!is.null(tvs) && length(tvs) > 0)
     df <- df[df$TV %in% paste0("TV", tvs), ]
-  
+  if (!is.null(modelle) && length(modelle) > 0)
+    df <- df[df$Modell %in% modelle, ]
+
   df
 }
 
@@ -288,6 +291,113 @@ heatmap_standort_ggplot <- function(df, stufe = "BAE_4ST",
       legend.text      = ggplot2::element_text(size = 9),
       plot.background  = ggplot2::element_rect(fill = "white", color = NA)
     )
+}
+
+# ── Standalone: Zukunfts-Heatmap (RCP45 + RCP85_MPICLM_2071-2100) ──
+# Erzeugt EINE kombinierte, gefacettete Heatmap nur fuer die Zukunfts-
+# Klimalaeufe: facet_grid(Szenario ~ Zeitraum), Baumart auf der x-Achse,
+# TV auf der y-Achse – entspricht der "blau umkreisten" Auswahl in der App.
+#
+# Die Funktion kann solo verwendet werden (wie heatmap_bae_function):
+#   - liefert IMMER ein ggplot-Objekt zurueck
+#   - speichert zusaetzlich ein PNG, wenn out_dir gesetzt ist
+#     (out_dir = NULL unterdrueckt das Speichern, z.B. fuer die App).
+#
+# data    : data.frame wie aus lade_standort_alle_laeufe() – benoetigt
+#           MASTER_ID, Baumart, TV, Zeitlauf, Szenario, Zeitraum, BAE_*ST.
+# stufe   : "BAE_3ST" | "BAE_4ST" | "BAE_5ST" | "BAE_7ST"
+# zukunft : Vektor regulaerer Ausdruecke, die gegen Zeitlauf gematcht werden.
+#           Default = alle RCP45-Laeufe + RCP85_MPICLM_2071-2100.
+
+heatmap_bae_zukunft_function <- function(
+    data, master_id,
+    stufe   = "BAE_4ST",
+    zukunft = c("^RCP45_", "^RCP85_MPICLM_2071-2100$"),
+    out_dir = "04_results/BAE_Auswertung/heatmap") {
+
+  kat_col <- toupper(stufe)
+
+  leer <- function(txt) ggplot2::ggplot() +
+    ggplot2::annotate("text", x = 0.5, y = 0.5, label = txt, size = 5) +
+    ggplot2::theme_void()
+
+  stufe_maps <- list(
+    BAE_3ST = c("1"="sehr empfohlen","2"="mäßig empfohlen","3"="nicht empfohlen"),
+    BAE_4ST = c("1"="sehr empfohlen","2"="empfohlen","3"="mäßig empfohlen","4"="nicht empfohlen"),
+    BAE_5ST = c("1"="sehr empfohlen","2"="empfohlen","3"="mäßig empfohlen",
+                "4"="wenig empfohlen","5"="nicht empfohlen"),
+    BAE_7ST = c("1"="sehr empfohlen","2"="sehr empfohlen","3"="empfohlen",
+                "4"="mäßig empfohlen","5"="wenig empfohlen",
+                "6"="nicht empfohlen","7"="nicht empfohlen")
+  )
+  m <- stufe_maps[[kat_col]]
+  if (is.null(m) || !kat_col %in% names(data))
+    return(leer(paste0("Stufe '", kat_col, "' nicht verfügbar")))
+
+  # 1. Auf MASTER_ID filtern
+  d <- data[as.character(data$MASTER_ID) == as.character(master_id), , drop = FALSE]
+  if (nrow(d) == 0) {
+    message("Keine Daten für MASTER_ID: ", master_id)
+    return(leer(paste0("Keine Daten: ", master_id)))
+  }
+
+  # 2. Auf Zukunfts-Klimalaeufe filtern (Regex gegen Zeitlauf)
+  treffer <- Reduce(`|`, lapply(zukunft, function(p) grepl(p, d$Zeitlauf)))
+  d <- d[treffer, , drop = FALSE]
+  if (nrow(d) == 0) {
+    message("Keine Zukunfts-Klimalaeufe (", paste(zukunft, collapse = ", "),
+            ") für ", master_id)
+    return(leer("Keine Zukunfts-Klimalaeufe"))
+  }
+
+  # 3. Kategorien mappen
+  d$Kat <- dplyr::case_when(
+    as.character(d[[kat_col]]) %in% names(m) ~ unname(m[as.character(d[[kat_col]])]),
+    as.character(d[[kat_col]]) == "pBv"       ~ "pBv",
+    TRUE                                       ~ "Keine Datengrundlage"
+  )
+  d$Kat     <- factor(d$Kat, levels = names(kat_palette))
+  d$TV      <- factor(d$TV,  levels = sort(unique(d$TV), decreasing = TRUE))
+  d$Baumart <- factor(d$Baumart, levels = sort(unique(d$Baumart)))
+
+  # 4. Plot: Szenario (Zeilen) x Zeitraum (Spalten), Baumart x TV je Block
+  p <- ggplot2::ggplot(d, ggplot2::aes(x = Baumart, y = TV, fill = Kat)) +
+    ggplot2::geom_tile(color = "white", linewidth = 0.5) +
+    ggplot2::scale_fill_manual(values = kat_palette, na.value = "#B0B0B0",
+                               breaks = names(kat_palette), drop = TRUE) +
+    ggplot2::facet_grid(Szenario ~ Zeitraum) +
+    ggplot2::scale_x_discrete(position = "top") +
+    ggplot2::labs(
+      title    = paste0("BAE-Heatmap Zukunft – ", as.character(master_id)),
+      subtitle = paste0(gsub("BAE_", "", kat_col), "-stufig  |  ",
+                        paste(zukunft, collapse = "  |  ")),
+      x = NULL, y = "TV", fill = "Empfehlung") +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      strip.text       = ggplot2::element_text(face = "bold", size = 9),
+      axis.text.x      = ggplot2::element_text(angle = 0, hjust = 0.5,
+                                               face = "bold", size = 9),
+      axis.text.y      = ggplot2::element_text(size = 9),
+      panel.grid       = ggplot2::element_blank(),
+      legend.position  = "bottom",
+      legend.direction = "horizontal",
+      legend.text      = ggplot2::element_text(size = 9),
+      plot.background  = ggplot2::element_rect(fill = "white", color = NA)
+    )
+
+  # 5. Optional als PNG speichern (Solo-Nutzung wie heatmap_bae_function)
+  if (!is.null(out_dir)) {
+    mid_dir <- file.path(out_dir, as.character(master_id))
+    dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
+    datei <- file.path(mid_dir,
+                       paste0("Heatmap_Zukunft_", master_id, "_",
+                              gsub("BAE_", "", kat_col), ".png"))
+    ggplot2::ggsave(datei, plot = p, device = "png",
+                    width = 5400, height = 3000, units = "px", dpi = 300)
+    message("Gespeichert: ", datei)
+  }
+
+  p
 }
 
 # ── ggplot-Balken: Anteil je Kategorie ueber Zeit/Szenario ───

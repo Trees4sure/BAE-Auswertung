@@ -548,6 +548,12 @@ ui <- tagList(
                                   multiple = TRUE,
                                   options  = list(placeholder = "leer = alle",
                                                   plugins = list("remove_button"))),
+                   selectizeInput("sa_modell", "Modelle:",
+                                  choices  = modell_choices,
+                                  selected = modell_choices,   # alle vorausgewaehlt
+                                  multiple = TRUE,
+                                  options  = list(placeholder = "leer = alle",
+                                                  plugins = list("remove_button"))),
                    tags$label(class = "control-label", "Bewertungsstufe:"),
                    radioButtons("sa_stufe", label = NULL,
                                 choices  = c("3-stufig"="BAE_3ST","4-stufig"="BAE_4ST",
@@ -557,6 +563,7 @@ ui <- tagList(
                    radioButtons("sa_ansicht", label = NULL,
                                 choices  = c(
                                   "Heatmap (Baumart \u00d7 TV)"  = "heatmap",
+                                  "Heatmap Zukunft (RCP45/RCP85)" = "heatmap_zukunft",
                                   "Balken: nach Szenario"         = "szenario",
                                   "Balken: nach Zeitraum"         = "zeitraum",
                                   "Balken: nach Modell"           = "modell",
@@ -2246,6 +2253,7 @@ server <- function(input, output, session) {
                      master_id = sel$mid,
                      baumarten = if (length(input$sa_baumart) > 0) input$sa_baumart else NULL,
                      tvs       = if (length(input$sa_tv)      > 0) input$sa_tv      else NULL,
+                     modelle   = if (length(input$sa_modell)  > 0) input$sa_modell  else NULL,
                      region    = sel$region %||% "BWI",
                      nr_id     = sel$nr_id
                    )
@@ -2367,7 +2375,10 @@ server <- function(input, output, session) {
     req(!is.null(df) && nrow(df) > 0)
     
     switch(input$sa_ansicht,
-           heatmap  = heatmap_standort_ggplot(df, input$sa_stufe),
+           heatmap         = heatmap_standort_ggplot(df, input$sa_stufe),
+           heatmap_zukunft = heatmap_bae_zukunft_function(
+                               df, unique(df$MASTER_ID)[1], input$sa_stufe,
+                               out_dir = NULL),
            szenario = auswertung_standort_ggplot(df, input$sa_stufe, "Szenario"),
            zeitraum = auswertung_standort_ggplot(df, input$sa_stufe, "Zeitraum"),
            modell   = auswertung_standort_ggplot(df, input$sa_stufe, "Modell"),
@@ -2388,7 +2399,10 @@ server <- function(input, output, session) {
       df <- sa_data()
       req(!is.null(df) && nrow(df) > 0)
       p <- switch(input$sa_ansicht,
-                  heatmap  = heatmap_standort_ggplot(df, input$sa_stufe),
+                  heatmap         = heatmap_standort_ggplot(df, input$sa_stufe),
+                  heatmap_zukunft = heatmap_bae_zukunft_function(
+                                      df, unique(df$MASTER_ID)[1], input$sa_stufe,
+                                      out_dir = NULL),
                   szenario = auswertung_standort_ggplot(df, input$sa_stufe, "Szenario"),
                   zeitraum = auswertung_standort_ggplot(df, input$sa_stufe, "Zeitraum"),
                   modell   = auswertung_standort_ggplot(df, input$sa_stufe, "Modell"),
