@@ -668,128 +668,32 @@ for (csv in wl_csvs) {
 
 ## 6.15  Klima-Wolken-Diagramm (MAT vs. MAP) ueber ALLE BWI-BZE-Punkte --------
 # Streudiagramm der Klima-Nische ganz Deutschlands: x = MAT (1049, Jahresmittel-
-# temperatur), y = MAP (1050, Jahresniederschlag), ein Punkt je BWI-BZE-Standort
-# fuer den Lauf OBS_DWD_1991-2020. Drei Ebenen, von hinten nach vorne:
-#   - alle DE-Punkte               -> dunkelgrau
-#   - ein Bundesland (BL)           -> hellgrau   (frei waehlbar, hier "MV")
-#   - zwei ausgewaehlte MASTER_IDs  -> rot        (frei waehlbar)
+# temperatur), y = MAP (1050, Jahresniederschlag), ein Punkt je BWI-BZE-Standort.
+# Cloud_diagram_function() (in cloud_diagram.R) reichert das MAT/MAP-RDS (6.6)
+# EINMAL mit BL (NUTS1-Lookup, fuer JEDEN Punkt - auch ohne Boden) und MASTER_ID
+# (Boden-Join-CSV) an, legt es als Cache-RDS ab und plottet:
+#   - alle DE-Punkte dunkelgrau, gewaehltes Bundesland hellgrau, MASTER_ID rot
+#   - Referenz-Klimaraum: blaue 95%-Box + Mittel + Lauf-Beschriftung
+#   - optional Vergleichslauf: darkred 95%-Box + Mittel + Beschriftung darueber,
+#     erwartete Lage der MASTER_ID im Vergleichslauf (Punkt + Pfeil), Delta-Text
 #
-# BEWUSST FLACH: MAT/MAP kommen fertig aus 6.6 (RDS, dort aus 1049/1050 gemittelt).
-# Das Bundesland (BL) wird wie in der bewaehrten Vorlage RAEUMLICH bestimmt:
-# Punkt-in-Polygon-Join (st_within) gegen die NUTS1-Landesgrenzen, dann
-# NUTS_NAME -> BL. So bekommt JEDER Punkt ein BL - auch ohne Bodendaten (die aus
-# der MASTER_ID abgeleitete BL gaebe es nur dort, wo eine MASTER_ID existiert).
-# MASTER_ID kommt aus der Boden-Join-CSV (nur fuer die rote Auswahl noetig). Der
-# Plot ist EIN direkter ggplot()-Aufruf.
-library(ggplot2)
-library(sf)
+# Voraussetzung: nuts_id.RDS (Lookup id -> NUTS_NAME) liegt vor - einmal mit dem
+# Block am Ende von cloud_diagram.R aus dem NUTS1-Shapefile erzeugen.
+source(file.path(wl_dir, "cloud_diagram.R"))
 
-# -- (a) MAT/MAP je Punkt + Lauf laden (in 6.6 erzeugt und als RDS abgelegt) ---
-clim <- readRDS(file.path(out_base, "BWI_Klimadaten_MATMAP.RDS"))
-# Spalten: Lon | Lat | altitude | id | id_7004 | Zeitlauf | MAT | MAP
-# Lon/Lat = Rechts-/Hochwert in EPSG:25832 (vgl. 6.5: rename Lon=x_25832 ...).
-# clim$id == id_bwi_bze -> Schluessel zur Boden-/MASTER_ID-Tabelle.
-
-run_cloud <- "OBS_DWD_1991-2020"
-clim <- clim[clim$Zeitlauf == run_cloud &
-             is.finite(clim$MAT) & is.finite(clim$MAP), ]   # nur dieser Lauf
-
-# -- (b) Bundesland (BL) RAEUMLICH bestimmen: Punkt-in-NUTS1-Polygon ----------
-# Landesgrenze_DE_NUTS1 = sf der Bundeslaender (Spalte NUTS_NAME). Liegt sie nicht
-# schon im Environment, hier aus dem Shapefile laden (Pfad anpassen) und auf
-# EPSG:25832 transformieren (gleiches CRS wie die Punkte).
-if (!exists("Landesgrenze_DE_NUTS1")) {
-  nuts1_shp <- file.path("01_data", "Grundlagen/Geodaten/Landesgrenze_DE_NUTS1.shp")
-  if (!file.exists(nuts1_shp))
-    stop("Landesgrenze_DE_NUTS1 nicht im Environment und Shapefile nicht unter '",
-         nuts1_shp, "' - bitte Objekt laden oder Pfad anpassen.")
-  Landesgrenze_DE_NUTS1 <- sf::st_read(nuts1_shp, quiet = TRUE)
-}
-nuts1 <- sf::st_transform(Landesgrenze_DE_NUTS1, 25832)
-
-clim_sf <- sf::st_as_sf(clim, coords = c("Lon", "Lat"), crs = 25832, remove = FALSE)
-clim_sf <- sf::st_join(clim_sf, nuts1["NUTS_NAME"], join = sf::st_within)
-clim    <- sf::st_drop_geometry(clim_sf)
-
-# NUTS_NAME -> BL (Kodierung exakt wie in der Vorlage: NRW/SA + Stadtstaaten
-# zugeschlagen: Berlin->BB, Bremen->NI, Hamburg->SH).
-clim$BL <- dplyr::case_when(
-  clim$NUTS_NAME == "Bayern"                  ~ "BY",
-  clim$NUTS_NAME == "Baden-W\u00fcrttemberg"  ~ "BW",
-  clim$NUTS_NAME == "Rheinland-Pfalz"         ~ "RP",
-  clim$NUTS_NAME == "Hessen"                  ~ "HE",
-  clim$NUTS_NAME == "Nordrhein-Westfalen"     ~ "NRW",
-  clim$NUTS_NAME == "Th\u00fcringen"          ~ "TH",
-  clim$NUTS_NAME == "Niedersachsen"           ~ "NI",
-  clim$NUTS_NAME == "Sachsen-Anhalt"          ~ "SA",
-  clim$NUTS_NAME == "Berlin"                  ~ "BB",
-  clim$NUTS_NAME == "Brandenburg"             ~ "BB",
-  clim$NUTS_NAME == "Bremen"                  ~ "NI",
-  clim$NUTS_NAME == "Hamburg"                 ~ "SH",
-  clim$NUTS_NAME == "Schleswig-Holstein"      ~ "SH",
-  clim$NUTS_NAME == "Mecklenburg-Vorpommern"  ~ "MV",
-  clim$NUTS_NAME == "Sachsen"                 ~ "SN",
-  clim$NUTS_NAME == "Saarland"                ~ "SL",
-  TRUE                                        ~ NA_character_)
-
-# -- (c) MASTER_ID je Punkt anhaengen (nur fuer die rote Auswahl) -------------
-# id_bwi_bze -> master_id_boden. clim$id IST id_bwi_bze, darum direkt darauf
-# joinen (build_bwi_master_lookup liest dieselbe CSV, keyt aber auf cell_id - das
-# passt hier nicht zu unserem id). Punkte ohne Boden bleiben MASTER_ID = NA, was
-# nur die rote Auswahl betrifft - das BL (oben) haben sie trotzdem.
-boden <- read.csv2(file.path(dir_klima, "BWI-BZE_Klima_Boden_Join.csv"),
-                   stringsAsFactors = FALSE)
-boden_sel <- data.frame(
-  id_bwi_bze = as.integer(boden$id_bwi_bze),
-  MASTER_ID  = as.character(boden$master_id_boden),
-  stringsAsFactors = FALSE)
-boden_sel <- boden_sel[grepl("\\S", boden_sel$MASTER_ID), ]    # ohne Boden raus
-clim <- dplyr::left_join(clim, boden_sel, by = c("id" = "id_bwi_bze"))
-
-cloud <- clim[is.finite(clim$MAT) & is.finite(clim$MAP), ]
-
-# -- (d) Auswahl: Bundesland (hellgrau) + zwei MASTER_IDs (rot) ----------------
-bl_pick  <- "MV"                                   # beliebiges Bundesland
-mid_pick <- c("BZE_80220", "BZE_90850")            # zwei beliebige MASTER_IDs
-
-cloud_bl  <- cloud[!is.na(cloud$BL) & cloud$BL == bl_pick, ]
-# je MASTER_ID EIN roter Punkt (mehrere Zellen je MASTER_ID -> Mittel):
-cloud_sel <- aggregate(cbind(MAT, MAP) ~ MASTER_ID,
-                       cloud[cloud$MASTER_ID %in% mid_pick, ], mean)
-if (nrow(cloud_sel) == 0)
-  warning("keine der MASTER_IDs (", paste(mid_pick, collapse = ", "),
-          ") im Lauf ", run_cloud, ".", call. = FALSE)
-
-# -- (e) Plot: direkter ggplot, drei Punkt-Ebenen von hinten nach vorne --------
-p_cloud <- ggplot() +
-  geom_point(data = cloud,     aes(MAT, MAP),
-             colour = "grey30", size = 0.5, alpha = 0.35) +     # alle DE-Punkte
-  geom_point(data = cloud_bl,  aes(MAT, MAP),
-             colour = "grey75", size = 0.9, alpha = 0.9) +      # Bundesland
-  geom_point(data = cloud_sel, aes(MAT, MAP),
-             colour = "white", fill = "#c0392b",
-             shape = 21, size = 3, stroke = 0.8) +              # Auswahl rot
-  geom_text(data = cloud_sel, aes(MAT, MAP, label = MASTER_ID),
-            colour = "#c0392b", size = 3, vjust = -1) +
-  labs(title    = "Klima-Wolken-Diagramm \u00b7 MAT vs. MAP (BWI-BZE)",
-       subtitle = paste0(run_cloud, "  \u00b7  alle DE (dunkelgrau)  \u00b7  ",
-                         bl_pick, " (hellgrau)  \u00b7  Auswahl (rot)"),
-       x = "MAT [\u00b0C]",
-       y = "MAP [mm]") +
-  theme_minimal(base_size = 11) +
-  theme(panel.grid.minor = element_blank())
-
+p_cloud <- Cloud_diagram_function(
+  Klimalauf.choose  = "OBS_DWD_1991-2020",
+  Klimalauf_compare = "RCP85_MPICLM_2071-2100",   # NULL = ohne Vergleich
+  MASTER_ID.choose  = "BWI_130_36567_4",          # Station (rot), z.B. Kali\u00df
+  BL_choose         = "MV",
+  New_label         = "Kali\u00df",
+  save_dir          = file.path("04_results", "WL_cloud"))
 print(p_cloud)
-
-wl_cloud_dir <- file.path("04_results", "WL_cloud")
-dir.create(wl_cloud_dir, recursive = TRUE, showWarnings = FALSE)
-ggsave(file.path(wl_cloud_dir, paste0("MATMAP_", bl_pick, "_", run_cloud, ".png")),
-       p_cloud, width = 8, height = 6, dpi = 200)
-# -> 04_results/WL_cloud/MATMAP_MV_OBS_DWD_1991-2020.png
+# -> 04_results/WL_cloud/MATMAP_MV_BWI_130_36567_4_OBS_DWD_1991-2020_vs_RCP85_MPICLM_2071-2100.png
 #
-# Beliebig anderes Bundesland / andere IDs: bl_pick / mid_pick oben aendern.
-# Facettierung nach BL (eine Kachel je Bundesland) wie in der Vorlage: einfach
-#   + facet_wrap(~ BL) an p_cloud anhaengen (cloud vorher auf !is.na(BL) filtern).
+# Beliebige andere Auswahl: einfach die Argumente aendern. Beim ERSTEN Aufruf wird
+# der angereicherte Cache (BL + MASTER_ID) gebaut; danach geht es schnell. Mit
+# rebuild_cache = TRUE den Cache erzwungen neu bauen.
 
 
 # =============================================================================
