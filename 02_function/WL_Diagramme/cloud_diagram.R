@@ -168,15 +168,12 @@ Cloud_diagram_function <- function(
   txt_st <- sprintf("%s: %.1f \u00b0C, %d mm",  st_lab, st$MAT, round(st$MAP))
   mean_txt <- paste(c(txt_de, txt_bl, txt_st), collapse = "\n")
 
-  # Subtitle = Delta der DE-Mittelwerte (Vergleich - Referenz)
-  de_mean <- clim %>% filter(Zeitlauf %in% runs) %>%
-    group_by(Lauf = Zeitlauf) %>% summarise(MAP = mean(MAP), MAT = mean(MAT), .groups = "drop")
+  # Subtitle = Delta der STATION (Vergleich - Referenz), aus den Stationsmitteln (st)
   sub_txt <- NULL
-  if (length(cmp_runs) > 0) {
-    r0 <- de_mean[de_mean$Lauf == ref, ]
-    d  <- de_mean[match(cmp_runs, de_mean$Lauf), ]
-    sub_txt <- paste0("\u0394 DE: ", paste(sprintf(
-      "%s: %+.1f \u00b0C, %+d mm", run_kurz[cmp_runs], d$MAT - r0$MAT, round(d$MAP - r0$MAP)),
+  if (length(cmp_runs) > 0 && nrow(st_ref) == 1) {
+    d <- st[match(cmp_runs, st$Lauf), ]
+    sub_txt <- paste0("\u0394 ", typ_stat, ": ", paste(sprintf(
+      "%s: %+.1f \u00b0C, %+d mm", run_kurz[cmp_runs], d$MAT - st_ref$MAT, round(d$MAP - st_ref$MAP)),
       collapse = "   |   "))
   }
 
