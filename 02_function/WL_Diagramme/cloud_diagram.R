@@ -5,20 +5,20 @@
 # EINEN Referenzlauf (alle DE-Punkte dunkelgrau, ein Bundesland hellgrau) und
 # hebt die ausgewaehlte MASTER_ID-Station hervor (farbiger Punkt = "Kaliss" o.ae.).
 # Optional ein/mehrere Vergleichslauf(e): die erwartete Stationslage im Vergleichs-
-# lauf wird gezeichnet und mit einem Pfeil von der Referenz-Lage verbunden
-# -> "Mittelpunktverschiebung". Pfeil abschaltbar mit show_shift = FALSE.
+# lauf wird gezeichnet und mit einer gestrichelten Linie von der Referenz-Lage
+# verbunden -> "Mittelpunktverschiebung". Abschaltbar mit show_shift = FALSE.
 #
 # Achsen: x = MAP (Niederschlag), y = MAT (Temperatur). Subtitle = Delta der
-# DE-Mittelwerte (Vergleich - Referenz). Legenden-/Text-Labels ohne Modellname.
-# Unten links ein Text-Block mit den Mittelwerten als Zahlen (DE, Bundesland,
-# Station je Lauf).
+# Station (Vergleich - Referenz). Legenden-/Text-Labels ohne Modellname. Unten
+# links die Referenz-Mittelwerte (DE, Bundesland, Station) als Zahlen; die
+# Vergleichswerte stehen farbig rechts neben ihren Punkten.
 #
 # MAT/MAP kommen aus 6.6 (BWI_Klimadaten_MATMAP.RDS, dort aus 1049/1050 gemittelt).
 # BL ueber den NUTS1-Lookup (id -> NUTS_NAME), MASTER_ID aus der Boden-Join-CSV;
 # beide sind je Punkt (id) lauf-unabhaengig -> EINMAL anreichern + Cache-RDS.
 #
-# Pakete: dplyr, ggplot2 (grid fuer den Pfeil). sf nur fuer das einmalige
-# Erzeugen von nuts_id.RDS (s. Block am Dateiende), nicht im Normalbetrieb.
+# Pakete: dplyr, ggplot2. sf nur fuer das einmalige Erzeugen von nuts_id.RDS
+# (s. Block am Dateiende), nicht im Normalbetrieb.
 # =============================================================================
 
 
@@ -27,7 +27,7 @@
 #' @param MASTER_ID.choose  Eine (oder mehrere) MASTER_ID(s) fuer die Station.
 #' @param BL_choose         Bundesland-Kuerzel fuer die hellgraue Ebene.
 #' @param New_label         Label der Station in Legende/Text (NULL = "Station").
-#' @param show_shift        TRUE = Verschiebungs-Pfeil Referenz->Vergleich zeichnen.
+#' @param show_shift        TRUE = Verschiebungs-Linie Referenz->Vergleich zeichnen.
 #' @param point_size        Groesse der Stations-Punkte.
 #' @param cloud_size        Groesse der Wolken-Punkte (alle DE / Bundesland).
 #' @param rds_path,nuts_rds,boden_csv,cache_rds,rebuild_cache,save_dir  s. Kommentare.
@@ -160,13 +160,13 @@ Cloud_diagram_function <- function(
   if (nrow(segs) > 0) segs$Klasse <- factor(segs$Klasse, levels = klassen)
 
   # ==========================================================================
-  # (f) Text-Block unten links: DE, Bundesland, Station je Lauf (kein DE je Lauf)
+  # (f) Text-Block unten links: NUR DE, Bundesland, Station (Referenz).
+  #     Die Vergleichslauf-Werte stehen farbig RECHTS neben ihren Punkten (s. (g)).
   # ==========================================================================
-  txt_de <- sprintf("DE: %.1f \u00b0C, %d mm",  mean(cloud$MAT),    round(mean(cloud$MAP)))
-  txt_bl <- sprintf("%s: %.1f \u00b0C, %d mm",  lab_bl, mean(cloud_bl$MAT), round(mean(cloud_bl$MAP)))
-  st_lab <- ifelse(st$Lauf == ref, typ_stat, paste0(typ_stat, " (", as.character(st$Klasse), ")"))
-  txt_st <- sprintf("%s: %.1f \u00b0C, %d mm",  st_lab, st$MAT, round(st$MAP))
-  mean_txt <- paste(c(txt_de, txt_bl, txt_st), collapse = "\n")
+  txt_de  <- sprintf("DE: %.1f \u00b0C, %d mm", mean(cloud$MAT), round(mean(cloud$MAP)))
+  txt_bl  <- sprintf("%s: %.1f \u00b0C, %d mm", lab_bl, mean(cloud_bl$MAT), round(mean(cloud_bl$MAP)))
+  txt_ref <- if (nrow(st_ref) == 1) sprintf("%s: %.1f \u00b0C, %d mm", typ_stat, st_ref$MAT, round(st_ref$MAP))
+  mean_txt <- paste(c(txt_de, txt_bl, txt_ref), collapse = "\n")
 
   # Subtitle = Delta der STATION (Vergleich - Referenz), aus den Stationsmitteln (st)
   sub_txt <- NULL
@@ -184,11 +184,14 @@ Cloud_diagram_function <- function(
     geom_point(data = cloud,    aes(MAP, MAT, colour = lab_de), size = cloud_size) +
     geom_point(data = cloud_bl, aes(MAP, MAT, colour = lab_bl), size = cloud_size) +
     geom_segment(data = segs, aes(MAP_ref, MAT_ref, xend = MAP, yend = MAT, colour = Klasse),
-                 linetype = "dashed", linewidth = 0.7,
-                 arrow = grid::arrow(length = grid::unit(0.2, "cm"))) +
+                 linetype = "dashed", linewidth = 0.7) +              # ohne Pfeilspitze
     geom_point(data = st, aes(MAP, MAT, colour = Klasse), size = point_size) +
+    geom_text(data = st[st$Lauf != ref, ],                           # Vergleichswerte rechts neben den Punkten
+              aes(MAP, MAT, colour = Klasse,
+                  label = sprintf("%.1f \u00b0C, %d mm", MAT, round(MAP))),
+              hjust = -0.15, size = 4, fontface = "bold", show.legend = FALSE) +
     annotate("text", x = -Inf, y = -Inf, label = mean_txt,
-             colour = "black", size = 4, hjust = -0.05, vjust = -0.5) +
+             colour = "black", size = 4, hjust = 0, vjust = -0.5) +
     scale_colour_manual(name = NULL, values = farben, breaks = klassen, limits = klassen) +
     guides(colour = guide_legend(override.aes = list(size = 4, linetype = 0))) +
     coord_cartesian(clip = "off") +
