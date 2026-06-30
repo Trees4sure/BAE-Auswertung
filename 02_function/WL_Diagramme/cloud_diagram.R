@@ -207,10 +207,15 @@ Cloud_diagram_function <- function(
   # ==========================================================================
   if (!is.null(save_dir)) {
     dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
-    tag     <- gsub("[^A-Za-z0-9]+", "_", MASTER_ID.choose[1])
-    cmp_tag <- if (length(cmp_runs)) paste0("_vs_", paste(cmp_runs, collapse = "_")) else ""
-    ggsave(file.path(save_dir, paste0("MATMAP_", BL_choose, "_", tag, "_", ref, cmp_tag, ".png")),
-           p, width = 8, height = 6, dpi = 200)
+    # Kompakter Dateiname (<= 25 Zeichen inkl. .png): cloud_<Station-kurz>_<Szenarien>
+    # z.B. "cloud_BWI_130*_4585.png" (Station auf 1.+2. Token gekuerzt, Vergleichs-
+    # szenarien nur als Ziffern: RCP45/RCP85 -> "4585").
+    mid_kurz <- sub("^([A-Za-z]+_[0-9]+).*$", "\\1", MASTER_ID.choose[1])
+    if (mid_kurz != MASTER_ID.choose[1]) mid_kurz <- paste0(mid_kurz, "*")
+    scen     <- gsub("\\D", "", sub("_.*$", "", cmp_runs))           # "45","85"
+    cmp_kurz <- if (length(cmp_runs)) paste0("_", paste(scen, collapse = "")) else ""
+    stem     <- substr(paste0("cloud_", mid_kurz, cmp_kurz), 1, 20)  # harte Kappung
+    ggsave(file.path(save_dir, paste0(stem, ".png")), p, width = 8, height = 6, dpi = 200)
   }
 
   p
