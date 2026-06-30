@@ -10,14 +10,20 @@ zusammenhängt und was noch offen ist.
   `id`→`NUTS_NAME`, einmal als `nuts_id.RDS` vorgerechnet; gilt für JEDEN Punkt —
   nicht nur wo Bodendaten da sind), **MASTER_ID** aus der Boden-Join-CSV. BL+MASTER_ID
   werden EINMAL an alle Läufe gehängt und als **Cache-RDS** abgelegt (`rebuild_cache`).
-  Plot: Wolke (DE dunkelgrau, BL hellgrau) + **Klima-Schwerpunkte je Lauf** (DE-Mittel
-  Dreieck, MASTER_ID-Station Kreis); `Klimalauf_compare` (Vektor) zeichnet die
-  **Mittelpunktverschiebung** als Pfeil Referenz→Vergleich. Normale Legende
-  (Farbe=Lauf/Klasse, Form=DE-Mittel/Station), **kein** alpha, **keine** Boxen/Text.
-  Achsentitel ausgeschrieben. Eingebunden in `run_klimadiagramme.R` 6.15.
-  - Reine df-Variante mit denselben drei Ebenen: `climate_space.R` → `plot_climate_space()`.
+  Plot: Wolke (DE dunkelgrau, BL hellgrau) + **die ausgewählte MASTER_ID-Station** als
+  farbiger Punkt (Label aus `New_label`, z. B. „Kaliß"); **kein DE-Mittel-Punkt**.
+  `Klimalauf_compare` (Vektor) zeichnet die erwartete Stationslage je Vergleichslauf +
+  **gestrichelte Verschiebungs-Linie** (ohne Pfeilspitze; `show_shift`). EINE Farb-Legende
+  (DE/BL/Station bzw. Lauf; Lauf-Namen ohne Modell via `run_kurz`, z. B. „RCP85: 2071-2100").
+  Subtitle = **Δ der Station** (Vergleich−Referenz). Text-Block unten links nur Referenz
+  (DE/MV/Station, `hjust=0` gegen Treppen-Einrückung), Vergleichswerte farbig **rechts neben
+  den Punkten** (`geom_text`, `show.legend=FALSE`). `point_size`/`cloud_size` als Parameter,
+  kein `alpha`. Eingebunden in `run_klimadiagramme.R` 6.15.
+  - Reine df-Variante mit drei Ebenen: `climate_space.R` → `plot_climate_space()`.
   - `BL`-aus-`MASTER_ID` (Länderschlüssel*10, z. B. `BWI_090…`→9→BY) verworfen, weil
     es BL nur dort liefert, wo eine MASTER_ID/Boden existiert → NUTS1-Join ist robuster.
+  - **Caveat:** 11,5 °C-„Kante" oben = reales OBS-1991-2020-Maximum (kein Cut); Zukunftslauf
+    geht höher. Bei stale Cache `rebuild_cache = TRUE`.
 - **WL-Plot Fix (`plot_walther_lieth.R`, `wl_panel`), perhumide Zone:** (1) humide
   Schraffur bei `pt=50` kappen (`yend=pmin(ptf,50)`); (2) perhumide Fläche als EIN
   `geom_ribbon` (`ymax=pmax(ptf,50)`, `ymin=50`, `has_wet`) statt `wet`/`grp` →
