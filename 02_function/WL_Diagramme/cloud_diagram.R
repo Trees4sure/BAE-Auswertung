@@ -206,17 +206,24 @@ Cloud_diagram_function <- function(
   # (h) optional speichern
   # ==========================================================================
   if (!is.null(save_dir)) {
-    dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
     # Kompakter Dateiname (<= 25 Zeichen inkl. .png): cloud_<Station-kurz>_<Szenarien>
     # z.B. "cloud_BWI_130_4585.png" (Station auf 1.+2. Token gekuerzt, Vergleichs-
-    # szenarien nur als Ziffern: RCP45/RCP85 -> "4585"). KEIN "*"/Sonderzeichen -
-    # das ist auf Windows ein unzulaessiger Dateiname (ggsave/agg schlaegt fehl).
+    # szenarien nur als Ziffern: RCP45/RCP85 -> "4585"). KEINE Sonderzeichen
+    # (*, ?, : ...) - auf Windows unzulaessig, sonst schlaegt ggsave/agg fehl.
     mid_kurz <- sub("^([A-Za-z]+_[0-9]+).*$", "\\1", MASTER_ID.choose[1])
     scen     <- gsub("\\D", "", sub("_.*$", "", cmp_runs))           # "45","85"
     cmp_kurz <- if (length(cmp_runs)) paste0("_", paste(scen, collapse = "")) else ""
     stem     <- substr(paste0("cloud_", mid_kurz, cmp_kurz), 1, 20)  # harte Kappung
     stem     <- gsub("[^A-Za-z0-9_-]", "", stem)                     # nur dateinamen-sichere Zeichen
-    ggsave(file.path(save_dir, paste0(stem, ".png")), p, width = 8, height = 6, dpi = 200)
+
+    out <- file.path(save_dir, paste0(stem, ".png"))
+    dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE) # Zielordner sicher anlegen
+    message("speichere: ", normalizePath(out, winslash = "/", mustWork = FALSE))
+    tryCatch(
+      ggsave(out, p, width = 8, height = 6, dpi = 200),
+      error = function(e) warning("ggsave fehlgeschlagen (", conditionMessage(e),
+                                  "). Ist die Datei offen / der Ordner schreibbar?",
+                                  call. = FALSE))
   }
 
   p
