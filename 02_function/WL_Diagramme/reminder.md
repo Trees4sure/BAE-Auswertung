@@ -28,6 +28,13 @@ zusammenhängt und was noch offen ist.
   verschachtelt, sichtbare/anpassbare `ggplot()`-Aufrufe im Skript, debugbar,
   Logik in Schleifen statt in Helfer-/Wrapper-Funktionen. Neue Abschnitte 6.11/
   6.12/6.14 sind bewusst flach (alles im Loop, Plots inline) gehalten.
+  - **dplyr statt verschachtelter Schleifen (mehrfach so besprochen!):** Aggregationen
+    als `group_by()/summarise()`, Zuordnungen als `left_join()` — KEINE
+    `for`-Schleifen mit `rbind()` und keine `for`-in-`for`-Konstrukte. Den Plot als
+    EINEN durchgehenden `ggplot() + … + …`-Aufruf (jede Ebene eine Zeile) schreiben,
+    nicht schrittweise `p <- p + …`. Beispiel-Umbau: `cloud_diagram.R` (Mittelpunkte
+    via `summarise`, Verschiebungs-Pfeile via einem `left_join`, kein Helfer
+    `pretty_run` mehr — Kurznamen inline).
 - **Empfehlungsdaten gibt es real NICHT** (nur Testdaten aus `make_test_data.R`)
   → Empfehlungs-Leisten/`combine_climate_recommendation` bleiben ohne Daten aussen vor.
 - **NEU 6.11 — Lauf-Vergleich je MASTER_ID:** Referenz `OBS_DWD_1991-2020` vs. je

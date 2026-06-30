@@ -5,6 +5,10 @@
 - **Flach statt verschachtelt.** Logik, die in eine Schleife passt, gehört in
   die Schleife – nicht in eigene Helfer-/Wrapper-Funktionen. Lieber ein paar
   Zeilen mehr im Loop als eine Funktion, die anderswo definiert ist.
+- **dplyr statt verschachtelter Schleifen (mehrfach so besprochen).** Aggregationen
+  als `group_by()/summarise()`, Zuordnungen als `left_join()` – KEINE `for`-Schleifen
+  mit `rbind()` und keine `for`-in-`for`-Konstrukte. Plots als EINEN durchgehenden
+  `ggplot() + … + …`-Aufruf (jede Ebene eine Zeile), nicht schrittweise `p <- p + …`.
 - **Sichtbarer, anpassbarer Code.** Plots als direkte, einfache `ggplot()`-Aufrufe
   im Skript, damit man Achsen/Farben/Layer direkt ändern kann. Keine
   Plot-Erzeugung in tief geschachtelten Funktionsketten verstecken.
