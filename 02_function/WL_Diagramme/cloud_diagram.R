@@ -3,16 +3,15 @@
 #
 # Cloud_diagram_function() zeichnet die deutschlandweite Klima-Punktwolke fuer
 # EINEN Referenzlauf (alle DE-Punkte dunkelgrau, ein Bundesland hellgrau) und
-# darueber die Klima-MITTELPUNKTE je Lauf:
-#   - DE-Mittel (Dreieck) und die MASTER_ID-Station (Kreis), je Lauf eine Farbe.
-# Optional ein/mehrere Vergleichslauf(e): deren Mittelpunkte werden gezeichnet und
-# mit einem Pfeil von der Referenz-Lage verbunden -> "Mittelpunktverschiebung".
-# Der Pfeil laesst sich mit show_shift = FALSE abschalten.
+# hebt die ausgewaehlte MASTER_ID-Station hervor (farbiger Punkt = "Kaliss" o.ae.).
+# Optional ein/mehrere Vergleichslauf(e): die erwartete Stationslage im Vergleichs-
+# lauf wird gezeichnet und mit einem Pfeil von der Referenz-Lage verbunden
+# -> "Mittelpunktverschiebung". Pfeil abschaltbar mit show_shift = FALSE.
 #
 # Achsen: x = MAP (Niederschlag), y = MAT (Temperatur). Subtitle = Delta der
-# DE-Mittelwerte (Vergleich - Referenz). Legenden-Labels ohne Modellname.
-# Oben links steht zusaetzlich ein Text-Block mit den Mittelwerten (DE,
-# Bundesland, je Lauf/Typ) als Zahlen.
+# DE-Mittelwerte (Vergleich - Referenz). Legenden-/Text-Labels ohne Modellname.
+# Unten links ein Text-Block mit den Mittelwerten als Zahlen (DE, Bundesland,
+# Station je Lauf).
 #
 # MAT/MAP kommen aus 6.6 (BWI_Klimadaten_MATMAP.RDS, dort aus 1049/1050 gemittelt).
 # BL ueber den NUTS1-Lookup (id -> NUTS_NAME), MASTER_ID aus der Boden-Join-CSV;
@@ -27,9 +26,9 @@
 #' @param Klimalauf_compare Optionale(r) Vergleichslauf/-laeufe (Vektor; NULL = keiner).
 #' @param MASTER_ID.choose  Eine (oder mehrere) MASTER_ID(s) fuer die Station.
 #' @param BL_choose         Bundesland-Kuerzel fuer die hellgraue Ebene.
-#' @param New_label         Label fuer die Station in der Form-Legende (NULL = "Station").
-#' @param show_shift        TRUE = Verschiebungs-Pfeile Referenz->Vergleich zeichnen.
-#' @param point_size        Groesse der Mittelpunkt-Symbole (Dreieck/Kreis).
+#' @param New_label         Label der Station in Legende/Text (NULL = "Station").
+#' @param show_shift        TRUE = Verschiebungs-Pfeil Referenz->Vergleich zeichnen.
+#' @param point_size        Groesse der Stations-Punkte.
 #' @param cloud_size        Groesse der Wolken-Punkte (alle DE / Bundesland).
 #' @param rds_path,nuts_rds,boden_csv,cache_rds,rebuild_cache,save_dir  s. Kommentare.
 #' @return ggplot-Objekt.
@@ -99,78 +98,87 @@ Cloud_diagram_function <- function(
     if (!is.null(cache_rds)) saveRDS(clim, cache_rds)
   }
 
-  # Ab hier nur gueltige Klimawerte.
-  clim <- clim[is.finite(clim$MAT) & is.finite(clim$MAP), ]
+  clim <- clim[is.finite(clim$MAT) & is.finite(clim$MAP), ]   # nur gueltige Werte
 
   # ==========================================================================
-  # (b) Ein paar Kurznamen + die drei Wolken-Tabellen direkt (gut anschaubar)
+  # (b) Kurznamen + Wolken-Tabellen (Referenzlauf)
   # ==========================================================================
   ref      <- Klimalauf.choose
-  runs     <- c(ref, as.character(Klimalauf_compare))   # NULL faellt einfach weg
+  cmp_runs <- if (is.null(Klimalauf_compare)) character(0) else as.character(Klimalauf_compare)
+  runs     <- c(ref, cmp_runs)
   typ_stat <- if (!is.null(New_label)) New_label else "Station"
-  lab_de   <- "alle DE-Punkte"
-  lab_bl   <- paste0("Bundesland ", BL_choose)
+  lab_de   <- "DE"
+  lab_bl   <- BL_choose
 
-  cloud    <- clim[clim$Zeitlauf == ref, ]                       # alle DE (Referenzlauf)
-  cloud_bl <- cloud[!is.na(cloud$BL) & cloud$BL == BL_choose, ]  # ein Bundesland
+  cloud    <- clim[clim$Zeitlauf == ref, ]                      # alle DE (Referenzlauf)
+  cloud_bl <- cloud[!is.na(cloud$BL) & cloud$BL == BL_choose, ] # ein Bundesland
   if (nrow(cloud) == 0)    stop("Referenzlauf '", ref, "' nicht in den Daten.")
   if (nrow(cloud_bl) == 0) warning("Keine Punkte fuer Bundesland '", BL_choose, "'.", call. = FALSE)
 
-  # ==========================================================================
-  # (c) Mittelpunkte je Lauf: DE-Mittel + Stationsmittel (dplyr statt Schleife)
-  # ==========================================================================
-  runs_df <- filter(clim, Zeitlauf %in% runs)
-
-  mids_de <- runs_df %>%
-    group_by(Lauf = Zeitlauf) %>%
-    summarise(MAP = mean(MAP), MAT = mean(MAT), .groups = "drop") %>%
-    mutate(Typ = "DE-Mittel")
-
-  mids_st <- runs_df %>%
-    filter(MASTER_ID %in% MASTER_ID.choose) %>%
-    group_by(Lauf = Zeitlauf) %>%
-    summarise(MAP = mean(MAP), MAT = mean(MAT), .groups = "drop") %>%
-    mutate(Typ = typ_stat)
-
-  mids <- bind_rows(mids_de, mids_st)
-
-  # ==========================================================================
-  # (d) Verschiebungs-Pfeile: Referenz-Mittel -> Vergleichs-Mittel (ein join)
-  # ==========================================================================
-  ref_mids <- mids %>% filter(Lauf == ref)  %>% select(Typ, MAP_ref = MAP, MAT_ref = MAT)
-  segs     <- mids %>% filter(Lauf != ref)  %>% left_join(ref_mids, by = "Typ")
-  if (!show_shift) segs <- segs[0, ]         # leeres df -> geom_segment zeichnet nichts
-
-  # ==========================================================================
-  # (e) Kurze Lauf-Namen (z.B. "RCP85: 2071-2100") + eine Farbe je Lauf
-  # ==========================================================================
+  # Kurze Lauf-Namen ohne Modell, z.B. "RCP85_MPICLM_2071-2100" -> "RCP85: 2071-2100"
   run_kurz <- ifelse(grepl("[0-9]{4}-[0-9]{4}", runs),
                      paste0(sub("_.*$", "", runs), ": ",
-                            sub(".*([0-9]{4}-[0-9]{4}).*", "\\1", runs)),
-                     runs)
+                            sub(".*([0-9]{4}-[0-9]{4}).*", "\\1", runs)), runs)
   names(run_kurz) <- runs
 
+  # ==========================================================================
+  # (c) Stationsmittel je Lauf (NUR die Station - kein DE-Mittel-Punkt)
+  #     Legenden-Klasse: Referenz = Stationsname ("Kaliss"), Vergleich = Laufname.
+  # ==========================================================================
+  st <- clim %>%
+    filter(Zeitlauf %in% runs, MASTER_ID %in% MASTER_ID.choose) %>%
+    group_by(Lauf = Zeitlauf) %>%
+    summarise(MAP = mean(MAP), MAT = mean(MAT), .groups = "drop")
+  if (nrow(st) == 0)
+    stop("MASTER_ID '", paste(MASTER_ID.choose, collapse = ", "), "' nicht gefunden.")
+  st    <- st[order(match(st$Lauf, runs)), ]                    # Referenz zuerst
+  st$Klasse <- ifelse(st$Lauf == ref, typ_stat, run_kurz[st$Lauf])
+
+  # ==========================================================================
+  # (d) Verschiebungs-Pfeil: Referenz-Station -> Vergleichs-Station
+  # ==========================================================================
+  st_ref <- st[st$Lauf == ref, ]
+  segs   <- data.frame(MAP = numeric(), MAT = numeric(),
+                       MAP_ref = numeric(), MAT_ref = numeric(), Klasse = character())
+  if (show_shift && nrow(st_ref) == 1) {
+    sc <- st[st$Lauf != ref, ]
+    if (nrow(sc) > 0)
+      segs <- data.frame(MAP = sc$MAP, MAT = sc$MAT,
+                         MAP_ref = st_ref$MAP, MAT_ref = st_ref$MAT, Klasse = sc$Klasse)
+  }
+
+  # ==========================================================================
+  # (e) Farben (eine je Klasse) + Reihenfolge der Legende
+  # ==========================================================================
   run_pal <- c("#2166ac", "#b2182b", "#e08214", "#1b7837", "#762a83", "#5e3c99")
   farben  <- c(setNames("grey30", lab_de),
                setNames("grey75", lab_bl),
-               setNames(run_pal[seq_along(runs)], runs))
+               setNames(run_pal[seq_len(nrow(st))], st$Klasse))
+  klassen <- names(farben)                                      # DE, MV, Kaliss, <cmp>...
+
+  st$Klasse  <- factor(st$Klasse,  levels = klassen)
+  if (nrow(segs) > 0) segs$Klasse <- factor(segs$Klasse, levels = klassen)
 
   # ==========================================================================
-  # (f) Text-Block (Mittelwerte als Zahlen) + Subtitle (Delta DE-Mittel)
+  # (f) Text-Block unten links: DE, Bundesland, Station je Lauf (kein DE je Lauf)
   # ==========================================================================
-  txt_de  <- sprintf("%s: %.1f \u00b0C, %d mm", lab_de, mean(cloud$MAT), round(mean(cloud$MAP)))
-  txt_bl  <- sprintf("%s: %.1f \u00b0C, %d mm", lab_bl, mean(cloud_bl$MAT), round(mean(cloud_bl$MAP)))
-  txt_mid <- sprintf("%s (%s): %.1f \u00b0C, %d mm",
-                     run_kurz[mids$Lauf], mids$Typ, mids$MAT, round(mids$MAP))
-  mean_txt <- paste(c(txt_de, txt_bl, txt_mid), collapse = "\n")
+  txt_de <- sprintf("DE: %.1f \u00b0C, %d mm",  mean(cloud$MAT),    round(mean(cloud$MAP)))
+  txt_bl <- sprintf("%s: %.1f \u00b0C, %d mm",  lab_bl, mean(cloud_bl$MAT), round(mean(cloud_bl$MAP)))
+  st_lab <- ifelse(st$Lauf == ref, typ_stat, paste0(typ_stat, " (", as.character(st$Klasse), ")"))
+  txt_st <- sprintf("%s: %.1f \u00b0C, %d mm",  st_lab, st$MAT, round(st$MAP))
+  mean_txt <- paste(c(txt_de, txt_bl, txt_st), collapse = "\n")
 
-  ref_de <- mids %>% filter(Lauf == ref,  Typ == "DE-Mittel")
-  cmp_de <- mids %>% filter(Lauf != ref,  Typ == "DE-Mittel")
+  # Subtitle = Delta der DE-Mittelwerte (Vergleich - Referenz)
+  de_mean <- clim %>% filter(Zeitlauf %in% runs) %>%
+    group_by(Lauf = Zeitlauf) %>% summarise(MAP = mean(MAP), MAT = mean(MAT), .groups = "drop")
   sub_txt <- NULL
-  if (nrow(cmp_de) > 0)
-    sub_txt <- paste0("\u0394 DE-Mittel: ", paste(sprintf(
-      "%s: %+.1f \u00b0C, %+d mm", run_kurz[cmp_de$Lauf],
-      cmp_de$MAT - ref_de$MAT, round(cmp_de$MAP - ref_de$MAP)), collapse = "   |   "))
+  if (length(cmp_runs) > 0) {
+    r0 <- de_mean[de_mean$Lauf == ref, ]
+    d  <- de_mean[match(cmp_runs, de_mean$Lauf), ]
+    sub_txt <- paste0("\u0394 DE: ", paste(sprintf(
+      "%s: %+.1f \u00b0C, %+d mm", run_kurz[cmp_runs], d$MAT - r0$MAT, round(d$MAP - r0$MAP)),
+      collapse = "   |   "))
+  }
 
   # ==========================================================================
   # (g) Plot: ein durchgehender ggplot()-Aufruf, jede Ebene eine Zeile
@@ -178,19 +186,14 @@ Cloud_diagram_function <- function(
   p <- ggplot() +
     geom_point(data = cloud,    aes(MAP, MAT, colour = lab_de), size = cloud_size) +
     geom_point(data = cloud_bl, aes(MAP, MAT, colour = lab_bl), size = cloud_size) +
-    geom_segment(data = segs, aes(MAP_ref, MAT_ref, xend = MAP, yend = MAT, colour = Lauf),
+    geom_segment(data = segs, aes(MAP_ref, MAT_ref, xend = MAP, yend = MAT, colour = Klasse),
                  linetype = "dashed", linewidth = 0.7,
                  arrow = grid::arrow(length = grid::unit(0.2, "cm"))) +
-    geom_point(data = mids, aes(MAP, MAT, colour = Lauf, shape = Typ),
-               size = point_size, stroke = 1) +
-    annotate("text", x = -Inf, y = Inf, label = mean_txt,
-             colour = "black", size = 4, hjust = -0.05, vjust = 1.1) +
-    scale_colour_manual(name = NULL, values = farben, breaks = names(farben),
-                        labels = c(lab_de, lab_bl, run_kurz)) +
-    scale_shape_manual(name = NULL,
-                       values = setNames(c(17, 19), c("DE-Mittel", typ_stat))) +
-    guides(colour = guide_legend(order = 1, override.aes = list(shape = 16, size = 4, linetype = 0)),
-           shape  = guide_legend(order = 2, override.aes = list(size = 4, colour = "black"))) +
+    geom_point(data = st, aes(MAP, MAT, colour = Klasse), size = point_size) +
+    annotate("text", x = -Inf, y = -Inf, label = mean_txt,
+             colour = "black", size = 4, hjust = -0.05, vjust = -0.5) +
+    scale_colour_manual(name = NULL, values = farben, breaks = klassen, limits = klassen) +
+    guides(colour = guide_legend(override.aes = list(size = 4, linetype = 0))) +
     coord_cartesian(clip = "off") +
     labs(title    = "Klimaraum: Jahresniederschlag (MAP) vs. Jahresmitteltemperatur (MAT)",
          subtitle = sub_txt,
@@ -205,7 +208,7 @@ Cloud_diagram_function <- function(
   if (!is.null(save_dir)) {
     dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
     tag     <- gsub("[^A-Za-z0-9]+", "_", MASTER_ID.choose[1])
-    cmp_tag <- if (length(runs) > 1) paste0("_vs_", paste(runs[-1], collapse = "_")) else ""
+    cmp_tag <- if (length(cmp_runs)) paste0("_vs_", paste(cmp_runs, collapse = "_")) else ""
     ggsave(file.path(save_dir, paste0("MATMAP_", BL_choose, "_", tag, "_", ref, cmp_tag, ".png")),
            p, width = 8, height = 6, dpi = 200)
   }
