@@ -208,13 +208,14 @@ Cloud_diagram_function <- function(
   if (!is.null(save_dir)) {
     dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
     # Kompakter Dateiname (<= 25 Zeichen inkl. .png): cloud_<Station-kurz>_<Szenarien>
-    # z.B. "cloud_BWI_130*_4585.png" (Station auf 1.+2. Token gekuerzt, Vergleichs-
-    # szenarien nur als Ziffern: RCP45/RCP85 -> "4585").
+    # z.B. "cloud_BWI_130_4585.png" (Station auf 1.+2. Token gekuerzt, Vergleichs-
+    # szenarien nur als Ziffern: RCP45/RCP85 -> "4585"). KEIN "*"/Sonderzeichen -
+    # das ist auf Windows ein unzulaessiger Dateiname (ggsave/agg schlaegt fehl).
     mid_kurz <- sub("^([A-Za-z]+_[0-9]+).*$", "\\1", MASTER_ID.choose[1])
-    if (mid_kurz != MASTER_ID.choose[1]) mid_kurz <- paste0(mid_kurz, "*")
     scen     <- gsub("\\D", "", sub("_.*$", "", cmp_runs))           # "45","85"
     cmp_kurz <- if (length(cmp_runs)) paste0("_", paste(scen, collapse = "")) else ""
     stem     <- substr(paste0("cloud_", mid_kurz, cmp_kurz), 1, 20)  # harte Kappung
+    stem     <- gsub("[^A-Za-z0-9_-]", "", stem)                     # nur dateinamen-sichere Zeichen
     ggsave(file.path(save_dir, paste0(stem, ".png")), p, width = 8, height = 6, dpi = 200)
   }
 
