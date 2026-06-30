@@ -11,6 +11,8 @@
 #
 # Achsen: x = MAP (Niederschlag), y = MAT (Temperatur). Subtitle = Delta der
 # DE-Mittelwerte (Vergleich - Referenz). Legenden-Labels ohne Modellname.
+# Oben links steht zusaetzlich ein Text-Block mit den Mittelwerten (DE,
+# Bundesland, je Lauf/Typ) als Zahlen.
 #
 # MAT/MAP kommen aus 6.6 (BWI_Klimadaten_MATMAP.RDS, dort aus 1049/1050 gemittelt).
 # BL ueber den NUTS1-Lookup (id -> NUTS_NAME), MASTER_ID aus der Boden-Join-CSV;
@@ -138,6 +140,17 @@ Cloud_diagram_function <- function(
   }
 
   # ==========================================================================
+  # (c.1) Text-Block mit Mittelwerten (DE, Bundesland, je Lauf/Typ) -------------
+  # ==========================================================================
+  txt_lines <- c(
+    sprintf("%s: %.1f \u00b0C, %d mm", lab_de, mean(cloud$MAT), round(mean(cloud$MAP))),
+    sprintf("%s: %.1f \u00b0C, %d mm", lab_bl, mean(cloud_bl$MAT), round(mean(cloud_bl$MAP))))
+  for (i in seq_len(nrow(mids)))
+    txt_lines <- c(txt_lines, sprintf("%s (%s): %.1f \u00b0C, %d mm",
+                                      mids$Lauf[i], mids$Typ[i], mids$MAT[i], round(mids$MAP[i])))
+  mean_txt <- paste(txt_lines, collapse = "\n")
+
+  # ==========================================================================
   # (d) Verschiebungs-Pfeile: Referenz-Mittel -> Vergleichs-Mittel (je Typ)
   # ==========================================================================
   cmp_runs <- setdiff(runs, Klimalauf.choose)
@@ -194,6 +207,9 @@ Cloud_diagram_function <- function(
                           arrow = grid::arrow(length = grid::unit(0.2, "cm")))
   p <- p + geom_point(data = mids, aes(MAP, MAT, colour = Lauf, shape = Typ),
                       size = point_size, stroke = 1)
+  p <- p + annotate("text", x = -Inf, y = Inf, label = mean_txt,
+                    colour = "black", size = 4, hjust = -0.05, vjust = 1.1)
+  p <- p + coord_cartesian(clip = "off")
 
   p <- p + scale_colour_manual(name = NULL, values = col_values,
                                breaks = col_levels, limits = col_levels, labels = col_labels)
