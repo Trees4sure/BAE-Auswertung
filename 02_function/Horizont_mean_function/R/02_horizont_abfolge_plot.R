@@ -252,6 +252,24 @@ horizont_abfolge_plot <- function(data_input,
 
 
 # ---------------------------------------------------------------------
+# Horizontabfolge direkt ueber eine MASTER_ID plotten
+# ---------------------------------------------------------------------
+#' Schlaegt zur MASTER_ID automatisch die group_ID nach (Quelle NR/BWI/BZE
+#' anhand des Praefixes, sonst alle durchsucht) und plottet das Leitprofil.
+#'
+#' @param master_id  MASTER_ID (z.B. "NR_130_08_66519")
+#' @param quelle     optional erzwingen ("NR"/"BWI"/"BZE"/"STOK")
+#' @param koernung,schraffur  wie in horizont_abfolge_plot()
+#' @return  (unsichtbar) die aufbereitete SoilProfileCollection
+horizont_abfolge_plot_master <- function(master_id, quelle = NULL,
+                                        koernung = TRUE, schraffur = FALSE) {
+  df <- lade_leitprofil_master(master_id, quelle = quelle)
+  horizont_abfolge_plot(df, soeh_krz = unique(df$SOEH_KRZ), region = NULL,
+                        koernung = koernung, schraffur = schraffur)
+}
+
+
+# ---------------------------------------------------------------------
 # Legende der KA5-Koernungs-Symbole (eigene Grafik)
 # ---------------------------------------------------------------------
 koernung_legende <- function() {

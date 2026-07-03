@@ -60,6 +60,11 @@ horizont_abfolge_plot(DB_Lp_BWI,
                       soeh_krz = c("BiS", "AhLG", "BäS", "WnS", "DgL"),
                       region = "MV")
 
+# ---- 2b) Horizontabfolge direkt ueber eine MASTER_ID -----------------
+# Quelle wird aus dem Praefix (NR_/BWI_/BZE_) erkannt, sonst alle durchsucht.
+horizont_abfolge_plot_master("NR_130_08_66519")
+# lade_leitprofil_master("NR_130_08_66519")   # nur laden (mit Quelle-Attribut)
+
 # ---- 3) Legende der KA5-Koernungs-Symbole ----------------------------
 # koernung_legende()
 

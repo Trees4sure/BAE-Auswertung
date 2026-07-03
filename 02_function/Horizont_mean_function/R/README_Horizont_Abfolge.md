@@ -73,7 +73,19 @@ horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS")               # alle Regionen
 horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS", region = "MV")# nur MV
 horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "MüS/BiS")           # Kombiform-Fallback
 koernung_legende()
+
+# Direkt ueber eine MASTER_ID (Quelle NR/BWI/BZE automatisch):
+horizont_abfolge_plot_master("NR_130_08_66519")
 ```
+
+### Plot ueber MASTER_ID
+
+`horizont_abfolge_plot_master(master_id)` bzw. `lade_leitprofil_master(master_id)`
+schlagen zur MASTER_ID die `group_ID` in `02_KARTIEREINHEITEN` nach und laden das
+zugehoerige Leitprofil. Die **Quelle** wird aus dem MASTER_ID-Praefix erkannt
+(`NR_…` → NR, `BWI_…` → BWI, `BZE_…` → BZE); ist das Praefix unklar, werden alle
+drei Quellen durchsucht. Existiert zur `group_ID` kein Leitprofil (z.B. Kommentar
+„keine Form – Ausweichen"), wird das mit einer klaren Meldung gemeldet.
 
 ### Region- und Kombiform-Logik
 

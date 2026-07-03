@@ -222,6 +222,96 @@ lade_leitprofil_fuer <- function(soeh_krz, region = NULL, quelle = "BWI",
   tibble::as_tibble(df)
 }
 
+#' Munsell-/Bodenart-Spalten erkennen und als .munsell/.boart anhaengen
+.ergaenze_farb_boart <- function(df, munsell_spalte = NULL, boart_spalte = NULL) {
+  if (is.null(munsell_spalte))
+    munsell_spalte <- .finde_spalte(df, c("MUNSELL", "BODENFARBE", "FARBE",
+                                          "FARBE_FEUCHT", "MUNSELL_F", "BOFA"))
+  if (is.null(boart_spalte))
+    boart_spalte <- .finde_spalte(df, c("BOART", "BODENART", "BOART_KA5",
+                                        "BODENART_KA5", "KOERNUNG", "BART", "KA5"))
+  df$.munsell <- if (!is.na(munsell_spalte)) as.character(df[[munsell_spalte]]) else NA_character_
+  df$.boart   <- if (!is.na(boart_spalte))   as.character(df[[boart_spalte]])   else NA_character_
+  df
+}
+
+#' Quelle(n) aus dem MASTER_ID-Praefix ableiten (NR_.. / BWI_.. / BZE_..)
+.quelle_aus_master_id <- function(master_id) {
+  praefix <- toupper(sub("^([A-Za-z]+)_.*$", "\\1", master_id))
+  if (praefix %in% c("NR", "BWI", "BZE", "STOK")) praefix else c("NR", "BWI", "BZE")
+}
+
+#' Leitprofil ueber eine MASTER_ID laden (Quelle automatisch)
+#'
+#' Schlaegt zu einer MASTER_ID die group_ID in 02_KARTIEREINHEITEN nach und
+#' laedt das zugehoerige Leitprofil aus 03_LEITPROFILE. Die Datenquelle wird
+#' aus dem MASTER_ID-Praefix (NR_/BWI_/BZE_) bestimmt; ist sie unklar, werden
+#' NR, BWI und BZE der Reihe nach durchsucht.
+#'
+#' @param master_id  eine MASTER_ID (z.B. "NR_130_08_66519")
+#' @param quelle     optional erzwingen ("NR"/"BWI"/"BZE"/"STOK")
+#' @return  tibble mit dem Leitprofil (inkl. SOEH_KRZ, BL, group_ID,
+#'          .munsell, .boart); Attribut "quelle" nennt die gefundene Quelle.
+lade_leitprofil_master <- function(master_id, quelle = NULL,
+                                  munsell_spalte = NULL, boart_spalte = NULL) {
+  stopifnot(length(master_id) == 1L)
+  quellen <- if (!is.null(quelle)) quelle else .quelle_aus_master_id(master_id)
+  dateien <- boden_dateien()
+
+  gefunden_ohne_lp <- character(0)   # Quellen, wo MASTER_ID existiert, aber kein Leitprofil
+
+  for (q in quellen) {
+    if (is.null(dateien[[q]]) || is.na(dateien[[q]])) next
+    pfad <- dateien[[q]]
+
+    # MASTER_ID -> group_ID / SOEH_KRZ
+    con <- db_connect(pfad)
+    ke <- tryCatch(
+      DBI::dbGetQuery(con,
+        'SELECT DISTINCT group_ID, SOEH_KRZ FROM "02_KARTIEREINHEITEN" WHERE MASTER_ID = ?',
+        params = list(master_id)),
+      error = function(e) NULL)
+    DBI::dbDisconnect(con)
+    if (is.null(ke) || nrow(ke) == 0) next          # MASTER_ID nicht in dieser Quelle
+
+    gid <- unique(ke$group_ID)
+
+    # Leitprofil zu den group_ID(s) laden
+    con <- db_connect(pfad)
+    ph  <- paste(rep("?", length(gid)), collapse = ", ")
+    lp  <- DBI::dbGetQuery(con,
+             paste0('SELECT * FROM "03_LEITPROFILE" WHERE group_ID IN (', ph, ')'),
+             params = as.list(gid))
+    DBI::dbDisconnect(con)
+
+    if (nrow(lp) == 0) {
+      message("MASTER_ID '", master_id, "' in Quelle ", q, " gefunden -> group_ID ",
+              paste(gid, collapse = ", "), " (SOEH_KRZ ",
+              paste(unique(ke$SOEH_KRZ), collapse = ", "),
+              "), aber KEIN Leitprofil in 03_LEITPROFILE.")
+      gefunden_ohne_lp <- c(gefunden_ohne_lp, q)
+      next
+    }
+
+    lp <- dplyr::left_join(lp, dplyr::distinct(ke, group_ID, SOEH_KRZ), by = "group_ID")
+    lp$BL <- .bl_aus_group_id(lp$group_ID)
+    lp <- .ergaenze_farb_boart(lp, munsell_spalte, boart_spalte)
+
+    message("MASTER_ID '", master_id, "' -> Quelle ", q, ", group_ID ",
+            paste(gid, collapse = ", "), ", SOEH_KRZ ",
+            paste(unique(ke$SOEH_KRZ), collapse = ", "))
+    attr(lp, "quelle") <- q
+    return(tibble::as_tibble(lp))
+  }
+
+  if (length(gefunden_ohne_lp))
+    stop("MASTER_ID '", master_id, "' existiert in ",
+         paste(unique(gefunden_ohne_lp), collapse = ", "),
+         ", hat dort aber kein Leitprofil (vgl. Kommentar 'keine Form - Ausweichen').")
+  stop("MASTER_ID '", master_id, "' in keiner Quelle (",
+       paste(quellen, collapse = ", "), ") gefunden.")
+}
+
 #' Pruefen, fuer welche group_ID einer Feinbodenform ein Leitprofil existiert
 #'
 #' Gleicht die in 02_KARTIEREINHEITEN bekannten group_ID(s) einer SOEH_KRZ
