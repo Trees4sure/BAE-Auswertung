@@ -38,6 +38,26 @@ DB_Lp_BWI <- sqlQuery(DB_Verbindung, "select * from dbo.MRS_BWI_03_Leitprofile")
 DB_Lp_BWI <- lade_leitprofile("BWI")     # liest 03_LEITPROFILE aus MRS_BWI.sqlite3
 ```
 
+### Verknuepfung 03_LEITPROFILE ↔ 02_KARTIEREINHEITEN
+
+`03_LEITPROFILE` traegt **kein** `SOEH_KRZ`/`BL` direkt, sondern nur `group_ID`:
+
+```
+group_ID = <BL>_<SOEH_KRZ>_<Version>     z.B. "MV_BiS_1", "ST_MüS_1", "MV_MüS/BiS_1"
+```
+
+`lade_leitprofile()` ergaenzt `SOEH_KRZ` (aus den eindeutigen
+`(group_ID, SOEH_KRZ)`-Paaren der Kartiereinheiten) und leitet `BL` aus dem
+`group_ID`-Praefix ab. **Wichtig:** die Kartiereinheiten werden vorher per
+`distinct()` reduziert – ein direkter Join wuerde das Leitprofil um jede
+`MASTER_ID` vervielfachen.
+
+Gezielt eine Feinbodenform (entspricht der DB-Browser-Abfrage):
+
+```r
+bis_mv <- lade_leitprofil_fuer("BiS", region = "MV", quelle = "NR")
+```
+
 ## Verwendung
 
 ```r

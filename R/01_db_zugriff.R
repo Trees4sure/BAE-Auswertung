@@ -118,14 +118,52 @@ db_read <- function(pfad, tabelle) {
 # ---------------------------------------------------------------------
 # Komfort-Loader
 # ---------------------------------------------------------------------
+# Verknuepfung 03_LEITPROFILE <-> 02_KARTIEREINHEITEN
+# ---------------------------------------------------------------------
+# 03_LEITPROFILE traegt KEIN SOEH_KRZ/BL direkt, sondern nur die
+# Spalte group_ID. Diese ist aufgebaut als:
+#     group_ID = <BL>_<SOEH_KRZ>_<Version>     z.B. "MV_BiS_1", "ST_MüS_1"
+# (SOEH_KRZ kann selbst "/" enthalten, z.B. "MV_MüS/BiS_1").
+#
+# SOEH_KRZ wird ueber die eindeutigen (group_ID, SOEH_KRZ)-Paare aus
+# 02_KARTIEREINHEITEN ergaenzt; das BL wird aus dem group_ID-Praefix
+# abgeleitet. Wichtig: NICHT direkt joinen, sonst vervielfacht sich das
+# Leitprofil um jede MASTER_ID -> daher distinct().
+
+#' BL (Bundesland) aus dem group_ID-Praefix ableiten
+.bl_aus_group_id <- function(group_id) sub("^([^_]+)_.*$", "\\1", group_id)
+
+#' SOEH_KRZ aus dem group_ID ableiten (Mittelteil zwischen BL und Version)
+.soehkrz_aus_group_id <- function(group_id) sub("^[^_]+_(.*)_[^_]+$", "\\1", group_id)
+
 #' Leitprofile (Tabelle 03_LEITPROFILE) einer Quelle laden
 #'
+#' Ergaenzt automatisch SOEH_KRZ (aus 02_KARTIEREINHEITEN) und BL
+#' (aus group_ID), damit nach Feinbodenform und Region gefiltert
+#' werden kann.
+#'
 #' @param quelle  "BWI", "BZE", "NR" oder "STOK"
-#' @param region  optionaler Filter auf Spalte BL (z.B. "MV")
-#' @return  tibble inkl. Zusatzspalten .munsell und .boart
+#' @param region  optionaler Filter auf BL (z.B. "MV")
+#' @return  tibble inkl. SOEH_KRZ, BL sowie Zusatzspalten .munsell und .boart
 lade_leitprofile <- function(quelle = "BWI", region = NULL,
                             munsell_spalte = NULL, boart_spalte = NULL) {
-  df <- db_read(db_pfad(quelle), TAB$LEITPROFILE)
+  pfad <- db_pfad(quelle)
+  df   <- db_read(pfad, TAB$LEITPROFILE)
+
+  # --- SOEH_KRZ / BL ueber group_ID ergaenzen ---
+  if ("group_ID" %in% names(df)) {
+    if (!"SOEH_KRZ" %in% names(df)) {
+      map <- tryCatch(db_read(pfad, TAB$KARTIEREINHEITEN), error = function(e) NULL)
+      if (!is.null(map) && all(c("group_ID", "SOEH_KRZ") %in% names(map))) {
+        map <- dplyr::distinct(map, group_ID, SOEH_KRZ)
+        df  <- dplyr::left_join(df, map, by = "group_ID")
+      } else {
+        # Fallback: SOEH_KRZ direkt aus group_ID parsen
+        df$SOEH_KRZ <- .soehkrz_aus_group_id(df$group_ID)
+      }
+    }
+    if (!"BL" %in% names(df)) df$BL <- .bl_aus_group_id(df$group_ID)
+  }
 
   if (!is.null(region) && "BL" %in% names(df)) {
     df <- dplyr::filter(df, BL == region)
@@ -145,6 +183,43 @@ lade_leitprofile <- function(quelle = "BWI", region = NULL,
           " | Munsell-Spalte: ", ifelse(is.na(munsell_spalte), "keine", munsell_spalte),
           " | Bodenart-Spalte: ", ifelse(is.na(boart_spalte),  "keine", boart_spalte))
   df
+}
+
+#' Leitprofil(e) EINER Feinbodenform gezielt per SQL laden
+#'
+#' Entspricht der DB-Browser-Abfrage: verknuepft 03_LEITPROFILE mit den
+#' eindeutigen (group_ID, SOEH_KRZ)-Paaren aus 02_KARTIEREINHEITEN.
+#'
+#' @param soeh_krz  Feinbodenform-Kuerzel (z.B. "BiS")
+#' @param region    optionaler BL-Filter (z.B. "MV")
+#' @param quelle    "BWI", "BZE", "NR" oder "STOK"
+lade_leitprofil_fuer <- function(soeh_krz, region = NULL, quelle = "BWI",
+                                munsell_spalte = NULL, boart_spalte = NULL) {
+  con <- db_connect(db_pfad(quelle)); on.exit(DBI::dbDisconnect(con))
+  # Identifier in doppelten, String-Literale bleiben als Parameter -> kein
+  # Zitier-Konflikt. BL wird nachtraeglich in R aus group_ID abgeleitet.
+  sql <- paste(
+    'SELECT m.SOEH_KRZ, lp.*',
+    'FROM "03_LEITPROFILE" AS lp',
+    'JOIN (SELECT DISTINCT group_ID, SOEH_KRZ FROM "02_KARTIEREINHEITEN") AS m',
+    '  ON m.group_ID = lp.group_ID',
+    'WHERE m.SOEH_KRZ = ?',
+    sep = "\n")
+  df <- DBI::dbGetQuery(con, sql, params = list(soeh_krz))
+
+  if ("group_ID" %in% names(df)) df$BL <- .bl_aus_group_id(df$group_ID)
+  if (!is.null(region) && "BL" %in% names(df)) df <- df[df$BL == region, , drop = FALSE]
+
+  if (is.null(munsell_spalte))
+    munsell_spalte <- .finde_spalte(df, c("MUNSELL", "BODENFARBE", "FARBE",
+                                          "FARBE_FEUCHT", "MUNSELL_F", "BOFA"))
+  if (is.null(boart_spalte))
+    boart_spalte <- .finde_spalte(df, c("BOART", "BODENART", "BOART_KA5",
+                                        "BODENART_KA5", "KOERNUNG", "BART", "KA5"))
+  df$.munsell <- if (!is.na(munsell_spalte)) as.character(df[[munsell_spalte]]) else NA_character_
+  df$.boart   <- if (!is.na(boart_spalte))   as.character(df[[boart_spalte]])   else NA_character_
+
+  tibble::as_tibble(df)
 }
 
 #' Kartiereinheiten (Tabelle 02_KARTIEREINHEITEN) einer Quelle laden

@@ -31,22 +31,23 @@ source("R/02_horizont_abfolge_plot.R")
 # db_spalten(db_pfad("BWI"), TAB$LEITPROFILE)   # Spalten der Leitprofil-Tabelle
 
 # ---- 1) Leitprofile laden (Tabelle 03_LEITPROFILE) -------------------
-# Ersetzt frueher: DB_Lp_BWI <- sqlQuery(DB_Verbindung, "... MRS_BWI_03_Leitprofile")
-DB_Lp_BWI <- lade_leitprofile("BWI")
-# DB_Lp_NR  <- lade_leitprofile("NR")
+# 03_LEITPROFILE wird ueber group_ID mit 02_KARTIEREINHEITEN verknuepft;
+# SOEH_KRZ und BL werden dabei automatisch ergaenzt.
+# Ersetzt frueher: DB_Lp_NR <- sqlQuery(DB_Verbindung, "... MRS_NR_03_Leitprofile")
+DB_Lp_NR  <- lade_leitprofile("NR")            # ganze Tabelle inkl. SOEH_KRZ/BL
+# DB_Lp_BWI <- lade_leitprofile("BWI")
 # DB_Lp_BZE <- lade_leitprofile("BZE")
 
-# Alle alten DB-Objekte auf einmal (Namen wie im SQL-Server-Skript):
-# db <- lade_alle_db()
-# str(db, max.level = 1)
+# Gezielt EINE Feinbodenform per SQL (schnell, entspricht der DB-Browser-Abfrage):
+# bis_mv <- lade_leitprofil_fuer("BiS", region = "MV", quelle = "NR")
 
 # ---- 2) Horizontabfolge plotten --------------------------------------
 # Ein Profil:
-horizont_abfolge_plot(DB_Lp_BWI, soeh_krz = "SoS", region = "MV")
+horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS", region = "MV")
 
 # Mehrere Profile nebeneinander:
-# horizont_abfolge_plot(DB_Lp_BWI,
-#                       soeh_krz = c("BiS", "AhLG", "BaeS", "WnS", "DgL"),
+# horizont_abfolge_plot(DB_Lp_NR,
+#                       soeh_krz = c("BiS", "MüS", "DüSG"),
 #                       region = "MV")
 
 # ---- 3) Legende der KA5-Koernungs-Symbole ----------------------------
