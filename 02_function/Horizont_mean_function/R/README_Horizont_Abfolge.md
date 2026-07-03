@@ -126,12 +126,19 @@ KA5-Hauptgruppen abgeleitet und als Textursymbole eingezeichnet. In den
 NR/BWI/BZE-Datenbanken heisst diese Spalte **`BODART`** (wird automatisch
 erkannt; Kandidatenliste in `01_db_zugriff.R`, `.BOART_KANDIDATEN`):
 
-| Gruppe | Erstbuchstabe | Symbol |
-|--------|---------------|--------|
+| Gruppe | Grossbuchstabe | Symbol |
+|--------|----------------|--------|
 | Sand    | S | Punkte |
 | Schluff | U | kurze Striche |
 | Lehm    | L | Punkte + Striche |
 | Ton     | T | durchgehende Linien |
+
+Die Zuordnung erfolgt ueber den **ersten Grossbuchstaben S/U/L/T** des Kuerzels;
+die Korngroessen-Praefixe `f`/`m`/`g` (Fein-/Mittel-/Grobsand) sind klein und
+werden korrekt uebersprungen (`mSfs` → S, `fS` → S). Liegt kein auswertbares
+Kuerzel vor (z.B. `BODART = "NA"`, organische Horizonte), wird die Gruppe – wenn
+moeglich – aus den Kornanteilen `SAND`/`SCHLUFF`/`TON` abgeleitet
+(`gruppe_aus_anteilen()`).
 
 > Hinweis: Die NR/BWI/BZE-Datenbanken enthalten **keine** gemessene
 > Munsell-Feldfarbe – daher greift durchgaengig der KA5-Fallback ueber das

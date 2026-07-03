@@ -118,12 +118,22 @@ koernung_referenz <- function() {
 
 #' KA5-Bodenart -> Koernungs-Attribute (Gruppe, Farbe, Symbol, Schraffur)
 #'
-#' Zuordnung ueber den ersten Buchstaben des Bodenart-Kuerzels
-#' (S=Sand, U=Schluff, L=Lehm, T=Ton), z.B. "Sl3" -> S, "Lt2" -> L.
+#' Zuordnung ueber den ERSTEN GROSSBUCHSTABEN S/U/L/T des Kuerzels
+#' (S=Sand, U=Schluff, L=Lehm, T=Ton). Wichtig: die Korngroessen-Praefixe
+#' f/m/g (Fein-/Mittel-/Grobsand) sind kleingeschrieben und werden dadurch
+#' korrekt uebersprungen, z.B.:
+#'   "Sl3" -> S, "Lt2" -> L, "Ut3" -> U, "Tu2" -> T,
+#'   "fS"  -> S, "mSfs" -> S, "gSms" -> S.
+#' Organische/Sonstige (Hn, Ha, Fhh, V, "NA") ergeben keine Zuordnung.
 #'
-#' @param boart  Character-Vektor der Bodenart-Kuerzel (z.B. "Sl3", "Lt2")
+#' @param boart  Character-Vektor der Bodenart-Kuerzel (z.B. "Sl3", "mSfs")
 koernung_attribute <- function(boart) {
-  .attribute_aus_gruppe(toupper(substr(as.character(boart), 1, 1)))
+  b   <- as.character(boart)
+  grp <- rep(NA_character_, length(b))
+  m   <- regexpr("[SULT]", b)                 # case-sensitiv: nur Grossbuchstaben
+  hit <- !is.na(b) & m > 0
+  grp[hit] <- substr(b[hit], m[hit], m[hit])
+  .attribute_aus_gruppe(grp)
 }
 
 #' Koernungs-Hauptgruppe aus den Kornanteilen Sand/Schluff/Ton ableiten
