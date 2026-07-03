@@ -2,27 +2,36 @@
 # heatmap_bae_zukunft_standalone.R
 # ----------------------------------------------------------------------------
 # Eigenständiges Skript (UNABHÄNGIG von der Shiny-App) zum Erzeugen der
-# gefacetteten BAE-Heatmap für eine MASTER_ID:
-#   - Facets:   Szenario (Zeilen)  ×  Zeitraum (Spalten)
-#   - je Block: Baumart (x-Achse)  ×  TV (y-Achse)  + grauer Rahmen
-#   - OBS zeigt die Vergangenheit, RCP45/RCP85 zeigen NUR die Zukunft
-#   - RCP45/RCP85-Varianten (v2/v3) erhalten eigene, beschriftete Zeilen
+# BAE-Heatmap für eine MASTER_ID als kompakte Patchwork-Grafik:
+#
+#   ┌──────────────────────────────────────────────┐
+#   │  OBS / Referenz   ×  Vergangenheits-Zeiträume │   (oberer Block)
+#   ├──────────────────────────────────────────────┤
+#   │  RCP-Szenarien    ×  Zukunfts-Zeiträume       │   (unterer Block)
+#   └──────────────────────────────────────────────┘
+#   je Block: Baumart (x-Achse) × TV (y-Achse)
+#
+# Vorteil ggü. facet_grid: KEINE leeren Kästen (OBS-Zukunft / RCP-Vergangenheit
+# entfallen) -> deutlich kompakter.
+#
+# Weitere Features:
+#   - RCP45/RCP85-Varianten (v2/v3) erhalten eigene Zeilen (Szen_label)
 #   - Zeilen-Labels frei umbenennbar (szen_rename)
-#   - Modell (MPICLM, ECECMO, DWD, …) wird im Untertitel UND Dateinamen geführt
+#   - Modell (MPICLM, ECECMO, DWD, …) im Untertitel UND Dateinamen
 #
 # Grundlage: heatmap_bae_function() (Farbpalette, Stufen-Mappings, Kachel-Stil).
 #
 # Erwartete Spalten in `data`:
 #   MASTER_ID, Baumart, TV, Klimalauf, BAE_3ST, BAE_4ST, BAE_5ST
-# `Klimalauf` enthält Szenario, Modell, Zeitraum und optional eine Variante,
-# z. B. "OBS_DWD_1991-2020", "RCP45_MPICLM_2071-2100",
-#       "RCP45-v3_MPICLM_2021-2050", "RCP85_MPICLM_2071-2100_v2".
+# `Klimalauf` z. B. "OBS_DWD_1991-2020", "RCP45_MPICLM_2071-2100",
+#                   "RCP45-v3_MPICLM_2021-2050", "RCP85_MPICLM_2071-2100_v2".
 # ============================================================================
 
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(stringr)
+# benötigt zusätzlich: patchwork  (install.packages("patchwork"))
 
 heatmap_bae_zukunft_function <- function(data,
                                          master_id,
@@ -31,6 +40,9 @@ heatmap_bae_zukunft_function <- function(data,
                                          obs_alle       = TRUE,          # OBS: alle Zeiträume zeigen
                                          szen_rename    = character(0),  # Zeilen-Labels umbenennen, s.u.
                                          out_dir        = "04_results/BAE_Auswertung/heatmap") {
+
+  if (!requireNamespace("patchwork", quietly = TRUE))
+    stop("Paket 'patchwork' wird benötigt:  install.packages(\"patchwork\")")
 
   # ---- 0. Farbpalette + Stufen-Mappings (aus heatmap_bae_function) ----------
   custom_palette <- c(
@@ -69,11 +81,6 @@ heatmap_bae_zukunft_function <- function(data,
   }
 
   # ---- 2. Szenario / Modell / Zeitraum / Variante aus Klimalauf ableiten ----
-  # Zeitraum   : "JJJJ-JJJJ" irgendwo im String
-  # Variante   : "vN" irgendwo im String (im Szenario ODER im Modell), sonst NA
-  # Szenario   : erstes Token vor "_", ohne evtl. angehängte Variante
-  # Modell     : Teil zwischen Szenario und Zeitraum (z.B. MPICLM, ECECMO, DWD)
-  # Szen_label : Szenario inkl. Variante -> eigene Facet-Zeile (RCP45_v2 ...)
   d <- d %>%
     dplyr::mutate(
       Klimalauf = as.character(Klimalauf),
@@ -91,7 +98,7 @@ heatmap_bae_zukunft_function <- function(data,
 
   # ---- 2b. Zeilen-Labels optional umbenennen --------------------------------
   # szen_rename: benannter Vektor  c("<intern>" = "<Anzeige>")
-  #   z.B. c("RCP45_v3" = "RCP45_real", "RCP45" = "RCP45_normal", "OBS" = "Referenzzeitraum")
+  #   z.B. c("RCP45_v3" = "RCP45_real", "RCP45" = "RCP45_normal", "OBS" = "Referenz")
   if (length(szen_rename) > 0) {
     idx <- match(d$Szen_label, names(szen_rename))
     treffer <- !is.na(idx)
@@ -124,10 +131,10 @@ heatmap_bae_zukunft_function <- function(data,
     return(invisible(NULL))
   }
 
-  # ---- 4. Faktor-Ordnung (Facets + Achsen) ----------------------------------
-  szen_levels <- sort(unique(d$Szen_label))                 # OBS, RCP45, RCP45_v2, ...
-  zeit_levels <- sort(unique(d$Zeitraum))                   # chronologisch (JJJJ-…)
-  tv_levels   <- sort(unique(paste0("TV", d$TV)), decreasing = TRUE)  # TV2 oben … TV9 unten
+  # ---- 4. Faktor-Ordnung (global, damit Blöcke zueinander passen) -----------
+  szen_levels <- sort(unique(d$Szen_label))
+  zeit_levels <- sort(unique(d$Zeitraum))                              # chronologisch
+  tv_levels   <- sort(unique(paste0("TV", d$TV)), decreasing = TRUE)   # TV1 oben … TVn unten
   ba_levels   <- sort(unique(as.character(d$Baumart)))
 
   d <- d %>%
@@ -135,19 +142,48 @@ heatmap_bae_zukunft_function <- function(data,
       Szen_label = factor(Szen_label, levels = szen_levels),
       Zeitraum   = factor(Zeitraum,   levels = zeit_levels),
       TV         = factor(paste0("TV", TV), levels = tv_levels),
-      Baumart    = factor(Baumart,    levels = ba_levels)
+      Baumart    = factor(Baumart,    levels = ba_levels),
+      ist_rcp    = grepl("^RCP", Szenario, ignore.case = TRUE)
     )
 
-  # Modell(e) für Untertitel und Dateiname (mehrere -> mit "-" verbunden)
+  # Modell(e) für Untertitel und Dateiname
   modelle     <- sort(unique(as.character(d$Modell)))
   modelle     <- modelle[!is.na(modelle) & nzchar(modelle)]
   modelle_str <- if (length(modelle)) paste(modelle, collapse = "-") else "NA"
 
-  # ---- 5. Ausgabeordner -----------------------------------------------------
   mid_dir <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
 
-  # ---- 6. Je Bewertungsstufe eine gefacettete Heatmap -----------------------
+  # ---- 5. Hilfsfunktion: EIN Block (Referenz ODER RCP) als ggplot -----------
+  baue_block <- function(dblock, x_labels = TRUE) {
+    dblock <- dblock %>%
+      dplyr::mutate(
+        Szen_label = droplevels(Szen_label),   # nur vorhandene Zeilen
+        Zeitraum   = droplevels(Zeitraum)      # nur vorhandene Spalten -> keine leeren Kästen
+      )
+    ggplot2::ggplot(dblock, ggplot2::aes(x = Baumart, y = TV, fill = Kategorie)) +
+      ggplot2::geom_tile(color = "white", linewidth = 0.5) +
+      ggplot2::scale_fill_manual(values = custom_palette, na.value = "#B0B0B0",
+                                 breaks = names(custom_palette), drop = FALSE) +
+      ggplot2::facet_grid(Szen_label ~ Zeitraum) +
+      ggplot2::scale_x_discrete(position = "top") +
+      ggplot2::scale_y_discrete(drop = FALSE) +   # alle TV-Zeilen -> Blöcke bleiben ausgerichtet
+      ggplot2::labs(x = NULL, y = "TV", fill = "Empfehlung") +
+      ggplot2::theme_minimal(base_size = 11) +
+      ggplot2::theme(
+        strip.text       = ggplot2::element_text(face = "bold", size = 9),
+        axis.text.x      = if (x_labels)
+          ggplot2::element_text(angle = 0, hjust = 0.5, face = "bold", size = 8)
+          else ggplot2::element_blank(),
+        axis.ticks.x     = ggplot2::element_blank(),
+        axis.text.y      = ggplot2::element_text(size = 8),
+        panel.grid       = ggplot2::element_blank(),
+        panel.spacing    = ggplot2::unit(0.15, "lines"),
+        plot.background  = ggplot2::element_rect(fill = "white", color = NA)
+      )
+  }
+
+  # ---- 6. Je Bewertungsstufe: zwei Blöcke stapeln (Patchwork) ---------------
   plots <- list()
   for (st in stufen) {
     kat_col <- bae_col[[st]]
@@ -157,47 +193,46 @@ heatmap_bae_zukunft_function <- function(data,
     }
 
     d_st <- d %>%
-      dplyr::mutate(
-        Kategorie = factor(map_val(.data[[kat_col]], maps[[st]]),
-                           levels = names(custom_palette))
-      )
+      dplyr::mutate(Kategorie = factor(map_val(.data[[kat_col]], maps[[st]]),
+                                       levels = names(custom_palette)))
 
-    p <- ggplot2::ggplot(d_st, ggplot2::aes(x = Baumart, y = TV, fill = Kategorie)) +
-      ggplot2::geom_tile(color = "white", linewidth = 0.5) +
-      ggplot2::scale_fill_manual(values = custom_palette, na.value = "#B0B0B0",
-                                 breaks = names(custom_palette), drop = FALSE) +
-      ggplot2::facet_grid(Szen_label ~ Zeitraum) +
-      ggplot2::scale_x_discrete(position = "top") +
-      ggplot2::labs(
+    d_ref <- d_st %>% dplyr::filter(!ist_rcp)   # OBS / Referenz  -> oben
+    d_rcp <- d_st %>% dplyr::filter(ist_rcp)    # RCP-Szenarien   -> unten
+
+    bloecke <- list(); hoehen <- c()
+    if (nrow(d_ref) > 0) {
+      bloecke <- c(bloecke, list(baue_block(d_ref, x_labels = TRUE)))
+      hoehen  <- c(hoehen, length(unique(droplevels(d_ref$Szen_label))))
+    }
+    if (nrow(d_rcp) > 0) {
+      # x-Labels nur oben zeigen, wenn kein Referenzblock darüber steht
+      bloecke <- c(bloecke, list(baue_block(d_rcp, x_labels = (nrow(d_ref) == 0))))
+      hoehen  <- c(hoehen, length(unique(droplevels(d_rcp$Szen_label))))
+    }
+    if (length(bloecke) == 0) next
+
+    p <- patchwork::wrap_plots(bloecke, ncol = 1, heights = hoehen,
+                               guides = "collect") +
+      patchwork::plot_annotation(
         title    = paste0("BAE-Heatmap – ", master_id),
         subtitle = paste0(st, "-stufig  |  Modell: ", modelle_str,
-                          "  |  OBS = Vergangenheit, RCP = Zukunft (ab ",
-                          rcp_zukunft_ab, ")"),
-        x = NULL, y = "TV", fill = "Empfehlung") +
-      ggplot2::theme_minimal(base_size = 11) +
-      ggplot2::theme(
-        strip.text       = ggplot2::element_text(face = "bold", size = 9),
-        strip.background  = ggplot2::element_rect(fill = "grey95", color = "grey70",
-                                                  linewidth = 0.6),
-        # grauer Rahmen um jeden Szenario-/Zeitraum-Kasten:
-        panel.border     = ggplot2::element_rect(color = "grey70", fill = NA,
-                                                 linewidth = 0.6),
-        panel.spacing    = ggplot2::unit(0.5, "lines"),
-        axis.text.x      = ggplot2::element_text(angle = 0, hjust = 0.5,
-                                                 face = "bold", size = 9),
-        axis.text.y      = ggplot2::element_text(size = 9),
-        panel.grid       = ggplot2::element_blank(),
-        legend.position  = "bottom",
-        legend.direction = "horizontal",
-        legend.text      = ggplot2::element_text(size = 10),
-        plot.background  = ggplot2::element_rect(fill = "white", color = NA)
-      )
+                          "  |  oben: Referenz/Vergangenheit,  unten: RCP-Zukunft (ab ",
+                          rcp_zukunft_ab, ")")
+      ) &
+      ggplot2::theme(legend.position = "bottom",
+                     legend.direction = "horizontal")
 
+    # Höhe grob an Zeilenzahl koppeln, Breite an Spaltenzahl
+    n_zeilen  <- sum(hoehen)
+    n_spalten <- max(1, length(unique(droplevels(d_rcp$Zeitraum))),
+                     length(unique(droplevels(d_ref$Zeitraum))))
     datei <- file.path(mid_dir,
                        paste0("Heatmap_Zukunft_", st, "_", master_id, "_",
                               modelle_str, ".png"))
     ggplot2::ggsave(datei, plot = p, device = "png",
-                    width = 5400, height = 3000, units = "px", dpi = 300)
+                    width  = 1200 + n_spalten * 900,
+                    height =  700 + n_zeilen  * 520,
+                    units = "px", dpi = 150, limitsize = FALSE)
     message("Gespeichert: ", datei)
     plots[[st]] <- p
   }
@@ -208,20 +243,18 @@ heatmap_bae_zukunft_function <- function(data,
 # ============================================================================
 # BEISPIEL-AUFRUF (auskommentiert)
 # ----------------------------------------------------------------------------
-# data <- data.table::fread("meine_bae_daten.csv")   # oder read.csv(...)
+# install.packages("patchwork")   # einmalig, falls noch nicht vorhanden
+# data <- data.table::fread("meine_bae_daten.csv")
 #
-# # Standard: OBS = Vergangenheit, RCP45/RCP85 nur ab Startjahr 2021,
-# #           Modell landet automatisch in Untertitel + Dateiname
-# heatmap_bae_zukunft_function(data, master_id = "NR_130_08_6189")
+# # Standard: oben OBS/Referenz (Vergangenheit), unten RCP (Zukunft ab 2021)
+# heatmap_bae_zukunft_function(data, master_id = "NR_130_08_66519")
 #
-# # Zeilen-Labels hübscher benennen (v3 -> "real", Basis -> "normal"):
+# # OBS in "Referenz" umbenennen, v3 hübscher:
 # heatmap_bae_zukunft_function(
-#   data, master_id = "NR_130_08_6189",
-#   szen_rename = c("RCP45_v3" = "RCP45_real",
-#                   "RCP45"    = "RCP45_normal",
-#                   "OBS"      = "Referenzzeitraum"))
+#   data, master_id = "NR_130_08_66519",
+#   szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
 #
 # # Nur Endperiode 2071-2100 für RCP, nur 3-stufig:
-# heatmap_bae_zukunft_function(data, master_id = "NR_130_08_6189",
+# heatmap_bae_zukunft_function(data, master_id = "NR_130_08_66519",
 #                              rcp_zukunft_ab = 2071, stufen = "3st")
 # ============================================================================
