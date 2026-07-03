@@ -169,19 +169,11 @@ lade_leitprofile <- function(quelle = "BWI", region = NULL,
     df <- dplyr::filter(df, BL == region)
   }
 
-  if (is.null(munsell_spalte))
-    munsell_spalte <- .finde_spalte(df, c("MUNSELL", "BODENFARBE", "FARBE",
-                                          "FARBE_FEUCHT", "MUNSELL_F", "BOFA"))
-  if (is.null(boart_spalte))
-    boart_spalte <- .finde_spalte(df, c("BOART", "BODENART", "BOART_KA5",
-                                        "BODENART_KA5", "KOERNUNG", "BART", "KA5"))
-
-  df$.munsell <- if (!is.na(munsell_spalte)) as.character(df[[munsell_spalte]]) else NA_character_
-  df$.boart   <- if (!is.na(boart_spalte))   as.character(df[[boart_spalte]])   else NA_character_
+  df <- .ergaenze_farb_boart(df, munsell_spalte, boart_spalte)
 
   message("[", quelle, " / 03_LEITPROFILE]  Zeilen: ", nrow(df),
-          " | Munsell-Spalte: ", ifelse(is.na(munsell_spalte), "keine", munsell_spalte),
-          " | Bodenart-Spalte: ", ifelse(is.na(boart_spalte),  "keine", boart_spalte))
+          " | Munsell-Spalte: ", ifelse(is.na(attr(df, "spalte_munsell")), "keine", attr(df, "spalte_munsell")),
+          " | Bodenart-Spalte: ", ifelse(is.na(attr(df, "spalte_boart")),  "keine", attr(df, "spalte_boart")))
   df
 }
 
@@ -210,28 +202,27 @@ lade_leitprofil_fuer <- function(soeh_krz, region = NULL, quelle = "BWI",
   if ("group_ID" %in% names(df)) df$BL <- .bl_aus_group_id(df$group_ID)
   if (!is.null(region) && "BL" %in% names(df)) df <- df[df$BL == region, , drop = FALSE]
 
-  if (is.null(munsell_spalte))
-    munsell_spalte <- .finde_spalte(df, c("MUNSELL", "BODENFARBE", "FARBE",
-                                          "FARBE_FEUCHT", "MUNSELL_F", "BOFA"))
-  if (is.null(boart_spalte))
-    boart_spalte <- .finde_spalte(df, c("BOART", "BODENART", "BOART_KA5",
-                                        "BODENART_KA5", "KOERNUNG", "BART", "KA5"))
-  df$.munsell <- if (!is.na(munsell_spalte)) as.character(df[[munsell_spalte]]) else NA_character_
-  df$.boart   <- if (!is.na(boart_spalte))   as.character(df[[boart_spalte]])   else NA_character_
-
+  df <- .ergaenze_farb_boart(df, munsell_spalte, boart_spalte)
   tibble::as_tibble(df)
 }
 
+# Kandidaten-Spaltennamen (an einer Stelle gepflegt).
+# Fuer die NR/BWI/BZE-Datenbanken heisst die KA5-Bodenart-Spalte "BODART"
+# (nicht "BOART"); eine gemessene Munsell-Farbe existiert dort nicht.
+.MUNSELL_KANDIDATEN <- c("MUNSELL", "BODENFARBE", "FARBE", "FARBE_FEUCHT", "MUNSELL_F", "BOFA")
+.BOART_KANDIDATEN   <- c("BODART", "BOART", "BODENART", "BOART_KA5",
+                        "BODENART_KA5", "KOERNUNG", "BART", "KA5")
+
 #' Munsell-/Bodenart-Spalten erkennen und als .munsell/.boart anhaengen
+#' (die gewaehlten Spaltennamen stehen danach in attr(df, "spalte_munsell")
+#' bzw. attr(df, "spalte_boart"))
 .ergaenze_farb_boart <- function(df, munsell_spalte = NULL, boart_spalte = NULL) {
-  if (is.null(munsell_spalte))
-    munsell_spalte <- .finde_spalte(df, c("MUNSELL", "BODENFARBE", "FARBE",
-                                          "FARBE_FEUCHT", "MUNSELL_F", "BOFA"))
-  if (is.null(boart_spalte))
-    boart_spalte <- .finde_spalte(df, c("BOART", "BODENART", "BOART_KA5",
-                                        "BODENART_KA5", "KOERNUNG", "BART", "KA5"))
+  if (is.null(munsell_spalte)) munsell_spalte <- .finde_spalte(df, .MUNSELL_KANDIDATEN)
+  if (is.null(boart_spalte))   boart_spalte   <- .finde_spalte(df, .BOART_KANDIDATEN)
   df$.munsell <- if (!is.na(munsell_spalte)) as.character(df[[munsell_spalte]]) else NA_character_
   df$.boart   <- if (!is.na(boart_spalte))   as.character(df[[boart_spalte]])   else NA_character_
+  attr(df, "spalte_munsell") <- munsell_spalte
+  attr(df, "spalte_boart")   <- boart_spalte
   df
 }
 

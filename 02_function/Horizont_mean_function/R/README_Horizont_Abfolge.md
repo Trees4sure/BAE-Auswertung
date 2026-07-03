@@ -115,9 +115,10 @@ gesetzt. Dieses Skript nutzt stattdessen zwei anerkannte Konventionen:
 
 ## KA5-Koernungs-Symbole
 
-Zusaetzlich zur Flaechenfarbe werden aus der **Bodenart** (Spalte `BOART`/
-`BODENART`, ebenfalls automatisch erkannt) die vier KA5-Hauptgruppen abgeleitet
-und als Textursymbole eingezeichnet:
+Zusaetzlich zur Flaechenfarbe werden aus der **Bodenart** die vier
+KA5-Hauptgruppen abgeleitet und als Textursymbole eingezeichnet. In den
+NR/BWI/BZE-Datenbanken heisst diese Spalte **`BODART`** (wird automatisch
+erkannt; Kandidatenliste in `01_db_zugriff.R`, `.BOART_KANDIDATEN`):
 
 | Gruppe | Erstbuchstabe | Symbol |
 |--------|---------------|--------|
@@ -126,8 +127,10 @@ und als Textursymbole eingezeichnet:
 | Lehm    | L | Punkte + Striche |
 | Ton     | T | durchgehende Linien |
 
-> Hinweis: Die exakten KA5-Legendenfarben sind nicht frei verfuegbar; die
-> hinterlegten Farb-/Munsell-Werte sind naturnahe Naeherungen und in
-> `R/00_ka5_referenz.R` an einer Stelle definiert. Die Koernungs-Symbole
+> Hinweis: Die NR/BWI/BZE-Datenbanken enthalten **keine** gemessene
+> Munsell-Feldfarbe – daher greift durchgaengig der KA5-Fallback ueber das
+> genetische Horizont-Symbol. Die exakten KA5-Legendenfarben sind nicht frei
+> verfuegbar; die hinterlegten Farb-/Munsell-Werte sind naturnahe Naeherungen
+> und in `00_ka5_referenz.R` an einer Stelle definiert. Die Koernungs-Symbole
 > werden ueber die Standard-Geometrie von `aqp::plotSPC()` (Breite 0.2,
 > Tiefe = y) gezeichnet.
