@@ -86,6 +86,12 @@ zugehoerige Leitprofil. Die **Quelle** wird aus dem MASTER_ID-Praefix erkannt
 (`NR_…` → NR, `BWI_…` → BWI, `BZE_…` → BZE); ist das Praefix unklar, werden alle
 drei Quellen durchsucht.
 
+**Schluessel je Quelle:** Das Leitprofil wird zuerst ueber die `group_ID` gesucht
+(NR/BWI: regionale Varianten je SOEH_KRZ). Gibt es dort keinen Treffer, wird ueber
+die `SOEH_KRZ` gesucht – so funktioniert **BZE**, wo die `SOEH_KRZ` (die Nummer
+hinter `BZE_`, z.B. `BZE_90742` → `90742`) direkt genau eine Horizontfolge
+identifiziert.
+
 **Ausweichlogik:** Hat die `group_ID` einer MASTER_ID kein eigenes Leitprofil –
 typisch bei Kombiformen (`SOEH_KRZ = "MüS/BiS"`) – wird automatisch auf die
 Teilformen **in derselben Region** ausgewichen (z.B. `MV_MüS_1` + `MV_BiS_1`).

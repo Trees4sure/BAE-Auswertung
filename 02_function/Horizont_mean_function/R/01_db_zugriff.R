@@ -236,12 +236,21 @@ lade_leitprofil_fuer <- function(soeh_krz, region = NULL, quelle = "BWI",
   if (praefix %in% c("NR", "BWI", "BZE", "STOK")) praefix else c("NR", "BWI", "BZE")
 }
 
+#' 03_LEITPROFILE nach beliebiger Schluesselspalte laden (group_ID oder SOEH_KRZ)
+.lp_where <- function(pfad, spalte, werte) {
+  con <- db_connect(pfad); on.exit(DBI::dbDisconnect(con))
+  ph  <- paste(rep("?", length(werte)), collapse = ", ")
+  sql <- paste0('SELECT * FROM "03_LEITPROFILE" WHERE "', spalte, '" IN (', ph, ')')
+  DBI::dbGetQuery(con, sql, params = as.list(werte))
+}
+
 #' Leitprofil ueber eine MASTER_ID laden (Quelle automatisch)
 #'
-#' Schlaegt zu einer MASTER_ID die group_ID in 02_KARTIEREINHEITEN nach und
-#' laedt das zugehoerige Leitprofil aus 03_LEITPROFILE. Die Datenquelle wird
-#' aus dem MASTER_ID-Praefix (NR_/BWI_/BZE_) bestimmt; ist sie unklar, werden
-#' NR, BWI und BZE der Reihe nach durchsucht.
+#' Schlaegt zu einer MASTER_ID SOEH_KRZ und group_ID in 02_KARTIEREINHEITEN
+#' nach und laedt das zugehoerige Leitprofil aus 03_LEITPROFILE:
+#'   NR/BWI ueber group_ID, BZE ueber SOEH_KRZ (siehe unten). Die Datenquelle
+#' wird aus dem MASTER_ID-Praefix (NR_/BWI_/BZE_) bestimmt; ist sie unklar,
+#' werden NR, BWI und BZE der Reihe nach durchsucht.
 #'
 #' @param master_id  eine MASTER_ID (z.B. "NR_130_08_66519")
 #' @param quelle     optional erzwingen ("NR"/"BWI"/"BZE"/"STOK")
@@ -269,15 +278,24 @@ lade_leitprofil_master <- function(master_id, quelle = NULL,
     DBI::dbDisconnect(con)
     if (is.null(ke) || nrow(ke) == 0) next          # MASTER_ID nicht in dieser Quelle
 
-    gid <- unique(ke$group_ID)
+    gid  <- unique(ke$group_ID)
+    gid  <- gid[!is.na(gid) & nzchar(as.character(gid))]
+    soeh <- unique(ke$SOEH_KRZ)
 
-    # Leitprofil zu den group_ID(s) laden
-    con <- db_connect(pfad)
-    ph  <- paste(rep("?", length(gid)), collapse = ", ")
-    lp  <- DBI::dbGetQuery(con,
-             paste0('SELECT * FROM "03_LEITPROFILE" WHERE group_ID IN (', ph, ')'),
-             params = as.list(gid))
-    DBI::dbDisconnect(con)
+    # Leitprofil laden:
+    #   NR/BWI: ueber group_ID (regionale Varianten je SOEH_KRZ)
+    #   BZE:    ueber SOEH_KRZ direkt (SOEH_KRZ = Nummer hinter "BZE_";
+    #           genau EINE Horizontfolge je SOEH_KRZ, keine group_ID-Kette)
+    weg <- NA_character_
+    lp  <- data.frame()
+    if (length(gid))
+      lp <- tryCatch(.lp_where(pfad, "group_ID", gid), error = function(e) data.frame())
+    if (nrow(lp) > 0) {
+      weg <- "group_ID"
+    } else if (length(soeh)) {
+      lp2 <- tryCatch(.lp_where(pfad, "SOEH_KRZ", soeh), error = function(e) data.frame())
+      if (nrow(lp2) > 0) { lp <- lp2; weg <- "SOEH_KRZ" }
+    }
 
     # --- Ausweichen: group_ID hat kein eigenes Leitprofil ---
     # Typisch bei Kombiformen (SOEH_KRZ "MüS/BiS"). Dann auf die Teilformen
@@ -324,9 +342,9 @@ lade_leitprofil_master <- function(master_id, quelle = NULL,
     if (!"BL" %in% names(lp)) lp$BL <- .bl_aus_group_id(lp$group_ID)
     lp <- .ergaenze_farb_boart(lp, munsell_spalte, boart_spalte)
 
-    message("MASTER_ID '", master_id, "' -> Quelle ", q, ", group_ID ",
-            paste(gid, collapse = ", "), ", SOEH_KRZ ",
-            paste(unique(ke$SOEH_KRZ), collapse = ", "))
+    message("MASTER_ID '", master_id, "' -> Quelle ", q, " (ueber ", weg, "), ",
+            if (length(gid)) paste0("group_ID ", paste(gid, collapse = ", "), ", ") else "",
+            "SOEH_KRZ ", paste(soeh, collapse = ", "))
     lp <- tibble::as_tibble(lp)
     attr(lp, "quelle") <- q
     return(lp)

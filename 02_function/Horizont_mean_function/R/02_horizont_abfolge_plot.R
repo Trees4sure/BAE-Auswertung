@@ -255,7 +255,11 @@ horizont_abfolge_plot <- function(data_input,
   # damit dieselbe SOEH_KRZ aus mehreren Regionen (z.B. MV_BiS_1 + ST_BiS_1)
   # als getrennte Profile erscheint. Sonst Rueckfall auf SOEH_KRZ.
   spc_df <- as.data.frame(df)
-  id_col <- if ("group_ID" %in% names(spc_df)) "group_ID" else "SOEH_KRZ"
+  # group_ID nur als ID nehmen, wenn ueberall gefuellt (bei BZE ist sie leer/NA
+  # -> dann SOEH_KRZ, das dort die eindeutige Profil-Kennung ist).
+  gid_ok <- "group_ID" %in% names(spc_df) &&
+            all(!is.na(spc_df$group_ID) & nzchar(as.character(spc_df$group_ID)))
+  id_col <- if (gid_ok) "group_ID" else "SOEH_KRZ"
   aqp::depths(spc_df) <- stats::as.formula(paste(id_col, "~ TIEFE_OG + TIEFE_UG"))
 
   par(mar = c(0, 0, 3, 1))
