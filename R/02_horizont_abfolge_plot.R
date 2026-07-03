@@ -47,24 +47,64 @@ horizont_farbe <- function(horizont, munsell = NA_character_) {
 
 
 # ---------------------------------------------------------------------
+# Feinbodenform(en) aufloesen (inkl. Kombiform-Fallback)
+# ---------------------------------------------------------------------
+# Sucht die angeforderten SOEH_KRZ in den vorhandenen Daten. Wird eine
+# Kombiform (z.B. "MüS/BiS") nicht direkt gefunden, wird auf die
+# Teilformen ausgewichen - je nachdem, welche vorhanden sind (beide,
+# nur die eine oder nur die andere).
+#' @return Character-Vektor der tatsaechlich vorhandenen SOEH_KRZ
+.resolve_soeh_krz <- function(data_input, soeh_krz) {
+  vorhanden  <- unique(as.character(data_input$SOEH_KRZ))
+  aufgeloest <- character(0)
+
+  for (code in soeh_krz) {
+    if (code %in% vorhanden) {
+      aufgeloest <- c(aufgeloest, code)
+      next
+    }
+    if (grepl("/", code, fixed = TRUE)) {              # Kombiform testen
+      teile    <- trimws(strsplit(code, "/", fixed = TRUE)[[1]])
+      gefunden <- teile[teile %in% vorhanden]
+      if (length(gefunden)) {
+        fehlt <- setdiff(teile, gefunden)
+        message("Kombiform '", code, "' nicht direkt vorhanden -> verwende Teilform(en): ",
+                paste(gefunden, collapse = ", "),
+                if (length(fehlt)) paste0("  (nicht gefunden: ", paste(fehlt, collapse = ", "), ")") else "")
+        aufgeloest <- c(aufgeloest, gefunden)
+      } else {
+        message("Kombiform '", code, "': keine der Teilformen (",
+                paste(teile, collapse = ", "), ") gefunden.")
+      }
+    } else {
+      message("Feinbodenform '", code, "' nicht gefunden.")
+    }
+  }
+  unique(aufgeloest)
+}
+
+
+# ---------------------------------------------------------------------
 # Datensatz fuer die Darstellung aufbereiten
 # ---------------------------------------------------------------------
-#' @param data_input  Horizontdaten (z.B. aus lade_horizonte())
+#' @param data_input  Horizontdaten (z.B. aus lade_leitprofile())
 #' @param soeh_krz    Vektor der darzustellenden Feinbodenform-Kuerzel
-#' @param region      optionaler Filter auf Bundesland-Spalte BL
+#' @param region      optionaler Filter auf Bundesland-Spalte BL.
+#'                    NULL (Standard) = ueber alle Regionen suchen/plotten.
 aufbereiten_profil <- function(data_input, soeh_krz, region = NULL) {
 
   df <- data_input
   if (!is.null(region) && "BL" %in% names(df)) {
     df <- dplyr::filter(df, BL == region)
   }
-  df <- dplyr::filter(df, SOEH_KRZ %in% soeh_krz)
 
-  if (nrow(df) == 0) {
+  codes <- .resolve_soeh_krz(df, soeh_krz)             # inkl. Kombiform-Fallback
+  if (length(codes) == 0) {
     stop("Keine Datensaetze fuer SOEH_KRZ = ",
          paste(soeh_krz, collapse = ", "),
-         if (!is.null(region)) paste0(" (Region ", region, ")") else "")
+         if (!is.null(region)) paste0(" (Region ", region, ")") else " (alle Regionen)")
   }
+  df <- dplyr::filter(df, SOEH_KRZ %in% codes)
 
   # fehlende Untergrenzen (-9999) abfangen: +50 cm auf die Obergrenze
   df <- dplyr::mutate(df,
@@ -96,13 +136,12 @@ aufbereiten_profil <- function(data_input, soeh_krz, region = NULL) {
 # (width = 0.2, scaling.factor = 1, y.offset = 0), d.h. ein Horizont
 # des Profils i wird als Rechteck von x = i-0.2 .. i+0.2 und
 # y = TIEFE_OG .. TIEFE_UG (Tiefe = y, nach unten zunehmend) gezeichnet.
-add_koernung_symbole <- function(spc, df, width = 0.2) {
+add_koernung_symbole <- function(spc, df, id_col = "SOEH_KRZ", width = 0.2) {
 
   ids <- aqp::profile_id(spc)         # Profil-Reihenfolge im Plot = x-Position
-  hz  <- as.data.frame(spc@horizons)
 
   for (i in seq_along(ids)) {
-    sub <- df[df$SOEH_KRZ == ids[i], , drop = FALSE]
+    sub <- df[as.character(df[[id_col]]) == ids[i], , drop = FALSE]
     if (nrow(sub) == 0) next
     xmid <- i
     xl <- xmid - width * 0.85
@@ -151,23 +190,28 @@ add_koernung_symbole <- function(spc, df, width = 0.2) {
 # ---------------------------------------------------------------------
 # Hauptfunktion: Horizontabfolge plotten
 # ---------------------------------------------------------------------
-#' @param data_input   Horizontdaten (aus lade_horizonte())
-#' @param soeh_krz     Feinbodenform-Kuerzel (ein oder mehrere)
-#' @param region       optionaler BL-Filter (z.B. "MV")
+#' @param data_input   Horizontdaten (aus lade_leitprofile())
+#' @param soeh_krz     Feinbodenform-Kuerzel (ein oder mehrere). Kombiformen
+#'                     mit "/" werden bei Bedarf auf ihre Teilformen aufgeloest.
+#' @param region       optionaler BL-Filter (z.B. "MV"). NULL (Standard) =
+#'                     ueber alle Regionen suchen und plotten.
 #' @param koernung     TRUE = KA5-Koernungs-Symbole einzeichnen
 #' @param schraffur    TRUE = zusaetzlich aqp-Schraffur ueber density nutzen
 #' @return             (unsichtbar) die aufbereitete SoilProfileCollection
 horizont_abfolge_plot <- function(data_input,
                                   soeh_krz,
-                                  region    = "MV",
+                                  region    = NULL,
                                   koernung  = TRUE,
                                   schraffur = FALSE) {
 
   df <- aufbereiten_profil(data_input, soeh_krz, region = region)
 
-  # -> SoilProfileCollection
+  # -> SoilProfileCollection.  Als eindeutige Profil-ID die group_ID nutzen,
+  # damit dieselbe SOEH_KRZ aus mehreren Regionen (z.B. MV_BiS_1 + ST_BiS_1)
+  # als getrennte Profile erscheint. Sonst Rueckfall auf SOEH_KRZ.
   spc_df <- as.data.frame(df)
-  aqp::depths(spc_df) <- SOEH_KRZ ~ TIEFE_OG + TIEFE_UG
+  id_col <- if ("group_ID" %in% names(spc_df)) "group_ID" else "SOEH_KRZ"
+  aqp::depths(spc_df) <- stats::as.formula(paste(id_col, "~ TIEFE_OG + TIEFE_UG"))
 
   par(mar = c(0, 0, 3, 1))
 
@@ -183,13 +227,14 @@ horizont_abfolge_plot <- function(data_input,
 
   do.call(aqp::plotSPC, args)
   title(main = paste0("Horizontabfolge - Feinbodenform(en): ",
-                      paste(soeh_krz, collapse = ", ")),
+                      paste(unique(df$SOEH_KRZ), collapse = ", "),
+                      if (!is.null(region)) paste0("  (", region, ")") else "  (alle Regionen)"),
         cex.main = 0.9)
 
   # KA5-Koernungs-Symbole ueberlagern
   if (koernung) {
     tryCatch(
-      add_koernung_symbole(spc_df, df),
+      add_koernung_symbole(spc_df, df, id_col = id_col),
       error = function(e) message("Koernungs-Symbole konnten nicht gezeichnet werden: ", conditionMessage(e))
     )
   }

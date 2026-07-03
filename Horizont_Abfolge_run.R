@@ -42,13 +42,18 @@ DB_Lp_NR  <- lade_leitprofile("NR")            # ganze Tabelle inkl. SOEH_KRZ/BL
 # bis_mv <- lade_leitprofil_fuer("BiS", region = "MV", quelle = "NR")
 
 # ---- 2) Horizontabfolge plotten --------------------------------------
-# Ein Profil:
-horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS", region = "MV")
+# Ohne region -> ueber ALLE Regionen suchen und plotten (z.B. MV_BiS_1 + ST_BiS_1):
+horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS")
 
-# Mehrere Profile nebeneinander:
-# horizont_abfolge_plot(DB_Lp_NR,
-#                       soeh_krz = c("BiS", "MüS", "DüSG"),
-#                       region = "MV")
+# Auf eine Region beschraenken:
+# horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS", region = "MV")
+
+# Kombiform: wird "MüS/BiS" nicht direkt gefunden, wird auf die
+# vorhandenen Teilformen (MüS und/oder BiS) ausgewichen:
+# horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "MüS/BiS")
+
+# Mehrere Formen nebeneinander:
+# horizont_abfolge_plot(DB_Lp_NR, soeh_krz = c("BiS", "MüS", "DüSG"))
 
 # ---- 3) Legende der KA5-Koernungs-Symbole ----------------------------
 # koernung_legende()

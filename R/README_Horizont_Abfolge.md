@@ -65,10 +65,23 @@ source("R/00_ka5_referenz.R")
 source("R/01_db_zugriff.R")
 source("R/02_horizont_abfolge_plot.R")
 
-DB_Lp_BWI <- lade_leitprofile("BWI")
-horizont_abfolge_plot(DB_Lp_BWI, soeh_krz = "SoS", region = "MV")
+DB_Lp_NR <- lade_leitprofile("NR")
+
+horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS")               # alle Regionen
+horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "BiS", region = "MV")# nur MV
+horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "MüS/BiS")           # Kombiform-Fallback
 koernung_legende()
 ```
+
+### Region- und Kombiform-Logik
+
+* **`region = NULL` (Standard):** es wird ueber **alle** Bundeslaender gesucht
+  und geplottet. Kommt dieselbe `SOEH_KRZ` in mehreren Laendern vor, erscheinen
+  beide als getrennte Profile (Profil-ID = `group_ID`, z.B. `MV_BiS_1`,
+  `ST_BiS_1`). Mit `region = "MV"` wird auf ein Bundesland beschraenkt.
+* **Kombiformen (`"MüS/BiS"`):** wird die Form nicht direkt gefunden, weicht das
+  Script auf die Teilformen aus und plottet, was vorhanden ist (beide, nur
+  `MüS` oder nur `BiS`) – mit entsprechender Meldung.
 
 ## Die „richtige" Farbwahl statt frei gewaehlter Munsell-Werte
 
