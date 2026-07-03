@@ -1,0 +1,86 @@
+# Horizontabfolge-Plots aus den SQLite-Bodendatenbanken
+
+Skripte zum Einlesen der Horizontdaten aus den SQLite-Bodendatenbanken und
+zum Zeichnen von Horizontabfolge-Profilen mit **standardisierter Farbwahl**
+und **KA5-Koernungs-Symbolen** – als Ersatz fuer die frei gewaehlten
+`hue/value/chroma`-Zuweisungen im urspruenglichen Skript.
+
+## Dateien
+
+| Datei | Inhalt |
+|-------|--------|
+| `R/00_ka5_referenz.R` | Referenz-Tabellen: Standard-Horizontfarben (Munsell) und KA5-Bodenarten → Farbe + Koernungs-Symbol |
+| `R/01_db_zugriff.R` | SQLite-Zugriff (ersetzt `sqlQuery`/RODBC), Komfort-Loader `lade_leitprofile()`, `lade_kartiereinheiten()`, `lade_alle_db()` |
+| `R/02_horizont_abfolge_plot.R` | Aufbereitung + `horizont_abfolge_plot()`, `add_koernung_symbole()`, `koernung_legende()` |
+| `Horizont_Abfolge_run.R` | Beispiel-Ausfuehrung |
+
+## Datenstruktur der SQLite-Dateien
+
+Je Datenquelle eine Datei unter `01_data/Grundlagen/Bodendatenbank/`
+(`MRS_BWI.sqlite3`, `MRS_BZE.sqlite3`, `MRS_NR.sqlite3`), darin die
+Tabellen:
+
+```
+00_BESCHREIBUNG
+01_KOPFDATEN
+02_KARTIEREINHEITEN   <- fruehere Tabelle "..._02_Kartiereinheiten"
+03_LEITPROFILE        <- fruehere Tabelle "..._03_Leitprofile"
+04_BUNDESLAND
+05_QUALITAETSSCHLUESSEL
+```
+
+Umstieg vom alten SQL-Server-Zugriff:
+
+```r
+# frueher:
+DB_Lp_BWI <- sqlQuery(DB_Verbindung, "select * from dbo.MRS_BWI_03_Leitprofile")
+# jetzt:
+DB_Lp_BWI <- lade_leitprofile("BWI")     # liest 03_LEITPROFILE aus MRS_BWI.sqlite3
+```
+
+## Verwendung
+
+```r
+source("R/00_ka5_referenz.R")
+source("R/01_db_zugriff.R")
+source("R/02_horizont_abfolge_plot.R")
+
+DB_Lp_BWI <- lade_leitprofile("BWI")
+horizont_abfolge_plot(DB_Lp_BWI, soeh_krz = "SoS", region = "MV")
+koernung_legende()
+```
+
+## Die „richtige" Farbwahl statt frei gewaehlter Munsell-Werte
+
+Im Ausgangs-Skript wurden `hue/value/chroma` je Horizont-Buchstabe frei
+gesetzt. Dieses Skript nutzt stattdessen zwei anerkannte Konventionen:
+
+1. **Gemessene Munsell-Farbe (bevorzugt).** Enthaelt die Leitprofil-Tabelle
+   eine Feldfarbe (Spalte wird automatisch erkannt: `MUNSELL`, `BODENFARBE`,
+   `FARBE`, …), wird diese mit `aqp::parseMunsell()` in die tatsaechliche
+   Bodenfarbe uebersetzt. Das ist die naturgetreueste Darstellung.
+
+2. **KA5-Fallback ueber das genetische Horizont-Symbol.** Fehlt eine
+   gemessene Farbe, greift eine an die Bodenkundliche Kartieranleitung (KA5)
+   angelehnte Standard-Palette (`horizont_farb_referenz()`), z. B. Ah = dunkel
+   humos, Bv = braun, Gr = blaugrau (reduziert), Sw = fahl marmoriert,
+   C = hellgrau. Alle Werte sind als Munsell hinterlegt und zentral anpassbar.
+
+## KA5-Koernungs-Symbole
+
+Zusaetzlich zur Flaechenfarbe werden aus der **Bodenart** (Spalte `BOART`/
+`BODENART`, ebenfalls automatisch erkannt) die vier KA5-Hauptgruppen abgeleitet
+und als Textursymbole eingezeichnet:
+
+| Gruppe | Erstbuchstabe | Symbol |
+|--------|---------------|--------|
+| Sand    | S | Punkte |
+| Schluff | U | kurze Striche |
+| Lehm    | L | Punkte + Striche |
+| Ton     | T | durchgehende Linien |
+
+> Hinweis: Die exakten KA5-Legendenfarben sind nicht frei verfuegbar; die
+> hinterlegten Farb-/Munsell-Werte sind naturnahe Naeherungen und in
+> `R/00_ka5_referenz.R` an einer Stelle definiert. Die Koernungs-Symbole
+> werden ueber die Standard-Geometrie von `aqp::plotSPC()` (Breite 0.2,
+> Tiefe = y) gezeichnet.
