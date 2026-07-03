@@ -316,53 +316,6 @@ horizont_abfolge_plot_master <- function(master_id, quelle = NULL,
 
 
 # ---------------------------------------------------------------------
-# Horizontabfolge-Plots je MASTER_ID als PNG speichern
-# ---------------------------------------------------------------------
-.dateiname_sicher <- function(x) gsub("[^A-Za-z0-9_.-]", "_", x)
-
-#' Fuer mehrere MASTER_IDs je ein PNG in ein Verzeichnis schreiben
-#'
-#' @param ids         Vektor von MASTER_IDs
-#' @param verzeichnis Zielordner (wird bei Bedarf angelegt)
-#' @param quelle      optional Quelle erzwingen ("NR"/"BWI"/"BZE"); sonst
-#'                    aus dem MASTER_ID-Praefix erkannt
-#' @param breite,hoehe,res  PNG-Groesse (px) und Aufloesung (dpi)
-#' @return  (unsichtbar) data.frame mit master_id, datei, status
-horizont_plots_speichern <- function(ids,
-                                    verzeichnis = "04_results/Horizonte",
-                                    quelle = NULL,
-                                    breite = 1200, hoehe = 900, res = 150,
-                                    koernung = TRUE, schraffur = FALSE) {
-  if (!dir.exists(verzeichnis)) dir.create(verzeichnis, recursive = TRUE)
-
-  status <- character(length(ids)); dateien <- character(length(ids))
-  for (k in seq_along(ids)) {
-    id    <- ids[k]
-    datei <- file.path(verzeichnis, paste0("Horizont_", .dateiname_sicher(id), ".png"))
-    dateien[k] <- datei
-    status[k] <- tryCatch({
-      grDevices::png(datei, width = breite, height = hoehe, res = res)
-      horizont_abfolge_plot_master(id, quelle = quelle,
-                                   koernung = koernung, schraffur = schraffur)
-      grDevices::dev.off()
-      "ok"
-    }, error = function(e) {
-      if (length(grDevices::dev.list())) grDevices::dev.off()
-      if (file.exists(datei)) unlink(datei)          # unvollstaendige Datei entfernen
-      message("FEHLER bei '", id, "': ", conditionMessage(e))
-      paste0("Fehler: ", conditionMessage(e))
-    })
-  }
-
-  ergebnis <- data.frame(master_id = ids, datei = dateien, status = status,
-                        stringsAsFactors = FALSE)
-  message("Gespeichert nach ", normalizePath(verzeichnis, mustWork = FALSE),
-          "  (", sum(status == "ok"), "/", length(ids), " erfolgreich)")
-  invisible(ergebnis)
-}
-
-
-# ---------------------------------------------------------------------
 # Legende der KA5-Koernungs-Symbole (eigene Grafik)
 # ---------------------------------------------------------------------
 koernung_legende <- function() {

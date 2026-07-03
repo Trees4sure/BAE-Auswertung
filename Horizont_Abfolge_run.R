@@ -68,16 +68,31 @@ horizont_abfolge_plot_master("NR_130_08_66519")
 # ---- 3) Legende der KA5-Koernungs-Symbole ----------------------------
 # koernung_legende()
 
-# ---- 4) Viele Profile je MASTER_ID als PNG speichern -----------------
-# Quelle wird je ID aus dem Praefix (BWI_/BZE_/NR_) erkannt.
+# ---- 4) Profile als PNG speichern ------------------------------------
+
+# --- BWI/BZE (Quelle je ID aus dem Praefix erkannt) ---
+dir.create("04_results/Horizonte/BWI", recursive = TRUE, showWarnings = FALSE)
+
 BWI_ids <- c("BZE_80220", "BZE_90850", "BZE_30051", "BZE_120049", "BWI_090_16111_2",
              "BZE_90742", "BZE_10008", "BZE_120008", "BZE_80255", "BZE_80099",
              "BZE_90636", "BZE_30008", "BWI_080_4094_1", "BWI_090_13799_1",
              "BWI_080_640_1", "BZE_30006")
 
-erg_bwi <- horizont_plots_speichern(BWI_ids, "04_results/Horizonte/BWI")
-print(erg_bwi)   # Uebersicht: welche gespeichert, welche mit Fehler
+for (id in BWI_ids) {
+  png(paste0("04_results/Horizonte/BWI/Horizont_", id, ".png"),
+      width = 1200, height = 900, res = 150)
+  try(horizont_abfolge_plot_master(id))   # try(): eine fehlende ID stoppt die Schleife nicht
+  dev.off()
+}
+
+# --- NR ---
+dir.create("04_results/Horizonte/NR", recursive = TRUE, showWarnings = FALSE)
 
 NR_ids <- c("NR_130_08_66519", "NR_130_08_6189")
-erg_nr <- horizont_plots_speichern(NR_ids, "04_results/Horizonte/NR", quelle = "NR")
-print(erg_nr)
+
+for (id in NR_ids) {
+  png(paste0("04_results/Horizonte/NR/Horizont_", id, ".png"),
+      width = 1200, height = 900, res = 150)
+  try(horizont_abfolge_plot_master(id, quelle = "NR"))
+  dev.off()
+}
