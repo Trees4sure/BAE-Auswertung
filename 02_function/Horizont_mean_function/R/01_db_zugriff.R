@@ -279,13 +279,42 @@ lade_leitprofil_master <- function(master_id, quelle = NULL,
              params = as.list(gid))
     DBI::dbDisconnect(con)
 
+    # --- Ausweichen: group_ID hat kein eigenes Leitprofil ---
+    # Typisch bei Kombiformen (SOEH_KRZ "MüS/BiS"). Dann auf die Teilformen
+    # IN DERSELBEN REGION ausweichen (z.B. MV_MüS_1, MV_BiS_1) und vermerken.
     if (nrow(lp) == 0) {
-      message("MASTER_ID '", master_id, "' in Quelle ", q, " gefunden -> group_ID ",
-              paste(gid, collapse = ", "), " (SOEH_KRZ ",
-              paste(unique(ke$SOEH_KRZ), collapse = ", "),
-              "), aber KEIN Leitprofil in 03_LEITPROFILE.")
-      gefunden_ohne_lp <- c(gefunden_ohne_lp, q)
-      next
+      soeh  <- unique(ke$SOEH_KRZ)
+      bl    <- unique(.bl_aus_group_id(gid))[1]
+      teile <- unique(trimws(unlist(strsplit(soeh, "/", fixed = TRUE))))
+      message("MASTER_ID '", master_id, "' -> group_ID ", paste(gid, collapse = ", "),
+              " (SOEH_KRZ ", paste(soeh, collapse = ", "),
+              ") hat KEIN eigenes Leitprofil -> Ausweichen auf: ",
+              paste(teile, collapse = ", "), " (Region ", bl, ")")
+
+      teile_df <- list(); gefunden <- character(0)
+      for (t in teile) {
+        d <- tryCatch(
+          lade_leitprofil_fuer(t, region = bl, quelle = q,
+                               munsell_spalte = munsell_spalte, boart_spalte = boart_spalte),
+          error = function(e) NULL)
+        if (!is.null(d) && nrow(d) > 0) { teile_df[[t]] <- d; gefunden <- c(gefunden, t) }
+      }
+      if (length(teile_df) == 0) {
+        message("  Keine Ausweichform mit Leitprofil gefunden.")
+        gefunden_ohne_lp <- c(gefunden_ohne_lp, q)
+        next
+      }
+      fehlt <- setdiff(teile, gefunden)
+      out <- dplyr::bind_rows(teile_df)
+      out$AUSWEICH_VON       <- soeh        # Vermerk: urspruengliche (Kombi-)Form
+      out$MASTER_ID_ANFRAGE  <- master_id
+      message("  Ausweich-Profile: ", paste(sort(unique(out$group_ID)), collapse = ", "),
+              if (length(fehlt)) paste0("  (ohne Leitprofil: ", paste(fehlt, collapse = ", "), ")") else "")
+      out <- tibble::as_tibble(out)
+      attr(out, "quelle")       <- q
+      attr(out, "ausweich")     <- TRUE
+      attr(out, "ausweich_von") <- soeh
+      return(out)
     }
 
     # SOEH_KRZ nur ergaenzen, falls die Leitprofil-Tabelle sie nicht selbst
@@ -298,8 +327,9 @@ lade_leitprofil_master <- function(master_id, quelle = NULL,
     message("MASTER_ID '", master_id, "' -> Quelle ", q, ", group_ID ",
             paste(gid, collapse = ", "), ", SOEH_KRZ ",
             paste(unique(ke$SOEH_KRZ), collapse = ", "))
+    lp <- tibble::as_tibble(lp)
     attr(lp, "quelle") <- q
-    return(tibble::as_tibble(lp))
+    return(lp)
   }
 
   if (length(gefunden_ohne_lp))

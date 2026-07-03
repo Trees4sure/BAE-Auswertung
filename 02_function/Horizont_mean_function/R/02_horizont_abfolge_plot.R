@@ -208,9 +208,10 @@ add_koernung_symbole <- function(spc, df, id_col = "SOEH_KRZ", width = 0.2) {
 #' @return             (unsichtbar) die aufbereitete SoilProfileCollection
 horizont_abfolge_plot <- function(data_input,
                                   soeh_krz,
-                                  region    = NULL,
-                                  koernung  = TRUE,
-                                  schraffur = FALSE) {
+                                  region     = NULL,
+                                  koernung   = TRUE,
+                                  schraffur  = FALSE,
+                                  untertitel = NULL) {
 
   df <- aufbereiten_profil(data_input, soeh_krz, region = region)
 
@@ -238,6 +239,8 @@ horizont_abfolge_plot <- function(data_input,
                       paste(unique(df$SOEH_KRZ), collapse = ", "),
                       if (!is.null(region)) paste0("  (", region, ")") else "  (alle Regionen)"),
         cex.main = 0.9)
+  if (!is.null(untertitel))
+    mtext(untertitel, side = 1, line = -1, cex = 0.72, col = "grey30")
 
   # KA5-Koernungs-Symbole ueberlagern
   if (koernung) {
@@ -264,8 +267,15 @@ horizont_abfolge_plot <- function(data_input,
 horizont_abfolge_plot_master <- function(master_id, quelle = NULL,
                                         koernung = TRUE, schraffur = FALSE) {
   df <- lade_leitprofil_master(master_id, quelle = quelle)
+
+  # Bei Ausweichformen (Kombiform ohne eigenes Leitprofil) vermerken
+  untertitel <- if (isTRUE(attr(df, "ausweich")))
+    paste0("Ausweichform fuer '", attr(df, "ausweich_von"), "' (", master_id,
+           "): kein eigenes Leitprofil") else NULL
+
   horizont_abfolge_plot(df, soeh_krz = unique(df$SOEH_KRZ), region = NULL,
-                        koernung = koernung, schraffur = schraffur)
+                        koernung = koernung, schraffur = schraffur,
+                        untertitel = untertitel)
 }
 
 

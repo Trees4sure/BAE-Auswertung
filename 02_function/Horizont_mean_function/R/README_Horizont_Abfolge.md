@@ -84,8 +84,14 @@ horizont_abfolge_plot_master("NR_130_08_66519")
 schlagen zur MASTER_ID die `group_ID` in `02_KARTIEREINHEITEN` nach und laden das
 zugehoerige Leitprofil. Die **Quelle** wird aus dem MASTER_ID-Praefix erkannt
 (`NR_…` → NR, `BWI_…` → BWI, `BZE_…` → BZE); ist das Praefix unklar, werden alle
-drei Quellen durchsucht. Existiert zur `group_ID` kein Leitprofil (z.B. Kommentar
-„keine Form – Ausweichen"), wird das mit einer klaren Meldung gemeldet.
+drei Quellen durchsucht.
+
+**Ausweichlogik:** Hat die `group_ID` einer MASTER_ID kein eigenes Leitprofil –
+typisch bei Kombiformen (`SOEH_KRZ = "MüS/BiS"`) – wird automatisch auf die
+Teilformen **in derselben Region** ausgewichen (z.B. `MV_MüS_1` + `MV_BiS_1`).
+Die Ausweichform wird in der Konsole gemeldet, im Plot als Untertitel vermerkt
+und im Datensatz in den Spalten `AUSWEICH_VON` / `MASTER_ID_ANFRAGE` festgehalten.
+Wird auch fuer die Teilformen kein Leitprofil gefunden, erfolgt eine klare Meldung.
 
 ### Region- und Kombiform-Logik
 
