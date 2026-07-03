@@ -222,6 +222,44 @@ lade_leitprofil_fuer <- function(soeh_krz, region = NULL, quelle = "BWI",
   tibble::as_tibble(df)
 }
 
+#' Pruefen, fuer welche group_ID einer Feinbodenform ein Leitprofil existiert
+#'
+#' Gleicht die in 02_KARTIEREINHEITEN bekannten group_ID(s) einer SOEH_KRZ
+#' mit den tatsaechlich in 03_LEITPROFILE vorhandenen Horizontzeilen ab.
+#' Erklaert Faelle wie: SOEH_KRZ "MüS" ist in Kartiereinheiten fuer MV_MüS_1
+#' UND ST_MüS_1 bekannt, aber nur MV_MüS_1 hat tatsaechlich ein Leitprofil.
+#'
+#' @param soeh_krz  eine oder mehrere Feinbodenformen (z.B. "MüS")
+#' @param quelle    "BWI", "BZE", "NR" oder "STOK"
+#' @return  data.frame: group_ID, SOEH_KRZ, BL, n_horizonte, leitprofil (TRUE/FALSE)
+pruefe_leitprofil <- function(soeh_krz, quelle = "NR") {
+  pfad <- db_pfad(quelle)
+  ke   <- db_read(pfad, TAB$KARTIEREINHEITEN)
+  lp   <- db_read(pfad, TAB$LEITPROFILE)
+
+  ke <- dplyr::distinct(
+    ke[ke$SOEH_KRZ %in% soeh_krz, c("group_ID", "SOEH_KRZ"), drop = FALSE])
+  if (nrow(ke) == 0) {
+    message("Keine group_ID in 02_KARTIEREINHEITEN fuer: ",
+            paste(soeh_krz, collapse = ", "))
+    return(invisible(ke))
+  }
+
+  n_hz <- table(lp$group_ID[lp$group_ID %in% ke$group_ID])
+  ke$BL          <- .bl_aus_group_id(ke$group_ID)
+  ke$n_horizonte <- as.integer(n_hz[ke$group_ID])
+  ke$n_horizonte[is.na(ke$n_horizonte)] <- 0L
+  ke$leitprofil  <- ke$n_horizonte > 0L
+  ke <- ke[order(ke$SOEH_KRZ, ke$group_ID), ]
+  rownames(ke) <- NULL
+
+  ohne <- ke$group_ID[!ke$leitprofil]
+  if (length(ohne))
+    message("Ohne Leitprofil in 03_LEITPROFILE (werden nicht geplottet): ",
+            paste(ohne, collapse = ", "))
+  ke
+}
+
 #' Kartiereinheiten (Tabelle 02_KARTIEREINHEITEN) einer Quelle laden
 lade_kartiereinheiten <- function(quelle = "BWI", region = NULL) {
   df <- db_read(db_pfad(quelle), TAB$KARTIEREINHEITEN)

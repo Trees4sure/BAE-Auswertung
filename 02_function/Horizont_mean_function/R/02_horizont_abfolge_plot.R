@@ -106,6 +106,14 @@ aufbereiten_profil <- function(data_input, soeh_krz, region = NULL) {
   }
   df <- dplyr::filter(df, SOEH_KRZ %in% codes)
 
+  # transparent machen, welche Profile (group_ID) tatsaechlich Horizontdaten
+  # haben und geplottet werden. Fehlt eine in den Kartiereinheiten bekannte
+  # Region hier, existiert dafuer schlicht kein Leitprofil (vgl. pruefe_leitprofil()).
+  if ("group_ID" %in% names(df)) {
+    message("Geplottete Profile (group_ID): ",
+            paste(sort(unique(df$group_ID)), collapse = ", "))
+  }
+
   # fehlende Untergrenzen (-9999) abfangen: +50 cm auf die Obergrenze
   df <- dplyr::mutate(df,
     TIEFE_UG = dplyr::case_when(TIEFE_UG %in% c(-9999, "-9999") ~ TIEFE_OG + 50,
