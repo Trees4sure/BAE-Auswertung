@@ -7,12 +7,14 @@ und **KA5-Koernungs-Symbolen** – als Ersatz fuer die frei gewaehlten
 
 ## Dateien
 
+Modul-Verzeichnis: `02_function/Horizont_mean_function/R/`
+
 | Datei | Inhalt |
 |-------|--------|
-| `R/00_ka5_referenz.R` | Referenz-Tabellen: Standard-Horizontfarben (Munsell) und KA5-Bodenarten → Farbe + Koernungs-Symbol |
-| `R/01_db_zugriff.R` | SQLite-Zugriff (ersetzt `sqlQuery`/RODBC), Komfort-Loader `lade_leitprofile()`, `lade_kartiereinheiten()`, `lade_alle_db()` |
-| `R/02_horizont_abfolge_plot.R` | Aufbereitung + `horizont_abfolge_plot()`, `add_koernung_symbole()`, `koernung_legende()` |
-| `Horizont_Abfolge_run.R` | Beispiel-Ausfuehrung |
+| `02_function/Horizont_mean_function/R/00_ka5_referenz.R` | Referenz-Tabellen: Standard-Horizontfarben (Munsell) und KA5-Bodenarten → Farbe + Koernungs-Symbol |
+| `02_function/Horizont_mean_function/R/01_db_zugriff.R` | SQLite-Zugriff (ersetzt `sqlQuery`/RODBC), Komfort-Loader `lade_leitprofile()`, `lade_leitprofil_fuer()`, `lade_kartiereinheiten()`, `lade_alle_db()` |
+| `02_function/Horizont_mean_function/R/02_horizont_abfolge_plot.R` | Aufbereitung + `horizont_abfolge_plot()`, `add_koernung_symbole()`, `koernung_legende()` |
+| `Horizont_Abfolge_run.R` | Beispiel-Ausfuehrung (aus dem Projekt-Hauptverzeichnis) |
 
 ## Datenstruktur der SQLite-Dateien
 
@@ -61,9 +63,9 @@ bis_mv <- lade_leitprofil_fuer("BiS", region = "MV", quelle = "NR")
 ## Verwendung
 
 ```r
-source("R/00_ka5_referenz.R")
-source("R/01_db_zugriff.R")
-source("R/02_horizont_abfolge_plot.R")
+source("02_function/Horizont_mean_function/R/00_ka5_referenz.R")
+source("02_function/Horizont_mean_function/R/01_db_zugriff.R")
+source("02_function/Horizont_mean_function/R/02_horizont_abfolge_plot.R")
 
 DB_Lp_NR <- lade_leitprofile("NR")
 
