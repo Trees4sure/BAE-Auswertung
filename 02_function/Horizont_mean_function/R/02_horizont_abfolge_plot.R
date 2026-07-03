@@ -155,45 +155,66 @@ aufbereiten_profil <- function(data_input, soeh_krz, region = NULL) {
 # ---------------------------------------------------------------------
 # KA5-Koernungs-Symbole ueber das aqp-Profil zeichnen
 # ---------------------------------------------------------------------
-# Annahme: plotSPC() wurde mit Standardgeometrie aufgerufen
-# (width = 0.2, scaling.factor = 1, y.offset = 0), d.h. ein Horizont
-# des Profils i wird als Rechteck von x = i-0.2 .. i+0.2 und
-# y = TIEFE_OG .. TIEFE_UG (Tiefe = y, nach unten zunehmend) gezeichnet.
-add_koernung_symbole <- function(spc, df, id_col = "SOEH_KRZ", width = 0.2) {
+# Liest die TATSAECHLICHE Plot-Geometrie von aqp aus (x-Positionen, Breite,
+# scaling.factor, y.offset), statt sie zu raten -> Symbole liegen exakt im
+# Horizont-Rechteck. Faellt auf die Standardwerte (x = 1..n, width = 0.2,
+# sf = 1, y.offset = 0) zurueck, falls die Metadaten nicht verfuegbar sind.
 
-  ids <- aqp::profile_id(spc)         # Profil-Reihenfolge im Plot = x-Position
+#' aqp-Metadaten des letzten plotSPC()-Aufrufs holen (robust)
+.aqp_last_plot <- function() {
+  env <- tryCatch(get("aqp.env", envir = asNamespace("aqp")), error = function(e) NULL)
+  if (is.null(env)) return(NULL)
+  tryCatch(get("last_spc_plot", envir = env), error = function(e) NULL)
+}
+
+add_koernung_symbole <- function(spc, df, id_col = "SOEH_KRZ", width = NULL) {
+
+  ids <- aqp::profile_id(spc)         # Profil-Reihenfolge im Plot
+  n   <- length(ids)
+
+  lsp <- .aqp_last_plot()
+  x0  <- if (!is.null(lsp$x0) && length(lsp$x0) == n) as.numeric(lsp$x0) else seq_len(n)
+  w   <- if (!is.null(width)) width else if (!is.null(lsp$width)) as.numeric(lsp$width)[1] else 0.2
+  sf  <- rep(if (!is.null(lsp$scaling.factor)) as.numeric(lsp$scaling.factor) else 1, length.out = n)
+  yo  <- rep(if (!is.null(lsp$y.offset))       as.numeric(lsp$y.offset)       else 0, length.out = n)
+
+  ytr <- function(d, i) yo[i] + d * sf[i]               # Tiefe -> Plot-y
 
   for (i in seq_along(ids)) {
     sub <- df[as.character(df[[id_col]]) == ids[i], , drop = FALSE]
     if (nrow(sub) == 0) next
-    xmid <- i
-    xl <- xmid - width * 0.85
-    xr <- xmid + width * 0.85
+    xl <- x0[i] - w * 0.75                               # etwas eingerueckt
+    xr <- x0[i] + w * 0.75
 
     for (r in seq_len(nrow(sub))) {
-      top <- sub$TIEFE_OG[r]; bot <- sub$TIEFE_UG[r]
-      if (is.na(top) || is.na(bot) || bot <= top) next
+      top <- ytr(sub$TIEFE_OG[r], i); bot <- ytr(sub$TIEFE_UG[r], i)
+      if (is.na(top) || is.na(bot)) next
+      if (bot < top) { tmp <- top; top <- bot; bot <- tmp }
+      if (bot - top < 1) next
+      inset <- min(2, (bot - top) * 0.15)                # Rand freihalten
+      yt <- top + inset; yb <- bot - inset
+      if (yb <= yt) { yt <- top; yb <- bot }
       sym <- sub$koern_symbol[r]
 
       if (sym == "punkte") {                    # Sand
-        n  <- max(4, round((bot - top) / 4))
-        px <- runif(n * 3, xl, xr)
-        py <- runif(n * 3, top, bot)
+        n_pt <- max(6, round((yb - yt) / 3))
+        px <- runif(n_pt, xl, xr)
+        py <- runif(n_pt, yt, yb)
         points(px, py, pch = 20, cex = 0.28, col = "#00000088")
 
       } else if (sym == "striche") {            # Schluff
-        ys <- seq(top + 3, bot - 3, by = 6)
+        ys <- seq(yt, yb, by = 6)
         for (y in ys) {
           xs <- seq(xl, xr, length.out = 4)
-          segments(xs, y, xs + (xr - xl) / 8, y, col = "#00000088", lwd = 0.8)
+          segments(xs, y, pmin(xs + (xr - xl) / 8, xr), y, col = "#00000088", lwd = 0.8)
         }
 
       } else if (sym == "linien") {             # Ton
-        ys <- seq(top + 3, bot - 3, by = 5)
+        ys <- seq(yt, yb, by = 5)
         segments(xl, ys, xr, ys, col = "#00000099", lwd = 0.9)
 
       } else if (sym == "misch") {              # Lehm: Punkte + Striche
-        ys <- seq(top + 4, bot - 4, by = 8)
+        ys <- seq(yt, yb, by = 8)
         for (k in seq_along(ys)) {
           y <- ys[k]
           if (k %% 2 == 1) {
