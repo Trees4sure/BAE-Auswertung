@@ -124,8 +124,23 @@ aufbereiten_profil <- function(data_input, soeh_krz, region = NULL) {
   # Standard-Farbe (Munsell gemessen -> sonst KA5-Fallback)
   df$soil_color <- horizont_farbe(df$HORIZONT, df$.munsell)
 
-  # Koernungs-Attribute (Gruppe, Symbol, Schraffur) aus der Bodenart
+  # Koernungs-Attribute (Gruppe, Symbol, Schraffur) aus der Bodenart (BODART).
   ka <- koernung_attribute(df$.boart)
+
+  # Fallback: wo keine Zuordnung aus dem Kuerzel gelingt, aus den Kornanteilen
+  # SAND/SCHLUFF/TON ableiten (Spalten der Leitprofil-Tabelle).
+  if (all(c("SAND", "SCHLUFF", "TON") %in% names(df))) {
+    leer <- is.na(ka$gruppe)
+    if (any(leer)) {
+      grp <- gruppe_aus_anteilen(df$SAND, df$SCHLUFF, df$TON)
+      ka2 <- .attribute_aus_gruppe(grp)
+      ka[leer, ] <- ka2[leer, ]
+    }
+  }
+  if (all(is.na(ka$gruppe)))
+    message("Hinweis: keine Koernung ableitbar (weder BODART noch SAND/SCHLUFF/TON) ",
+            "-> keine Koernungs-Symbole.")
+
   df$koern_gruppe  <- ka$gruppe
   df$koern_name    <- ka$name
   df$koern_symbol  <- ka$symbol

@@ -96,24 +96,59 @@ koernung_referenz <- function() {
   )
 }
 
-#' KA5-Bodenart -> Koernungs-Attribute (Gruppe, Farbe, Symbol, Schraffur)
+#' Koernungs-Attribute zu einer Hauptgruppe (S/U/L/T)
 #'
-#' @param boart  Character-Vektor der Bodenart-Kuerzel (z.B. "Sl3", "Lt2")
-#' @return       data.frame mit Spalten gruppe, name, farbe, symbol,
-#'               aqp_density, aqp_angle - Zeile fuer Zeile passend zu `boart`
-koernung_attribute <- function(boart) {
+#' @param gruppe  Character-Vektor mit "S"/"U"/"L"/"T" (sonst NA)
+#' @return  data.frame mit gruppe, name, farbe, symbol, aqp_density, aqp_angle
+.attribute_aus_gruppe <- function(gruppe) {
   ref <- koernung_referenz()
-  erst <- toupper(substr(as.character(boart), 1, 1))
-  idx  <- match(erst, ref$erstbuchstabe)
-  # nicht zuordenbare / fehlende Bodenarten -> neutrale Zeile
+  idx <- match(gruppe, ref$erstbuchstabe)
   neutral <- data.frame(gruppe = NA_character_, name = "unbekannt",
                         farbe = "#E0E0E0", symbol = "keine",
                         aqp_density = 0, aqp_angle = 0,
                         stringsAsFactors = FALSE)
-  out <- ref[idx, c("gruppe", "name", "farbe", "symbol", "aqp_density", "aqp_angle")]
-  out <- as.data.frame(out, stringsAsFactors = FALSE)
+  out <- as.data.frame(
+    ref[idx, c("gruppe", "name", "farbe", "symbol", "aqp_density", "aqp_angle")],
+    stringsAsFactors = FALSE)
   na_zeilen <- is.na(idx)
   if (any(na_zeilen)) out[na_zeilen, ] <- neutral
   rownames(out) <- NULL
   out
+}
+
+#' KA5-Bodenart -> Koernungs-Attribute (Gruppe, Farbe, Symbol, Schraffur)
+#'
+#' Zuordnung ueber den ersten Buchstaben des Bodenart-Kuerzels
+#' (S=Sand, U=Schluff, L=Lehm, T=Ton), z.B. "Sl3" -> S, "Lt2" -> L.
+#'
+#' @param boart  Character-Vektor der Bodenart-Kuerzel (z.B. "Sl3", "Lt2")
+koernung_attribute <- function(boart) {
+  .attribute_aus_gruppe(toupper(substr(as.character(boart), 1, 1)))
+}
+
+#' Koernungs-Hauptgruppe aus den Kornanteilen Sand/Schluff/Ton ableiten
+#'
+#' Robuster Fallback, wenn kein (auswertbares) Bodenart-Kuerzel vorliegt.
+#' Vereinfachte Zuordnung zu den vier KA5-Hauptgruppen ueber die Anteile
+#' (in Masse-%; -9999/negative Werte gelten als fehlend).
+#'
+#' @return  Character-Vektor "S"/"U"/"L"/"T" (NA, wenn keine Anteile vorhanden)
+gruppe_aus_anteilen <- function(sand, schluff, ton) {
+  s <- suppressWarnings(as.numeric(sand))
+  u <- suppressWarnings(as.numeric(schluff))
+  t <- suppressWarnings(as.numeric(ton))
+  s[is.na(s) | s < 0] <- NA; u[is.na(u) | u < 0] <- NA; t[is.na(t) | t < 0] <- NA
+
+  s0 <- ifelse(is.na(s), 0, s); u0 <- ifelse(is.na(u), 0, u); t0 <- ifelse(is.na(t), 0, t)
+  summe <- s0 + u0 + t0
+  ok <- summe > 0
+  s0 <- ifelse(ok, s0 / summe * 100, NA)
+  u0 <- ifelse(ok, u0 / summe * 100, NA)
+  t0 <- ifelse(ok, t0 / summe * 100, NA)
+
+  grp <- ifelse(t0 >= 25, "T",
+         ifelse(u0 >= 50, "U",
+         ifelse(s0 >= 50 & t0 < 17, "S", "L")))
+  grp[!ok] <- NA_character_
+  grp
 }
