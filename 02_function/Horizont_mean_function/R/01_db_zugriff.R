@@ -188,18 +188,22 @@ lade_leitprofile <- function(quelle = "BWI", region = NULL,
 lade_leitprofil_fuer <- function(soeh_krz, region = NULL, quelle = "BWI",
                                 munsell_spalte = NULL, boart_spalte = NULL) {
   con <- db_connect(db_pfad(quelle)); on.exit(DBI::dbDisconnect(con))
-  # Identifier in doppelten, String-Literale bleiben als Parameter -> kein
-  # Zitier-Konflikt. BL wird nachtraeglich in R aus group_ID abgeleitet.
+  # Nur lp.* selektieren (03_LEITPROFILE fuehrt SOEH_KRZ meist selbst) und
+  # ueber die Kartiereinheiten-group_IDs filtern -> keine doppelte SOEH_KRZ-Spalte.
   sql <- paste(
-    'SELECT m.SOEH_KRZ, lp.*',
+    'SELECT lp.*',
     'FROM "03_LEITPROFILE" AS lp',
-    'JOIN (SELECT DISTINCT group_ID, SOEH_KRZ FROM "02_KARTIEREINHEITEN") AS m',
-    '  ON m.group_ID = lp.group_ID',
-    'WHERE m.SOEH_KRZ = ?',
+    'WHERE lp.group_ID IN (',
+    '  SELECT DISTINCT group_ID FROM "02_KARTIEREINHEITEN" WHERE SOEH_KRZ = ?)',
     sep = "\n")
   df <- DBI::dbGetQuery(con, sql, params = list(soeh_krz))
 
-  if ("group_ID" %in% names(df)) df$BL <- .bl_aus_group_id(df$group_ID)
+  # SOEH_KRZ nur ergaenzen, falls die Leitprofil-Tabelle sie nicht fuehrt
+  if (nrow(df) > 0 && !"SOEH_KRZ" %in% names(df)) {
+    map <- DBI::dbGetQuery(con, 'SELECT DISTINCT group_ID, SOEH_KRZ FROM "02_KARTIEREINHEITEN"')
+    df  <- dplyr::left_join(df, map, by = "group_ID")
+  }
+  if ("group_ID" %in% names(df) && !"BL" %in% names(df)) df$BL <- .bl_aus_group_id(df$group_ID)
   if (!is.null(region) && "BL" %in% names(df)) df <- df[df$BL == region, , drop = FALSE]
 
   df <- .ergaenze_farb_boart(df, munsell_spalte, boart_spalte)
@@ -284,8 +288,11 @@ lade_leitprofil_master <- function(master_id, quelle = NULL,
       next
     }
 
-    lp <- dplyr::left_join(lp, dplyr::distinct(ke, group_ID, SOEH_KRZ), by = "group_ID")
-    lp$BL <- .bl_aus_group_id(lp$group_ID)
+    # SOEH_KRZ nur ergaenzen, falls die Leitprofil-Tabelle sie nicht selbst
+    # fuehrt (sonst entstehen beim Join doppelte SOEH_KRZ.x/.y-Spalten).
+    if (!"SOEH_KRZ" %in% names(lp))
+      lp <- dplyr::left_join(lp, dplyr::distinct(ke, group_ID, SOEH_KRZ), by = "group_ID")
+    if (!"BL" %in% names(lp)) lp$BL <- .bl_aus_group_id(lp$group_ID)
     lp <- .ergaenze_farb_boart(lp, munsell_spalte, boart_spalte)
 
     message("MASTER_ID '", master_id, "' -> Quelle ", q, ", group_ID ",
