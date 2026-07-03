@@ -4,17 +4,19 @@
 # Eigenständiges Skript (UNABHÄNGIG von der Shiny-App) zum Erzeugen der
 # gefacetteten BAE-Heatmap für eine MASTER_ID:
 #   - Facets:   Szenario (Zeilen)  ×  Zeitraum (Spalten)
-#   - je Block: Baumart (x-Achse)  ×  TV (y-Achse)
+#   - je Block: Baumart (x-Achse)  ×  TV (y-Achse)  + grauer Rahmen
 #   - OBS zeigt die Vergangenheit, RCP45/RCP85 zeigen NUR die Zukunft
 #   - RCP45/RCP85-Varianten (v2/v3) erhalten eigene, beschriftete Zeilen
+#   - Zeilen-Labels frei umbenennbar (szen_rename)
+#   - Modell (MPICLM, ECECMO, DWD, …) wird im Untertitel UND Dateinamen geführt
 #
 # Grundlage: heatmap_bae_function() (Farbpalette, Stufen-Mappings, Kachel-Stil).
 #
 # Erwartete Spalten in `data`:
 #   MASTER_ID, Baumart, TV, Klimalauf, BAE_3ST, BAE_4ST, BAE_5ST
-# `Klimalauf` enthält Szenario, (Modell), Zeitraum und optional eine Variante,
-# z. B. "OBS_1991-2020", "RCP45_ECECMO_2071-2100",
-#       "RCP45_MPICLM_2071-2100_v2", "RCP85_MPICLM_2071-2100_v3".
+# `Klimalauf` enthält Szenario, Modell, Zeitraum und optional eine Variante,
+# z. B. "OBS_DWD_1991-2020", "RCP45_MPICLM_2071-2100",
+#       "RCP45-v3_MPICLM_2021-2050", "RCP85_MPICLM_2071-2100_v2".
 # ============================================================================
 
 library(dplyr)
@@ -22,12 +24,13 @@ library(tidyr)
 library(ggplot2)
 library(stringr)
 
-heatmap_bae_zukunft <- function(data,
-                                master_id,
-                                stufen         = c("3st", "4st", "5st"),
-                                rcp_zukunft_ab = 2021,     # RCP: Startjahr >= dieser Wert bleibt
-                                obs_alle       = TRUE,     # OBS: alle Zeiträume zeigen
-                                out_dir        = "04_results/BAE_Auswertung/heatmap") {
+heatmap_bae_zukunft_function <- function(data,
+                                         master_id,
+                                         stufen         = c("3st", "4st", "5st"),
+                                         rcp_zukunft_ab = 2021,          # RCP: Startjahr >= dieser Wert bleibt
+                                         obs_alle       = TRUE,          # OBS: alle Zeiträume zeigen
+                                         szen_rename    = character(0),  # Zeilen-Labels umbenennen, s.u.
+                                         out_dir        = "04_results/BAE_Auswertung/heatmap") {
 
   # ---- 0. Farbpalette + Stufen-Mappings (aus heatmap_bae_function) ----------
   custom_palette <- c(
@@ -65,10 +68,11 @@ heatmap_bae_zukunft <- function(data,
     return(invisible(NULL))
   }
 
-  # ---- 2. Szenario / Zeitraum / Variante aus Klimalauf ableiten -------------
+  # ---- 2. Szenario / Modell / Zeitraum / Variante aus Klimalauf ableiten ----
   # Zeitraum   : "JJJJ-JJJJ" irgendwo im String
   # Variante   : "vN" irgendwo im String (im Szenario ODER im Modell), sonst NA
   # Szenario   : erstes Token vor "_", ohne evtl. angehängte Variante
+  # Modell     : Teil zwischen Szenario und Zeitraum (z.B. MPICLM, ECECMO, DWD)
   # Szen_label : Szenario inkl. Variante -> eigene Facet-Zeile (RCP45_v2 ...)
   d <- d %>%
     dplyr::mutate(
@@ -77,10 +81,22 @@ heatmap_bae_zukunft <- function(data,
       Variante  = tolower(stringr::str_extract(Klimalauf, "[vV][0-9]+")),
       Szenario  = stringr::str_remove(stringr::str_extract(Klimalauf, "^[^_]+"),
                                       "[-_]?[vV][0-9]+$"),
+      Modell    = stringr::str_remove(
+                    stringr::str_remove(Klimalauf, "^[^_]+_"),   # Szenario_ entfernen
+                    "_?\\d{4}-\\d{4}.*$"),                       # _Zeitraum(+Variante) entfernen
       Szen_label = ifelse(is.na(Variante), Szenario,
                           paste0(Szenario, "_", Variante)),
       Startjahr  = suppressWarnings(as.integer(stringr::str_sub(Zeitraum, 1, 4)))
     )
+
+  # ---- 2b. Zeilen-Labels optional umbenennen --------------------------------
+  # szen_rename: benannter Vektor  c("<intern>" = "<Anzeige>")
+  #   z.B. c("RCP45_v3" = "RCP45_real", "RCP45" = "RCP45_normal", "OBS" = "Referenzzeitraum")
+  if (length(szen_rename) > 0) {
+    idx <- match(d$Szen_label, names(szen_rename))
+    treffer <- !is.na(idx)
+    d$Szen_label[treffer] <- unname(szen_rename[idx[treffer]])
+  }
 
   ohne_zeit <- is.na(d$Zeitraum)
   if (any(ohne_zeit)) {
@@ -95,7 +111,7 @@ heatmap_bae_zukunft <- function(data,
   }
 
   # ---- 3. RCP: nur Zukunft, OBS: (optional) alles ---------------------------
-  is_rcp <- grepl("^RCP", d$Szenario, ignore.case = TRUE)
+  is_rcp   <- grepl("^RCP", d$Szenario, ignore.case = TRUE)
   keep_rcp <- !is.na(d$Startjahr) & d$Startjahr >= rcp_zukunft_ab
   d <- d[ (!is_rcp) | keep_rcp, , drop = FALSE]
   if (!obs_alle) {
@@ -121,6 +137,11 @@ heatmap_bae_zukunft <- function(data,
       TV         = factor(paste0("TV", TV), levels = tv_levels),
       Baumart    = factor(Baumart,    levels = ba_levels)
     )
+
+  # Modell(e) für Untertitel und Dateiname (mehrere -> mit "-" verbunden)
+  modelle     <- sort(unique(as.character(d$Modell)))
+  modelle     <- modelle[!is.na(modelle) & nzchar(modelle)]
+  modelle_str <- if (length(modelle)) paste(modelle, collapse = "-") else "NA"
 
   # ---- 5. Ausgabeordner -----------------------------------------------------
   mid_dir <- file.path(out_dir, as.character(master_id))
@@ -149,12 +170,19 @@ heatmap_bae_zukunft <- function(data,
       ggplot2::scale_x_discrete(position = "top") +
       ggplot2::labs(
         title    = paste0("BAE-Heatmap – ", master_id),
-        subtitle = paste0(st, "-stufig  |  OBS = Vergangenheit, RCP = Zukunft (ab ",
+        subtitle = paste0(st, "-stufig  |  Modell: ", modelle_str,
+                          "  |  OBS = Vergangenheit, RCP = Zukunft (ab ",
                           rcp_zukunft_ab, ")"),
         x = NULL, y = "TV", fill = "Empfehlung") +
       ggplot2::theme_minimal(base_size = 11) +
       ggplot2::theme(
         strip.text       = ggplot2::element_text(face = "bold", size = 9),
+        strip.background  = ggplot2::element_rect(fill = "grey95", color = "grey70",
+                                                  linewidth = 0.6),
+        # grauer Rahmen um jeden Szenario-/Zeitraum-Kasten:
+        panel.border     = ggplot2::element_rect(color = "grey70", fill = NA,
+                                                 linewidth = 0.6),
+        panel.spacing    = ggplot2::unit(0.5, "lines"),
         axis.text.x      = ggplot2::element_text(angle = 0, hjust = 0.5,
                                                  face = "bold", size = 9),
         axis.text.y      = ggplot2::element_text(size = 9),
@@ -165,7 +193,9 @@ heatmap_bae_zukunft <- function(data,
         plot.background  = ggplot2::element_rect(fill = "white", color = NA)
       )
 
-    datei <- file.path(mid_dir, paste0("Heatmap_Zukunft_", st, "_", master_id, ".png"))
+    datei <- file.path(mid_dir,
+                       paste0("Heatmap_Zukunft_", st, "_", master_id, "_",
+                              modelle_str, ".png"))
     ggplot2::ggsave(datei, plot = p, device = "png",
                     width = 5400, height = 3000, units = "px", dpi = 300)
     message("Gespeichert: ", datei)
@@ -180,13 +210,18 @@ heatmap_bae_zukunft <- function(data,
 # ----------------------------------------------------------------------------
 # data <- data.table::fread("meine_bae_daten.csv")   # oder read.csv(...)
 #
-# # Standard: OBS = Vergangenheit, RCP45/RCP85 nur ab Startjahr 2021
-# heatmap_bae_zukunft(data, master_id = "NR_130_08_6189")
+# # Standard: OBS = Vergangenheit, RCP45/RCP85 nur ab Startjahr 2021,
+# #           Modell landet automatisch in Untertitel + Dateiname
+# heatmap_bae_zukunft_function(data, master_id = "NR_130_08_6189")
 #
-# # Nur Endperiode 2071-2100 für RCP behalten:
-# heatmap_bae_zukunft(data, master_id = "NR_130_08_6189", rcp_zukunft_ab = 2071)
+# # Zeilen-Labels hübscher benennen (v3 -> "real", Basis -> "normal"):
+# heatmap_bae_zukunft_function(
+#   data, master_id = "NR_130_08_6189",
+#   szen_rename = c("RCP45_v3" = "RCP45_real",
+#                   "RCP45"    = "RCP45_normal",
+#                   "OBS"      = "Referenzzeitraum"))
 #
-# # Nur die 3-stufige Bewertung, eigener Ausgabeordner:
-# heatmap_bae_zukunft(data, master_id = "NR_130_08_6189",
-#                     stufen = "3st", out_dir = "output/heatmaps")
+# # Nur Endperiode 2071-2100 für RCP, nur 3-stufig:
+# heatmap_bae_zukunft_function(data, master_id = "NR_130_08_6189",
+#                              rcp_zukunft_ab = 2071, stufen = "3st")
 # ============================================================================
