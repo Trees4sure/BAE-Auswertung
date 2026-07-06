@@ -12,18 +12,18 @@
 #      die TVs einig; wo sie auseinanderlaufen, sind sie uneinig.
 #      Datei: Kurven_<st>_<MID>_<Modell>.png
 #
-#   2) bae_score_matrix_function() -> "Gezählte Einträge" (Skizze 2)
-#      Eine über alle Klimaläufe aggregierte, DATENGETRIEBEN SORTIERTE Matrix
-#      TV × Baumart. Je Kategorie ein Rangwert (sehr empfohlen = hoch …
-#      nicht empfohlen = niedrig); die Einträge werden gezählt und gewichtet
-#      summiert (= "Score"). Bei 3st gelten nur die 3 Kategorien, bei 4st die
-#      4, bei 5st die 5 – höhere/nicht bewertete Werte (pBv, Keine
-#      Datengrundlage) zählen nicht mit.
-#        * Zeilen (TV):     nach Gesamt-Score sortiert -> meiste/beste oben
-#        * Spalten (Baumart): nach Gesamt-Score sortiert -> höchste rechts
-#        * Farbe:           rot (links/unten) -> orange (Mitte) -> grün
-#                           (oben rechts), skaliert nach Score.
-#      Datei: ScoreMatrix_<st>_<MID>_<Modell>.png
+#   2) bae_score_matrix_function() -> "Summe der Einteilungen" (Skizze 2)
+#      DATENGETRIEBEN SORTIERTE Matrix TV × Baumart. Die Einteilung wird direkt
+#      als Skala genommen (wie in BAE_xST: 1 = beste Empfehlung … n =
+#      schlechteste) und je Zelle über ALLE Einträge aufsummiert – inkl. der
+#      mehreren Hinweis-Varianten (KM, KHoriginal, …). NIEDRIGE Summe = besser.
+#      pBv / leer / nicht-numerisch zählen nicht mit.
+#      Standard (trennung = "klimalauf"): eine Matrix je Klimalauf, unaggregiert
+#      wie die Heatmap. Alternativ über Zeit/Szenario summierbar.
+#        * Zeilen (TV):     nach Gesamt-Summe sortiert -> kleinste (beste) oben
+#        * Spalten (Baumart): nach Gesamt-Summe sortiert -> kleinste (beste) rechts
+#        * Farbe:           grün (niedrig/best) -> gelb -> rot (hoch/schlecht)
+#      Datei: SummenMatrix_<st>_<grp>_<MID>_<Modell>.png
 #
 #   bae_auswertung_grafiken() ruft beide nacheinander auf.
 #
@@ -81,8 +81,9 @@ library(stringr)
   "#A6761D", "#666666", "#1F78B4", "#B2182B", "#33A02C", "#6A3D9A"
 )
 
-# Farbverlauf Score-Matrix: rot -> orange -> gelb -> hellgrün -> grün
-.bae_score_gradient <- c("#A50026", "#FDAE61", "#FEE08B", "#A6D96A", "#1A9850")
+# Farbverlauf Summen-Matrix: NIEDRIG = besser -> grün, HOCH = schlechter -> rot
+# (Einteilungen 1 = beste … n = schlechteste, also kleine Summe = grün.)
+.bae_summe_gradient <- c("#1A9850", "#A6D96A", "#FEE08B", "#FDAE61", "#A50026")
 
 # Code -> Kategorie (nicht-numerische Werte -> pBv / Keine Datengrundlage)
 .bae_map_val <- function(val, mapping) {
@@ -174,7 +175,10 @@ library(stringr)
   d %>%
     dplyr::mutate(
       Kategorie = .bae_map_val(.data[[kat_col]], .bae_maps[[st]]),
-      Stufe     = unname(lvl_map[Kategorie])   # NA für pBv / Keine Datengrundlage
+      Stufe     = unname(lvl_map[Kategorie]),  # invertiert, hoch = gut (nur für Kurven-y)
+      # Wert = die Einteilung DIREKT wie in BAE_xST: 1 = beste Empfehlung …
+      #        n = schlechteste. pBv / leer / nicht-numerisch -> NA (zählt nicht).
+      Wert      = suppressWarnings(as.integer(as.character(.data[[kat_col]])))
     )
 }
 
@@ -258,7 +262,7 @@ bae_kurven_function <- function(data,
 }
 
 # ============================================================================
-#  SKIZZE 2 – Gezählte Einträge (sortierte Score-Matrix)
+#  SKIZZE 2 – Summe der Einteilungen (sortierte Matrix, niedrig = besser)
 # ============================================================================
 bae_score_matrix_function <- function(data,
                                       master_id,
@@ -303,14 +307,15 @@ bae_score_matrix_function <- function(data,
     }
 
     for (grp in gruppen) {
-      # Gewichteter Score je TV×Baumart innerhalb der Gruppe: Einträge
-      # durchzählen und mit dem Rangwert der Kategorie (Stufe) gewichtet
-      # aufsummieren. Nur die für die Stufigkeit gültigen Kategorien zählen
-      # (Stufe = NA -> raus).
+      # Summe je TV×Baumart innerhalb der Gruppe: die Einteilungen (Wert; wie
+      # in BAE_xST, 1 = beste … n = schlechteste) über alle Einträge der Zelle
+      # aufsummieren – inkl. der mehreren Hinweis-Varianten je Zelle.
+      # pBv / leer / nicht-numerisch (Wert = NA) zählen nicht mit.
+      # NIEDRIGE Summe = besser.
       agg <- d_st %>%
-        dplyr::filter(Gruppe == grp, !is.na(Stufe)) %>%
+        dplyr::filter(Gruppe == grp, !is.na(Wert)) %>%
         dplyr::group_by(TV, Baumart) %>%
-        dplyr::summarise(Score = sum(Stufe), N = dplyr::n(), .groups = "drop") %>%
+        dplyr::summarise(Summe = sum(Wert), N = dplyr::n(), .groups = "drop") %>%
         droplevels()
 
       if (nrow(agg) == 0) {
@@ -319,34 +324,34 @@ bae_score_matrix_function <- function(data,
         next
       }
 
-      # Sortierung: aufsteigend nach Gesamt-Score -> höchste als letzter
-      # Faktor-Level. In ggplot heißt das: y oben, x rechts. Jede Gruppe wird
-      # eigenständig sortiert.
+      # Sortierung: absteigend nach Gesamt-Summe -> KLEINSTE (beste) als letzter
+      # Faktor-Level. In ggplot heißt das: bestes TV oben, beste Baumart rechts.
+      # Jede Gruppe wird eigenständig sortiert.
       tv_ord <- agg %>% dplyr::group_by(TV) %>%
-        dplyr::summarise(s = sum(Score), .groups = "drop") %>%
-        dplyr::arrange(s, TV)
+        dplyr::summarise(s = sum(Summe), .groups = "drop") %>%
+        dplyr::arrange(dplyr::desc(s), TV)
       ba_ord <- agg %>% dplyr::group_by(Baumart) %>%
-        dplyr::summarise(s = sum(Score), .groups = "drop") %>%
-        dplyr::arrange(s, Baumart)
+        dplyr::summarise(s = sum(Summe), .groups = "drop") %>%
+        dplyr::arrange(dplyr::desc(s), Baumart)
 
       agg <- agg %>%
         dplyr::mutate(
           TV      = factor(as.character(TV),      levels = as.character(tv_ord$TV)),
           Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)))
 
-      p <- ggplot2::ggplot(agg, ggplot2::aes(x = Baumart, y = TV, fill = Score)) +
+      p <- ggplot2::ggplot(agg, ggplot2::aes(x = Baumart, y = TV, fill = Summe)) +
         ggplot2::geom_tile(color = "white", linewidth = 0.6) +
         { if (werte_anzeigen)
-            ggplot2::geom_text(ggplot2::aes(label = Score), size = 3,
+            ggplot2::geom_text(ggplot2::aes(label = Summe), size = 3,
                                colour = "grey15") } +
-        ggplot2::scale_fill_gradientn(colours = .bae_score_gradient) +
+        ggplot2::scale_fill_gradientn(colours = .bae_summe_gradient) +
         ggplot2::labs(
-          title    = paste0("BAE – gezählte Einträge (Score) – ", master_id),
+          title    = paste0("BAE – Summe der Einteilungen (niedrig = besser) – ", master_id),
           subtitle = paste0(st, "-stufig  |  ", grp, "  |  Modell: ", modelle_str,
-                            "  |  TV nach Eintr. (oben), Baumart nach Empf. (rechts)"),
-          x = "Baumart  (höchste Empfehlungen →)",
-          y = "TV  (meiste Einträge ↑)",
-          fill = "Score") +
+                            "  |  bestes TV oben, beste Baumart rechts"),
+          x = "Baumart  (beste Empfehlungen →)",
+          y = "TV  (beste oben ↑)",
+          fill = "Summe") +
         ggplot2::coord_equal() +
         ggplot2::theme_minimal(base_size = 11) +
         ggplot2::theme(
@@ -360,7 +365,7 @@ bae_score_matrix_function <- function(data,
       n_ba <- length(levels(agg$Baumart))
       n_tv <- length(levels(agg$TV))
       grp_tag <- gsub("[^A-Za-z0-9]+", "-", grp)
-      f <- file.path(mid_dir, paste0("ScoreMatrix_", st, "_", grp_tag, "_",
+      f <- file.path(mid_dir, paste0("SummenMatrix_", st, "_", grp_tag, "_",
                                      master_id, "_", modelle_str, ".png"))
       ggplot2::ggsave(f, plot = p, device = "png",
                       width  = 700 + n_ba * 95,

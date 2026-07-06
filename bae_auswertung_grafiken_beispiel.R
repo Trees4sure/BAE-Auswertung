@@ -39,6 +39,8 @@ set.seed(1)
 data <- expand.grid(
   Baumart   = c("Bah","Bi","Bu","Dgl","Fi","Hbu","Ki","La","Rei","Sei","Ta","Tei"),
   TV        = 1:9,
+  # mehrere Einträge je Zelle wie in echt: verschiedene Hinweis-Varianten
+  Hinweis   = c("KM","KHoriginal","KHformfitting"),
   Klimalauf = c("OBS_DWD_1961-1990","OBS_DWD_1991-2020",
                 "RCP45_MPICLM_2021-2050","RCP45_MPICLM_2071-2100",
                 "RCP45-v3_MPICLM_2021-2050","RCP45-v3_MPICLM_2071-2100",
@@ -48,7 +50,7 @@ data <- expand.grid(
 data$MASTER_ID <- master_id
 data$BAE_5ST <- as.character(sample(1:5, nrow(data), replace = TRUE))
 data$BAE_5ST[data$TV %in% c(5, 8)] <- "Keine Datengrundlage"   # wie im Bild
-data$BAE_5ST[sample(nrow(data), 8)] <- "pBv"
+data$BAE_5ST[sample(nrow(data), 20)] <- "pBv"
 .num <- suppressWarnings(as.integer(data$BAE_5ST))
 data$BAE_4ST <- ifelse(is.na(.num), data$BAE_5ST, as.character(pmin(.num, 4)))
 data$BAE_3ST <- ifelse(is.na(.num), data$BAE_5ST, as.character(pmin(ceiling(.num/2), 3)))
@@ -58,6 +60,8 @@ data$BAE_3ST <- ifelse(is.na(.num), data$BAE_5ST, as.character(pmin(ceiling(.num
 #   str(data)
 #   table(data$Klimalauf)
 #   table(data$BAE_4ST)
+#   # mehrere Zeilen je Zelle (wie in echt durch Hinweis-Varianten):
+#   data %>% filter(Baumart=="Bah", TV==6, Klimalauf=="OBS_DWD_1961-1990")
 
 
 # ============================================================================
@@ -154,15 +158,18 @@ d <- d %>%
 
 
 # ============================================================================
-# 7.  KATEGORIE + ZAHLENWERT (Stufe) FÜR DIE GEWÄHLTE STUFIGKEIT
+# 7.  WERT (Einteilung als Skala) + KATEGORIE/STUFE FÜR DIE GEWÄHLTE STUFIGKEIT
 # ============================================================================
-# code       -> Kategorie (Text)
-# Kategorie  -> Stufe (Zahl): match() gibt die Position in `ordn`.
-#               nicht empfohlen = 1 ... sehr empfohlen = n.
-#               pBv / Keine Datengrundlage -> Stufe = NA (zählen NICHT mit).
+# Wert       = die Einteilung DIREKT wie in BAE_xST: 1 = beste Empfehlung …
+#              n = schlechteste. pBv / leer -> NA.  -> für Skizze 2 (Summe)
+# code       -> Kategorie (Text)                    -> nur für die Kurven-Farben
+# Kategorie  -> Stufe (Zahl, INVERTIERT): match() gibt Position in `ordn`,
+#              nicht empfohlen = 1 … sehr empfohlen = n. Das ist NUR für die
+#              Kurven (Skizze 1), damit "sehr empfohlen" oben liegt.
 d <- d %>%
   mutate(
     code      = as.character(.data[[bae_col]]),
+    Wert      = suppressWarnings(as.integer(code)),   # 1 = best … n = schlecht
     Kategorie = case_when(
       code %in% names(mapping) ~ unname(mapping[code]),
       code == "pBv"            ~ "pBv",
@@ -171,7 +178,7 @@ d <- d %>%
   )
 
 # ansehen:
-#   d %>% count(code, Kategorie, Stufe)     # zeigt die Zuordnung Code->Text->Zahl
+#   d %>% count(code, Wert, Kategorie, Stufe)   # Code -> Wert/Text/Stufe
 #   table(d$Kategorie, useNA = "ifany")
 
 
@@ -211,35 +218,36 @@ p_kurven                                   # im Plot-Fenster ansehen
 
 
 # ============================================================================
-# 9.  SKIZZE 2  – SCORE-MATRIX, UNAGGREGIERT JE KLIMALAUF
+# 9.  SKIZZE 2  – SUMME DER EINTEILUNGEN, UNAGGREGIERT JE KLIMALAUF
 # ============================================================================
 # Genau wie die Heatmap: NICHT über Klimaläufe aggregieren, sondern je Klimalauf
-# eine eigene Matrix. Innerhalb EINES Klimalaufs hat jede Zelle (TV × Baumart)
-# genau einen Wert = die Stufe (1 = nicht empfohlen … n = sehr empfohlen);
-# pBv / Keine Datengrundlage (Stufe = NA) fallen raus.
-# Sortierung je Klimalauf: TV nach Zeilensumme (beste oben), Baumart nach
-# Spaltensumme (beste rechts). Farbe: rot (niedrig) -> grün (hoch).
+# eine eigene Matrix. Die Einteilung (Wert, wie in BAE_xST: 1 = beste … n =
+# schlechteste) wird je Zelle (TV × Baumart) über ALLE Einträge aufsummiert –
+# inkl. der mehreren Hinweis-Varianten (KM, KHoriginal, …). pBv/leer (Wert = NA)
+# zählen nicht mit.  ==>  NIEDRIGE Summe = besser.
+# Sortierung je Klimalauf: kleinste Zeilensumme (bestes TV) oben, kleinste
+# Spaltensumme (beste Baumart) rechts. Farbe: grün (niedrig) -> rot (hoch).
 
-score_gradient <- c("#A50026", "#FDAE61", "#FEE08B", "#A6D96A", "#1A9850")
+summe_gradient <- c("#1A9850", "#A6D96A", "#FEE08B", "#FDAE61", "#A50026")
 
-# ansehen: welche Klimaläufe gibt es?  ->  levels(droplevels(d$Klimalauf))
+# ansehen: welche Klimaläufe gibt es?  ->  sort(unique(as.character(d$Klimalauf)))
 # Zum Durchklicken EINEN Klimalauf setzen und die Zeilen im Rumpf einzeln laufen
 # lassen, z. B.:  kl <- "RCP85_MPICLM_2071-2100"
 for (kl in sort(unique(as.character(d$Klimalauf)))) {
 
-  # 9a. nur dieser Klimalauf; Score = Stufe (kein Summieren, N = 1 je Zelle)
+  # 9a. nur dieser Klimalauf; Summe der Einteilungen je Zelle (mehrere Einträge!)
   agg <- d %>%
-    filter(Klimalauf == kl, !is.na(Stufe)) %>%
+    filter(Klimalauf == kl, !is.na(Wert)) %>%
     group_by(TV, Baumart) %>%
-    summarise(Score = sum(Stufe), N = n(), .groups = "drop") %>%
+    summarise(Summe = sum(Wert), N = n(), .groups = "drop") %>%
     droplevels()
-  # ansehen:  agg   (Score = Stufe je TV × Baumart in diesem Klimalauf)
+  # ansehen:  agg   (Summe der Einteilungen je TV × Baumart; N = Anzahl Einträge)
 
-  # 9b. Sortier-Reihenfolge bestimmen (aufsteigend -> höchster Wert zuletzt,
-  #     bei y = oben, bei x = rechts)
-  tv_rang <- agg %>% group_by(TV)      %>% summarise(s = sum(Score)) %>% arrange(s)
-  ba_rang <- agg %>% group_by(Baumart) %>% summarise(s = sum(Score)) %>% arrange(s)
-  # ansehen:  tv_rang ; ba_rang
+  # 9b. Sortier-Reihenfolge: ABSTEIGEND -> kleinste (beste) Summe als letzter
+  #     Faktor-Level, damit bei y = oben und bei x = rechts.
+  tv_rang <- agg %>% group_by(TV)      %>% summarise(s = sum(Summe)) %>% arrange(desc(s))
+  ba_rang <- agg %>% group_by(Baumart) %>% summarise(s = sum(Summe)) %>% arrange(desc(s))
+  # ansehen:  tv_rang ; ba_rang    (unten = größte/schlechteste Summe)
 
   # 9c. Faktoren in dieser Reihenfolge setzen
   agg <- agg %>%
@@ -248,16 +256,16 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
 
   # 9d. EIN durchgehender ggplot-Aufruf
   p_matrix <-
-    ggplot(agg, aes(x = Baumart, y = TV, fill = Score)) +
+    ggplot(agg, aes(x = Baumart, y = TV, fill = Summe)) +
     geom_tile(color = "white", linewidth = 0.6) +
-    geom_text(aes(label = Score), size = 3, colour = "grey15") +
-    scale_fill_gradientn(colours = score_gradient) +
+    geom_text(aes(label = Summe), size = 3, colour = "grey15") +
+    scale_fill_gradientn(colours = summe_gradient) +
     coord_equal() +
-    labs(title = paste0("BAE – gezählte Einträge (Score) – ", master_id),
+    labs(title = paste0("BAE – Summe der Einteilungen (niedrig = besser) – ", master_id),
          subtitle = paste0(stufe, "-stufig  |  ", kl,
-                           "  |  TV nach Einträgen (oben), Baumart nach Empfehlung (rechts)"),
-         x = "Baumart  (höchste Empfehlungen →)",
-         y = "TV  (meiste Einträge ↑)", fill = "Score") +
+                           "  |  bestes TV oben, beste Baumart rechts"),
+         x = "Baumart  (beste Empfehlungen →)",
+         y = "TV  (beste oben ↑)", fill = "Summe") +
     theme_minimal(base_size = 11) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", size = 9),
           axis.text.y = element_text(face = "bold", size = 9),
@@ -265,6 +273,6 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
           plot.background = element_rect(fill = "white", color = NA))
 
   print(p_matrix)                          # im Plot-Fenster ansehen
-  # ggsave(paste0("ScoreMatrix_", gsub("[^A-Za-z0-9]+","-",kl), "_beispiel.png"),
+  # ggsave(paste0("SummenMatrix_", gsub("[^A-Za-z0-9]+","-",kl), "_beispiel.png"),
   #        p_matrix, width = 22, height = 16, units = "cm", dpi = 150)
 }
