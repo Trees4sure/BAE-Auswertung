@@ -10,7 +10,7 @@
 #
 # Erzeugt:
 #   Skizze 1  – Empfehlungs-Kurven je TV (pro Szenario × Zeitraum)
-#   Skizze 2  – Score-Matrix (Vergangenheit / Zukunft getrennt, sortiert)
+#   Skizze 2  – Score-Matrix, unaggregiert je Klimalauf (sortiert + gewichtet)
 # ============================================================================
 
 library(dplyr)
@@ -211,30 +211,29 @@ p_kurven                                   # im Plot-Fenster ansehen
 
 
 # ============================================================================
-# 9.  SKIZZE 2  – SCORE-MATRIX (Vergangenheit / Zukunft getrennt)
+# 9.  SKIZZE 2  – SCORE-MATRIX, UNAGGREGIERT JE KLIMALAUF
 # ============================================================================
-# Score = gewichtete Summe: je Zelle (TV × Baumart) die Stufen aller Klimaläufe
-# aufsummieren. pBv / Keine Datengrundlage (Stufe = NA) zählen nicht mit.
-# Sortierung: TV nach Gesamt-Score (meiste/beste oben), Baumart ebenso (rechts).
-# Farbe: rot (niedrig) -> orange -> grün (hoch)  ->  Bestes landet oben rechts.
-
-# Gruppe Vergangenheit (OBS) vs. Zukunft (RCP)
-d <- d %>% mutate(Gruppe = ifelse(ist_rcp, "Zukunft", "Vergangenheit"))
+# Genau wie die Heatmap: NICHT über Klimaläufe aggregieren, sondern je Klimalauf
+# eine eigene Matrix. Innerhalb EINES Klimalaufs hat jede Zelle (TV × Baumart)
+# genau einen Wert = die Stufe (1 = nicht empfohlen … n = sehr empfohlen);
+# pBv / Keine Datengrundlage (Stufe = NA) fallen raus.
+# Sortierung je Klimalauf: TV nach Zeilensumme (beste oben), Baumart nach
+# Spaltensumme (beste rechts). Farbe: rot (niedrig) -> grün (hoch).
 
 score_gradient <- c("#A50026", "#FDAE61", "#FEE08B", "#A6D96A", "#1A9850")
 
-# Für beide Gruppen dasselbe machen. Zum Durchklicken kannst du auch einfach
-#   grp <- "Vergangenheit"
-# setzen und die Zeilen im Schleifenrumpf einzeln ausführen.
-for (grp in c("Vergangenheit", "Zukunft")) {
+# ansehen: welche Klimaläufe gibt es?  ->  levels(droplevels(d$Klimalauf))
+# Zum Durchklicken EINEN Klimalauf setzen und die Zeilen im Rumpf einzeln laufen
+# lassen, z. B.:  kl <- "RCP85_MPICLM_2071-2100"
+for (kl in sort(unique(as.character(d$Klimalauf)))) {
 
-  # 9a. zählen + gewichtet summieren
+  # 9a. nur dieser Klimalauf; Score = Stufe (kein Summieren, N = 1 je Zelle)
   agg <- d %>%
-    filter(Gruppe == grp, !is.na(Stufe)) %>%
+    filter(Klimalauf == kl, !is.na(Stufe)) %>%
     group_by(TV, Baumart) %>%
     summarise(Score = sum(Stufe), N = n(), .groups = "drop") %>%
     droplevels()
-  # ansehen:  agg   (Score je TV × Baumart)
+  # ansehen:  agg   (Score = Stufe je TV × Baumart in diesem Klimalauf)
 
   # 9b. Sortier-Reihenfolge bestimmen (aufsteigend -> höchster Wert zuletzt,
   #     bei y = oben, bei x = rechts)
@@ -255,7 +254,7 @@ for (grp in c("Vergangenheit", "Zukunft")) {
     scale_fill_gradientn(colours = score_gradient) +
     coord_equal() +
     labs(title = paste0("BAE – gezählte Einträge (Score) – ", master_id),
-         subtitle = paste0(stufe, "-stufig  |  ", grp,
+         subtitle = paste0(stufe, "-stufig  |  ", kl,
                            "  |  TV nach Einträgen (oben), Baumart nach Empfehlung (rechts)"),
          x = "Baumart  (höchste Empfehlungen →)",
          y = "TV  (meiste Einträge ↑)", fill = "Score") +
@@ -266,6 +265,6 @@ for (grp in c("Vergangenheit", "Zukunft")) {
           plot.background = element_rect(fill = "white", color = NA))
 
   print(p_matrix)                          # im Plot-Fenster ansehen
-  # ggsave(paste0("ScoreMatrix_", grp, "_beispiel.png"),
+  # ggsave(paste0("ScoreMatrix_", gsub("[^A-Za-z0-9]+","-",kl), "_beispiel.png"),
   #        p_matrix, width = 22, height = 16, units = "cm", dpi = 150)
 }

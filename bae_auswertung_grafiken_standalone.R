@@ -263,7 +263,7 @@ bae_kurven_function <- function(data,
 bae_score_matrix_function <- function(data,
                                       master_id,
                                       stufen         = c("3st", "4st", "5st"),
-                                      trennung       = c("zeit", "szenario", "keine"),
+                                      trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                       rcp_zukunft_ab = 2021,
                                       obs_alle       = TRUE,
                                       szen_rename    = character(0),
@@ -271,9 +271,11 @@ bae_score_matrix_function <- function(data,
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
-  #   "zeit"     -> Vergangenheit (OBS) vs. Zukunft (RCP)   [Default]
-  #   "szenario" -> je Szen_label eine Matrix (OBS, RCP45, RCP45_v3, RCP85, …)
-  #   "keine"    -> eine gemeinsame Matrix über alles
+  #   "klimalauf" -> UNAGGREGIERT, je Klimalauf eine Matrix (wie die Heatmap-
+  #                  Panels). Pro Zelle genau ein Wert (die Stufe).   [Default]
+  #   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe summiert
+  #   "szenario"  -> je Szen_label eine Matrix (summiert über die Zeiträume)
+  #   "keine"     -> eine gemeinsame Matrix über alles
   trennung <- match.arg(trennung)
 
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename)
@@ -281,16 +283,16 @@ bae_score_matrix_function <- function(data,
 
   d0 <- d0 %>%
     dplyr::mutate(Gruppe = switch(trennung,
-      "zeit"     = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
-      "szenario" = as.character(Szen_label),
-      "keine"    = "alle"))
+      "klimalauf" = as.character(Klimalauf),
+      "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+      "szenario"  = as.character(Szen_label),
+      "keine"     = "alle"))
 
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
 
-  # "Vergangenheit" vor "Zukunft"; sonst alphabetisch
-  gruppen <- sort(unique(d0$Gruppe))
+  gruppen <- sort(unique(d0$Gruppe))   # alphabetisch: OBS… vor RCP…, chronologisch
 
   plots <- list()
   for (st in stufen) {
@@ -376,7 +378,7 @@ bae_score_matrix_function <- function(data,
 # ============================================================================
 bae_auswertung_grafiken <- function(data, master_id,
                                     stufen         = c("3st", "4st", "5st"),
-                                    trennung       = c("zeit", "szenario", "keine"),
+                                    trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                     rcp_zukunft_ab = 2021,
                                     obs_alle       = TRUE,
                                     szen_rename    = character(0),
@@ -395,15 +397,15 @@ bae_auswertung_grafiken <- function(data, master_id,
 # ----------------------------------------------------------------------------
 # data <- data.table::fread("meine_bae_daten.csv")
 #
-# # Beide Grafiken je Stufe (Score-Matrix getrennt nach Vergangenheit/Zukunft):
+# # Beide Grafiken je Stufe (Score-Matrix UNAGGREGIERT je Klimalauf = Default):
 # bae_auswertung_grafiken(data, master_id = "NR_130_08_66519")
 #
 # # Nur die Kurven (Skizze 1), nur 4-stufig:
 # bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
 #
-# # Score-Matrix (Skizze 2) je Szenario statt nur Vergangenheit/Zukunft:
+# # Score-Matrix (Skizze 2) über Klimaläufe summiert, Vergangenheit vs. Zukunft:
 # bae_score_matrix_function(data, master_id = "NR_130_08_66519",
-#                           trennung = "szenario")
+#                           trennung = "zeit")
 #
 # # Score-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 # bae_score_matrix_function(
