@@ -1,0 +1,8 @@
+# R-Nebenprodukte
+Rplots.pdf
+.Rhistory
+.RData
+.Rproj.user/
+
+# Ausgabe-Grafiken/Ergebnisse
+04_results/
