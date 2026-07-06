@@ -1,0 +1,16 @@
+id,Zeitlauf,Baumart,Empfehlung
+70041234,Referenz_1991-2020,Fichte,sehr empfohlen
+70041234,RCP45_2071-2100,Fichte,bedingt empfohlen
+70041234,RCP85_2071-2100,Fichte,nicht empfohlen
+70041234,Referenz_1991-2020,Weisstanne,empfohlen
+70041234,RCP45_2071-2100,Weisstanne,empfohlen
+70041234,RCP85_2071-2100,Weisstanne,bedingt empfohlen
+70041234,Referenz_1991-2020,Rotbuche,sehr empfohlen
+70041234,RCP45_2071-2100,Rotbuche,empfohlen
+70041234,RCP85_2071-2100,Rotbuche,bedingt empfohlen
+70041234,Referenz_1991-2020,Trauben-Eiche,empfohlen
+70041234,RCP45_2071-2100,Trauben-Eiche,sehr empfohlen
+70041234,RCP85_2071-2100,Trauben-Eiche,sehr empfohlen
+70041234,Referenz_1991-2020,Douglasie,empfohlen
+70041234,RCP45_2071-2100,Douglasie,empfohlen
+70041234,RCP85_2071-2100,Douglasie,empfohlen
