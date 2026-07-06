@@ -183,33 +183,58 @@ d <- d %>%
 
 
 # ============================================================================
-# 8.  SKIZZE 1  – EMPFEHLUNGS-KURVEN je TV
+# 8.  SKIZZE 1  – EMPFEHLUNGS-KURVEN je TV (glatt)
 # ============================================================================
-# Idee: pro Panel (Szenario × Zeitraum) für jede TV eine Linie über die
+# Idee: pro Panel (Szenario × Zeitraum) für jede TV eine glatte Kurve über die
 # Baumarten. y = Stufe (unten "nicht empfohlen", oben "sehr empfohlen").
 # Wo sich die Kurven decken, sind sich die TVs einig.
+# WICHTIG: Da es je (TV, Baumart) mehrere Hinweis-Zeilen gibt, erst EINEN Wert
+# je Zelle bilden (Mittel), sonst zappeln die Linien senkrecht.
 
 # Farben für die TV-Linien
+ba_levels <- levels(droplevels(d$Baumart))
 tv_levels <- levels(droplevels(d$TV))
 tv_farben <- setNames(
   c("#1B9E77","#D95F02","#7570B3","#E7298A","#66A61E","#E6AB02",
     "#A6761D","#666666","#1F78B4","#B2182B","#33A02C","#6A3D9A")[seq_along(tv_levels)],
   tv_levels)
 
-# EIN durchgehender ggplot-Aufruf – jede Ebene eine Zeile:
+# 8a. ein Wert je (Panel, TV, Baumart): Mittel der Stufe über Hinweis-Varianten
+kurv <- d %>%
+  group_by(Szen_label, Zeitraum, TV, Baumart) %>%
+  summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
+  filter(!is.nan(y)) %>%
+  mutate(x = as.integer(factor(Baumart, levels = ba_levels)))
+# ansehen:  kurv
+
+# 8b. glatte Spline-Kurve je (Panel, TV) durch diese Punkte (auf [1,n] geklammert)
+kurv_smooth <- kurv %>%
+  group_by(Szen_label, Zeitraum, TV) %>%
+  filter(n() >= 2) %>%
+  group_modify(~ {
+    s <- stats::spline(.x$x, .x$y, n = 200)           # glatte Interpolation
+    data.frame(x = s$x, y = pmin(pmax(s$y, 1), length(ordn)))
+  }) %>%
+  ungroup()
+# ansehen:  kurv_smooth
+
+# 8c. EIN durchgehender ggplot-Aufruf – Linie (glatt) + Punkte (echte Werte):
 p_kurven <-
-  ggplot(d, aes(x = Baumart, y = Stufe, group = TV, colour = TV)) +
-  geom_line(linewidth = 0.8, alpha = 0.8, na.rm = TRUE) +
-  geom_point(size = 1.6, alpha = 0.9, na.rm = TRUE) +
+  ggplot() +
+  geom_line(data = kurv_smooth, aes(x = x, y = y, colour = TV, group = TV),
+            linewidth = 0.8, alpha = 0.85) +
+  geom_point(data = kurv, aes(x = x, y = y, colour = TV), size = 1.4, alpha = 0.9) +
   facet_grid(Szen_label ~ Zeitraum) +
+  scale_x_continuous(breaks = seq_along(ba_levels), labels = ba_levels) +
   scale_y_continuous(breaks = seq_along(ordn), labels = ordn, limits = c(1, length(ordn))) +
   scale_colour_manual(values = tv_farben) +
   labs(title = paste0("BAE-Empfehlungskurven – ", master_id),
-       subtitle = paste0(stufe, "-stufig  |  Überlappung der Linien = Einigkeit der TVs"),
+       subtitle = paste0(stufe, "-stufig  |  Überlappung der Kurven = Einigkeit der TVs"),
        x = NULL, y = "Empfehlung", colour = "TV") +
   theme_minimal(base_size = 11) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
         strip.text  = element_text(face = "bold", size = 9),
+        panel.grid.minor = element_blank(),
         legend.position = "bottom",
         plot.background = element_rect(fill = "white", color = NA))
 

@@ -218,15 +218,38 @@ bae_kurven_function <- function(data,
     }
 
     ordn    <- .bae_kat_order[[st]]
+    ba_lv   <- levels(droplevels(d_st$Baumart))
     tv_lv   <- levels(droplevels(d_st$TV))
     tv_cols <- setNames(.bae_tv_colors[seq_along(tv_lv)], tv_lv)
 
-    p <- ggplot2::ggplot(
-        d_st,
-        ggplot2::aes(x = Baumart, y = Stufe, group = TV, colour = TV)) +
-      ggplot2::geom_line(linewidth = 0.8, alpha = 0.8, na.rm = TRUE) +
-      ggplot2::geom_point(size = 1.6, alpha = 0.9, na.rm = TRUE) +
+    # 1) ein Wert je (Panel, TV, Baumart): Mittel der Stufe über die Hinweis-
+    #    Varianten (sonst mehrere y an einer x-Position -> vertikale Zacken).
+    kurv <- d_st %>%
+      dplyr::group_by(Szen_label, Zeitraum, TV, Baumart) %>%
+      dplyr::summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
+      dplyr::filter(!is.nan(y)) %>%
+      dplyr::mutate(x = as.integer(factor(Baumart, levels = ba_lv)))
+
+    # 2) glatte Spline-Kurve je (Panel, TV) durch diese Punkte, auf [1,n]
+    #    geklammert, damit sie nicht über die Kategorien hinausschwingt.
+    kurv_smooth <- kurv %>%
+      dplyr::group_by(Szen_label, Zeitraum, TV) %>%
+      dplyr::filter(dplyr::n() >= 2) %>%
+      dplyr::group_modify(~ {
+        s <- stats::spline(.x$x, .x$y, n = 200)
+        data.frame(x = s$x, y = pmin(pmax(s$y, 1), length(ordn)))
+      }) %>%
+      dplyr::ungroup()
+
+    p <- ggplot2::ggplot() +
+      ggplot2::geom_line(data = kurv_smooth,
+                         ggplot2::aes(x = x, y = y, colour = TV, group = TV),
+                         linewidth = 0.8, alpha = 0.85) +
+      ggplot2::geom_point(data = kurv,
+                          ggplot2::aes(x = x, y = y, colour = TV),
+                          size = 1.4, alpha = 0.9) +
       ggplot2::facet_grid(Szen_label ~ Zeitraum) +
+      ggplot2::scale_x_continuous(breaks = seq_along(ba_lv), labels = ba_lv) +
       ggplot2::scale_y_continuous(
         breaks = seq_along(ordn), labels = ordn,
         limits = c(1, length(ordn)), expand = ggplot2::expansion(mult = 0.05)) +
@@ -234,7 +257,7 @@ bae_kurven_function <- function(data,
       ggplot2::labs(
         title    = paste0("BAE-Empfehlungskurven – ", master_id),
         subtitle = paste0(st, "-stufig  |  Modell: ", modelle_str,
-                          "  |  Kurven je TV; Überlappung = Einigkeit der TVs"),
+                          "  |  Kurven je TV (Mittel über Hinweis-Varianten); Überlappung = Einigkeit"),
         x = NULL, y = "Empfehlung", colour = "TV") +
       ggplot2::theme_minimal(base_size = 11) +
       ggplot2::theme(
