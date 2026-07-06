@@ -263,18 +263,34 @@ bae_kurven_function <- function(data,
 bae_score_matrix_function <- function(data,
                                       master_id,
                                       stufen         = c("3st", "4st", "5st"),
+                                      trennung       = c("zeit", "szenario", "keine"),
                                       rcp_zukunft_ab = 2021,
                                       obs_alle       = TRUE,
                                       szen_rename    = character(0),
                                       werte_anzeigen = TRUE,     # Score je Zelle beschriften
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
+  # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
+  #   "zeit"     -> Vergangenheit (OBS) vs. Zukunft (RCP)   [Default]
+  #   "szenario" -> je Szen_label eine Matrix (OBS, RCP45, RCP45_v3, RCP85, …)
+  #   "keine"    -> eine gemeinsame Matrix über alles
+  trennung <- match.arg(trennung)
+
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename)
   if (is.null(d0)) return(invisible(NULL))
+
+  d0 <- d0 %>%
+    dplyr::mutate(Gruppe = switch(trennung,
+      "zeit"     = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+      "szenario" = as.character(Szen_label),
+      "keine"    = "alle"))
 
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
+
+  # "Vergangenheit" vor "Zukunft"; sonst alphabetisch
+  gruppen <- sort(unique(d0$Gruppe))
 
   plots <- list()
   for (st in stufen) {
@@ -284,68 +300,73 @@ bae_score_matrix_function <- function(data,
       next
     }
 
-    # Gewichteter Score je TV×Baumart: Einträge durchzählen und mit dem
-    # Rangwert der Kategorie (Stufe) gewichtet aufsummieren. Nur die für die
-    # Stufigkeit gültigen Kategorien zählen (Stufe = NA -> raus).
-    agg <- d_st %>%
-      dplyr::filter(!is.na(Stufe)) %>%
-      dplyr::group_by(TV, Baumart) %>%
-      dplyr::summarise(Score = sum(Stufe), N = dplyr::n(), .groups = "drop") %>%
-      droplevels()
+    for (grp in gruppen) {
+      # Gewichteter Score je TV×Baumart innerhalb der Gruppe: Einträge
+      # durchzählen und mit dem Rangwert der Kategorie (Stufe) gewichtet
+      # aufsummieren. Nur die für die Stufigkeit gültigen Kategorien zählen
+      # (Stufe = NA -> raus).
+      agg <- d_st %>%
+        dplyr::filter(Gruppe == grp, !is.na(Stufe)) %>%
+        dplyr::group_by(TV, Baumart) %>%
+        dplyr::summarise(Score = sum(Stufe), N = dplyr::n(), .groups = "drop") %>%
+        droplevels()
 
-    if (nrow(agg) == 0) {
-      message("Stufe '", st, "': keine bewerteten Einträge – übersprungen.")
-      next
+      if (nrow(agg) == 0) {
+        message("Stufe '", st, "', Gruppe '", grp,
+                "': keine bewerteten Einträge – übersprungen.")
+        next
+      }
+
+      # Sortierung: aufsteigend nach Gesamt-Score -> höchste als letzter
+      # Faktor-Level. In ggplot heißt das: y oben, x rechts. Jede Gruppe wird
+      # eigenständig sortiert.
+      tv_ord <- agg %>% dplyr::group_by(TV) %>%
+        dplyr::summarise(s = sum(Score), .groups = "drop") %>%
+        dplyr::arrange(s, TV)
+      ba_ord <- agg %>% dplyr::group_by(Baumart) %>%
+        dplyr::summarise(s = sum(Score), .groups = "drop") %>%
+        dplyr::arrange(s, Baumart)
+
+      agg <- agg %>%
+        dplyr::mutate(
+          TV      = factor(as.character(TV),      levels = as.character(tv_ord$TV)),
+          Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)))
+
+      p <- ggplot2::ggplot(agg, ggplot2::aes(x = Baumart, y = TV, fill = Score)) +
+        ggplot2::geom_tile(color = "white", linewidth = 0.6) +
+        { if (werte_anzeigen)
+            ggplot2::geom_text(ggplot2::aes(label = Score), size = 3,
+                               colour = "grey15") } +
+        ggplot2::scale_fill_gradientn(colours = .bae_score_gradient) +
+        ggplot2::labs(
+          title    = paste0("BAE – gezählte Einträge (Score) – ", master_id),
+          subtitle = paste0(st, "-stufig  |  ", grp, "  |  Modell: ", modelle_str,
+                            "  |  TV nach Eintr. (oben), Baumart nach Empf. (rechts)"),
+          x = "Baumart  (höchste Empfehlungen →)",
+          y = "TV  (meiste Einträge ↑)",
+          fill = "Score") +
+        ggplot2::coord_equal() +
+        ggplot2::theme_minimal(base_size = 11) +
+        ggplot2::theme(
+          axis.text.x     = ggplot2::element_text(angle = 45, hjust = 1,
+                                                  face = "bold", size = 9),
+          axis.text.y     = ggplot2::element_text(face = "bold", size = 9),
+          panel.grid      = ggplot2::element_blank(),
+          legend.position = "right",
+          plot.background = ggplot2::element_rect(fill = "white", color = NA))
+
+      n_ba <- length(levels(agg$Baumart))
+      n_tv <- length(levels(agg$TV))
+      grp_tag <- gsub("[^A-Za-z0-9]+", "-", grp)
+      f <- file.path(mid_dir, paste0("ScoreMatrix_", st, "_", grp_tag, "_",
+                                     master_id, "_", modelle_str, ".png"))
+      ggplot2::ggsave(f, plot = p, device = "png",
+                      width  = 700 + n_ba * 95,
+                      height = 500 + n_tv * 95,
+                      units = "px", dpi = 150, limitsize = FALSE)
+      message("Gespeichert: ", f)
+      plots[[paste0(st, "_", grp_tag)]] <- p
     }
-
-    # Sortierung: aufsteigend nach Gesamt-Score -> höchste als letzter Faktor-
-    # Level. In ggplot bedeutet das: bei y oben, bei x rechts.
-    tv_ord <- agg %>% dplyr::group_by(TV) %>%
-      dplyr::summarise(s = sum(Score), .groups = "drop") %>%
-      dplyr::arrange(s, TV)
-    ba_ord <- agg %>% dplyr::group_by(Baumart) %>%
-      dplyr::summarise(s = sum(Score), .groups = "drop") %>%
-      dplyr::arrange(s, Baumart)
-
-    agg <- agg %>%
-      dplyr::mutate(
-        TV      = factor(as.character(TV),      levels = as.character(tv_ord$TV)),
-        Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)))
-
-    p <- ggplot2::ggplot(agg, ggplot2::aes(x = Baumart, y = TV, fill = Score)) +
-      ggplot2::geom_tile(color = "white", linewidth = 0.6) +
-      { if (werte_anzeigen)
-          ggplot2::geom_text(ggplot2::aes(label = Score), size = 3,
-                             colour = "grey15") } +
-      ggplot2::scale_fill_gradientn(colours = .bae_score_gradient) +
-      ggplot2::labs(
-        title    = paste0("BAE – gezählte Einträge (Score) – ", master_id),
-        subtitle = paste0(st, "-stufig  |  Modell: ", modelle_str,
-                          "  |  Score = gewichtete Summe; TV nach Eintr. (oben), ",
-                          "Baumart nach Empfehlung (rechts)"),
-        x = "Baumart  (höchste Empfehlungen →)",
-        y = "TV  (meiste Einträge ↑)",
-        fill = "Score") +
-      ggplot2::coord_equal() +
-      ggplot2::theme_minimal(base_size = 11) +
-      ggplot2::theme(
-        axis.text.x     = ggplot2::element_text(angle = 45, hjust = 1,
-                                                face = "bold", size = 9),
-        axis.text.y     = ggplot2::element_text(face = "bold", size = 9),
-        panel.grid      = ggplot2::element_blank(),
-        legend.position = "right",
-        plot.background = ggplot2::element_rect(fill = "white", color = NA))
-
-    n_ba <- length(levels(agg$Baumart))
-    n_tv <- length(levels(agg$TV))
-    f <- file.path(mid_dir, paste0("ScoreMatrix_", st, "_", master_id, "_",
-                                   modelle_str, ".png"))
-    ggplot2::ggsave(f, plot = p, device = "png",
-                    width  = 700 + n_ba * 95,
-                    height = 500 + n_tv * 95,
-                    units = "px", dpi = 150, limitsize = FALSE)
-    message("Gespeichert: ", f)
-    plots[[st]] <- p
   }
   invisible(plots)
 }
@@ -355,14 +376,17 @@ bae_score_matrix_function <- function(data,
 # ============================================================================
 bae_auswertung_grafiken <- function(data, master_id,
                                     stufen         = c("3st", "4st", "5st"),
+                                    trennung       = c("zeit", "szenario", "keine"),
                                     rcp_zukunft_ab = 2021,
                                     obs_alle       = TRUE,
                                     szen_rename    = character(0),
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
+  trennung <- match.arg(trennung)
   kurven <- bae_kurven_function(data, master_id, stufen, rcp_zukunft_ab,
                                 obs_alle, szen_rename, out_dir)
-  matrix <- bae_score_matrix_function(data, master_id, stufen, rcp_zukunft_ab,
-                                      obs_alle, szen_rename, out_dir = out_dir)
+  matrix <- bae_score_matrix_function(data, master_id, stufen, trennung,
+                                      rcp_zukunft_ab, obs_alle, szen_rename,
+                                      out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
 }
 
@@ -371,14 +395,18 @@ bae_auswertung_grafiken <- function(data, master_id,
 # ----------------------------------------------------------------------------
 # data <- data.table::fread("meine_bae_daten.csv")
 #
-# # Beide Grafiken je Stufe:
+# # Beide Grafiken je Stufe (Score-Matrix getrennt nach Vergangenheit/Zukunft):
 # bae_auswertung_grafiken(data, master_id = "NR_130_08_66519")
 #
 # # Nur die Kurven (Skizze 1), nur 4-stufig:
 # bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
 #
-# # Nur die Score-Matrix (Skizze 2), Labels umbenennen:
+# # Score-Matrix (Skizze 2) je Szenario statt nur Vergangenheit/Zukunft:
+# bae_score_matrix_function(data, master_id = "NR_130_08_66519",
+#                           trennung = "szenario")
+#
+# # Score-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 # bae_score_matrix_function(
-#   data, master_id = "NR_130_08_66519",
+#   data, master_id = "NR_130_08_66519", trennung = "keine",
 #   szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
 # ============================================================================
