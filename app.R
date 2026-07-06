@@ -304,10 +304,10 @@ karte_sidebar <- sidebarPanel(width = 3,
                                        tags$p(class = "section-title", "\u25B6 Export"),
                                        downloadButton("save_html", "HTML speichern",
                                                       style = "width:100%; margin-bottom:5px;"),
-                                       actionButton("save_png", "PNG speichern", icon = icon("image"),
-                                                    style = "width:100%;"),
+                                       downloadButton("save_png", "PNG speichern",
+                                                      style = "width:100%;"),
                                        tags$small(style = "color:#aaa; font-size:10px; margin-top:3px; display:block;",
-                                                  "PNG \u2192 04_results/BAE_Auswertung/maps/")
+                                                  "PNG-Download der aktuellen Karte")
                               ),
                               
                               ### ---- 1.1.7 Legende (reaktiv je Farb-Modus) ----
@@ -1491,17 +1491,22 @@ server <- function(input, output, session) {
   )
   
   ## ---- 2.16 Export PNG (ggplot) ----
-  observeEvent(input$save_png, {
-    df <- filtered(); req(nrow(df) > 0)
-    
+  # PNG-Download der aktuellen Karte (Browser-Download, analog zu save_html).
+  # Die Karte wird als ggplot mit geom_sf neu gerendert (unabhaengig vom
+  # interaktiven Leaflet) und direkt in die vom Browser gelieferte Datei
+  # geschrieben - kein serverseitiges Verzeichnis mehr.
+  output$save_png <- downloadHandler(
+    filename = function() {
+      paste0("BAE_", input$szenario, "_", input$modell, "_",
+             input$zeitraum, "_", input$stufe, "_",
+             format(Sys.time(), "%Y%m%d_%H%M%S"), ".png")
+    },
+    content = function(file) {
+    df <- filtered()
+    validate(need(!is.null(df) && nrow(df) > 0,
+                  "Bitte zuerst Filter wählen und 'Karte erstellen' klicken."))
+
     withProgress(message = "Erstelle Karte...", value = 0.2, {
-      out_dir <- file.path(result_dir, "BAE_Auswertung/maps")
-      dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-      out_file <- file.path(out_dir,
-                            paste0("BAE_", input$szenario, "_", input$modell, "_",
-                                   input$zeitraum, "_", input$stufe, "_",
-                                   format(Sys.time(), "%Y%m%d_%H%M%S"), ".png"))
-      
       is_nr <- isTRUE(input$datenquelle == "NR")
       if (is_nr) {
         df_plot <- sf::st_drop_geometry(df)        # NR: geom_sf() braucht kein lon/lat
@@ -1594,13 +1599,12 @@ server <- function(input, output, session) {
         )
       
       incProgress(0.4, detail = "Speichern...")
-      ggplot2::ggsave(filename = out_file, plot = p,
+      ggplot2::ggsave(filename = file, plot = p,
                       width = 28, height = 24, units = "cm", dpi = 300)
     })
-    showNotification(paste0("PNG gespeichert: ", basename(out_file)),
-                     type = "message", duration = 6)
-  })
-  
+    }
+  )
+
   ## ---- 2.17 Analyse-Tab (Phase 2) ----
   
   # Gemeinsame Hilfsfunktion: Kreuztabelle aus gefilterten Daten
