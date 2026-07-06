@@ -1553,8 +1553,8 @@ server <- function(input, output, session) {
       # winziger Fleck auf der Deutschlandkarte. DE_GRENZE bleibt Hintergrund.
       if (is_nr) {
         bb   <- sf::st_bbox(sf::st_transform(df, 4326))
-        padx <- max(as.numeric(bb["xmax"] - bb["xmin"]) * 0.4, 0.15)
-        pady <- max(as.numeric(bb["ymax"] - bb["ymin"]) * 0.4, 0.15)
+        padx <- max(as.numeric(bb["xmax"] - bb["xmin"]) * 0.1, 0.05)
+        pady <- max(as.numeric(bb["ymax"] - bb["ymin"]) * 0.1, 0.05)
         karte_xlim <- as.numeric(c(bb["xmin"] - padx, bb["xmax"] + padx))
         karte_ylim <- as.numeric(c(bb["ymin"] - pady, bb["ymax"] + pady))
       } else {
