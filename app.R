@@ -1547,7 +1547,21 @@ server <- function(input, output, session) {
       is_nr      <- isTRUE(input$datenquelle == "NR")
       nr_label   <- if (is_nr) paste0("  |  ", input$nr_sel) else ""
       dq_label   <- if (is_nr) input$nr_sel else "BWI-BZE"
-      
+
+      # Kartenausschnitt: BWI bundesweit (feste Deutschland-Grenzen); NR auf die
+      # Region zoomen (Bounding-Box + Rand), sonst verschwindet die NR als
+      # winziger Fleck auf der Deutschlandkarte. DE_GRENZE bleibt Hintergrund.
+      if (is_nr) {
+        bb   <- sf::st_bbox(sf::st_transform(df, 4326))
+        padx <- max(as.numeric(bb["xmax"] - bb["xmin"]) * 0.4, 0.15)
+        pady <- max(as.numeric(bb["ymax"] - bb["ymin"]) * 0.4, 0.15)
+        karte_xlim <- as.numeric(c(bb["xmin"] - padx, bb["xmax"] + padx))
+        karte_ylim <- as.numeric(c(bb["ymin"] - pady, bb["ymax"] + pady))
+      } else {
+        karte_xlim <- c(5.7, 15.2)
+        karte_ylim <- c(47.1, 55.2)
+      }
+
       p <- ggplot() +
         geom_sf(data = DE_GRENZE, fill = "#f4f4f2",
                 color = "#aaaaaa", linewidth = 0.35) +
@@ -1575,7 +1589,7 @@ server <- function(input, output, session) {
                                  override.aes = list(size = 3.5, alpha = 1), ncol = 1))
           }
         } +
-        coord_sf(xlim = c(5.7, 15.2), ylim = c(47.1, 55.2), expand = FALSE) +
+        coord_sf(xlim = karte_xlim, ylim = karte_ylim, expand = FALSE) +
         labs(title    = "Baumartenempfehlung MRS",
              subtitle = paste0(subtitle_txt, nr_label),
              caption  = paste0(caption_txt, "  \u2022  ", dq_label),
