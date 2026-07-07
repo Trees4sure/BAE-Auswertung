@@ -26,11 +26,20 @@ datei          <- "meine_bae_daten.csv"   # <- deine CSV-Datei
 master_id      <- "NR_130_08_66519"        # <- ein Beispiel-Standort
 stufe          <- "4st"                    # "3st" | "4st" | "5st"
 rcp_zukunft_ab <- 2021                     # RCP: nur Zeiträume ab diesem Jahr
-# Methode je Zelle (Spalte Hinweis): pro (TV × Baumart × Klimalauf) wird nur die
-# erste vorhandene Methode aus dieser Liste behalten -> KEINE Vermischung
-# mehrerer Methoden in einer Kachel (z. B. TV6 hatte KH*/KM = 3 Zeilen).
-hinweis_prefer <- c("KHoriginal", "KHformfitting", "KM", "kor", "",
-                    "AltBA", "BAE20", "WKE")
+# Hinweis (= Rechenmethode) -> Zeilen-Label in der Matrix. Jede echte Methode
+# wird eine eigene Zeile "TVx (Label)" (TV6 hat z. B. KHorg/KHff/KM = 3 Zeilen);
+# ein leeres Label legt in die Standardzeile "TVx" zusammen. AltBA/BAE20/WKE
+# betreffen nur einzelne Baumarten -> leeres Label -> zusammengelegt.
+hinweis_row <- c(
+  "KHoriginal"    = "KHorg",
+  "KHformfitting" = "KHff",
+  "KM"            = "KM",
+  "kor"           = "kor",
+  ""              = "",
+  "AltBA"         = "",
+  "BAE20"         = "",
+  "WKE"           = ""
+)
 
 
 # ============================================================================
@@ -121,21 +130,19 @@ d <- data %>% filter(as.character(MASTER_ID) == master_id)
 
 
 # ============================================================================
-# 3b. METHODE JE ZELLE WÄHLEN  (Spalte Hinweis) – gegen Mehrfach-Zählung
+# 3b. METHODE -> EIGENE ZEILE  (Spalte Hinweis)
 # ============================================================================
-# Je (TV × Baumart × Klimalauf) nur EINE Zeile behalten: die Methode mit der
-# höchsten Priorität aus hinweis_prefer. Nicht gelistete Hinweise landen als
-# Fallback ganz hinten (verschwinden also nicht).
-if ("Hinweis" %in% names(d)) {
-  d <- d %>%
-    mutate(hw_rang = match(as.character(Hinweis), hinweis_prefer),
-           hw_rang = ifelse(is.na(hw_rang), length(hinweis_prefer) + 1L, hw_rang)) %>%
-    group_by(MASTER_ID, TV, Baumart, Klimalauf) %>%
-    slice_min(hw_rang, n = 1, with_ties = FALSE) %>%
-    ungroup() %>%
-    select(-hw_rang)
-}
-# ansehen:  table(d$Hinweis, d$TV)   # jetzt je TV nur noch eine Methode
+# Jede echte Rechenmethode wird eine eigene Zeile: TV6 (KHorg) / TV6 (KHff) /
+# TV6 (KM). AltBA/BAE20/WKE betreffen nur einzelne Baumarten -> leeres Label ->
+# in die Standardzeile "TVx" zusammengelegt (füllen dort ihre Baumart-Spalten).
+# Nicht gelistete Hinweise dienen sich selbst als Label.
+if (!"Hinweis" %in% names(d)) d$Hinweis <- ""
+d <- d %>%
+  mutate(Hinweis = coalesce(as.character(Hinweis), ""),
+         Methode = coalesce(unname(hinweis_row[Hinweis]), Hinweis),
+         TV_M    = ifelse(Methode == "", paste0("TV", TV),
+                          paste0("TV", TV, " (", Methode, ")")))
+# ansehen:  table(d$TV_M)   # welche Zeilen (TV × Methode) entstehen
 
 
 # ============================================================================
@@ -271,14 +278,15 @@ p_kurven                                   # im Plot-Fenster ansehen
 # 9.  SKIZZE 2  – HÄUFIGSTE EMPFEHLUNG (AUSGEZÄHLT), UNAGGREGIERT JE KLIMALAUF
 # ============================================================================
 # Genau wie die Heatmap: NICHT über Klimaläufe aggregieren, sondern je Klimalauf
-# eine eigene Matrix. KEIN Score – es wird nur AUSGEZÄHLT: je Zelle (TV × Baumart)
-# werden die Kategorien über ALLE Einträge gezählt (inkl. der Hinweis-Varianten
-# KM, KHoriginal, …). Die Kachel zeigt die HÄUFIGSTE Kategorie (Modus):
+# eine eigene Matrix. KEIN Score – es wird nur AUSGEZÄHLT. Zeilen sind TV × Methode
+# (aus Abschnitt 3b): TV6 (KHorg)/TV6 (KHff)/TV6 (KM) sind eigene Rechnungen,
+# AltBA/BAE20/WKE sind in "TVx" zusammengelegt. Je Zelle werden die Kategorien
+# gezählt. Die Kachel zeigt die HÄUFIGSTE Kategorie (Modus):
 #   Farbe = häufigste Kategorie (custom_palette; pBv/Keine Datengrundlage = grau)
-#   Zahl  = ABSOLUTE Anzahl dieser Kategorie
+#   Zahl  = ABSOLUTE Anzahl (je Klimalauf meist 1; > 1 erst über mehrere Klimaläufe)
 #   Gleichstand: die BESSERE Kategorie wird gezeigt und mit "*" + Rahmen markiert.
-# Sortierung je Klimalauf nach Anteil guter Empfehlungen ("empfohlen" oder besser;
-# bei 3st nur "sehr empfohlen"): bestes TV oben, beste Baumart rechts.
+# Sortierung je Klimalauf GEWICHTET (dunkelgrün zählt am meisten, Summe der Stufe):
+# beste Zeile oben, beste Baumart rechts.
 
 kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
 kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
@@ -289,16 +297,16 @@ dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit wei
 # lassen, z. B.:  kl <- "RCP85_MPICLM_2071-2100"
 for (kl in sort(unique(as.character(d$Klimalauf)))) {
 
-  # 9a. nur dieser Klimalauf; je Zelle je Kategorie AUSZÄHLEN (mehrere Einträge!)
+  # 9a. nur dieser Klimalauf; je Zelle (Zeile TV×Methode × Baumart) AUSZÄHLEN
   zaehl <- d %>%
     filter(Klimalauf == kl) %>%
-    count(TV, Baumart, Kategorie, name = "n")
-  # ansehen:  zaehl   (Anzahl je TV × Baumart × Kategorie)
+    count(TV_M, Baumart, Kategorie, name = "n")
+  # ansehen:  zaehl   (Anzahl je TV_M × Baumart × Kategorie)
 
   # 9b. Kachel = häufigste Kategorie (Modus). Gleichstand -> bessere (kleinster
   #     kat_pref) + Markierung tie.
   kachel <- zaehl %>%
-    group_by(TV, Baumart) %>%
+    group_by(TV_M, Baumart) %>%
     mutate(tie = sum(n == max(n)) > 1) %>%
     filter(n == max(n)) %>%
     slice_min(match(Kategorie, kat_pref), n = 1, with_ties = FALSE) %>%
@@ -309,21 +317,21 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
   # ansehen:  kachel
 
   # 9c. Sortierung GEWICHTET (dunkelgrün zählt am meisten): Summe der Stufe je
-  #     TV/Baumart (sehr empfohlen = max … nicht empfohlen = 1; pBv/leer = 0).
-  #     Aufsteigend -> beste (höchste Summe) als letzter Faktor-Level, damit bei
-  #     y = oben und bei x = rechts.
+  #     Zeile (TV×Methode)/Baumart (sehr empfohlen = max … nicht empfohlen = 1;
+  #     pBv/leer = 0). Aufsteigend -> beste (höchste Summe) als letzter
+  #     Faktor-Level, damit bei y = oben und bei x = rechts.
   gew     <- d %>% filter(Klimalauf == kl) %>% mutate(w = coalesce(as.numeric(Stufe), 0))
-  tv_rang <- gew %>% group_by(TV)      %>% summarise(s = sum(w)) %>% arrange(s)
+  tv_rang <- gew %>% group_by(TV_M)    %>% summarise(s = sum(w)) %>% arrange(s)
   ba_rang <- gew %>% group_by(Baumart) %>% summarise(s = sum(w)) %>% arrange(s)
   # ansehen:  tv_rang ; ba_rang    (oben/rechts = höchste Summe = beste)
 
   kachel <- kachel %>%
-    mutate(TV      = factor(as.character(TV),      levels = as.character(tv_rang$TV)),
+    mutate(TV_M    = factor(as.character(TV_M),    levels = as.character(tv_rang$TV_M)),
            Baumart = factor(as.character(Baumart), levels = as.character(ba_rang$Baumart)))
 
   # 9d. EIN durchgehender ggplot-Aufruf
   p_matrix <-
-    ggplot(kachel, aes(x = Baumart, y = TV)) +
+    ggplot(kachel, aes(x = Baumart, y = TV_M)) +
     geom_tile(aes(fill = Kategorie), color = "white", linewidth = 0.6) +
     geom_tile(data = filter(kachel, tie), fill = NA, color = "grey15", linewidth = 1.1) +
     geom_text(aes(label = label, colour = txt_col), size = 3) +
@@ -332,10 +340,10 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
     coord_equal() +
     labs(title = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
          subtitle = paste0(stufe, "-stufig  |  ", kl,
-                           "  |  gewichtet sortiert: bestes TV oben, beste Baumart rechts  |  ",
+                           "  |  gewichtet sortiert: beste Zeile oben, beste Baumart rechts  |  ",
                            "Zahl = Anzahl; * / Rahmen = Gleichstand"),
          x = "Baumart  (beste Empfehlungen →)",
-         y = "TV  (beste oben ↑)", fill = "häufigste Kategorie") +
+         y = "TV × Methode  (beste oben ↑)", fill = "häufigste Kategorie") +
     theme_minimal(base_size = 11) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", size = 9),
           axis.text.y = element_text(face = "bold", size = 9),
