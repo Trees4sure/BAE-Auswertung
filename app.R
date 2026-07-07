@@ -155,6 +155,25 @@ init_karte_daten(geo_dir    = geo_dir,
                  local_dir  = LOCAL_DIR)
 init_app_cache()
 
+## ---- 0.5.3 UI-Choices im App-Scope absichern ----
+# Die Standortanalyse-Sidebar referenziert modell_choices/zeitraum_choices/
+# rcp45_var_choices DIREKT beim UI-Aufbau (statische choices, nicht reaktiv).
+# init_karte_daten() setzt sie zwar via <<-, aber falls eine aeltere
+# R/mod_karte.R geladen ist (app.R aktualisiert, R/-Helfer nicht), existieren
+# sie im UI-Scope nicht -> "Objekt 'modell_choices' nicht gefunden".
+# Deshalb hier direkt aus klima_meta ableiten: sichtbar, debugbar und
+# unabhaengig davon, was init_karte_daten() in welche Umgebung geschrieben hat.
+if (!exists("modell_choices")   || length(modell_choices)   == 0)
+  modell_choices   <- sort(unique(klima_meta$Modell))
+if (!exists("zeitraum_choices") || length(zeitraum_choices) == 0)
+  zeitraum_choices <- sort(unique(klima_meta$Zeitraum))
+if (!exists("rcp45_var_choices") || length(rcp45_var_choices) == 0) {
+  rcp45_var_choices <- if (exists("bae_variante")) {
+    rc <- startsWith(as.character(klima_meta$Szenario), "RCP45")
+    sort(unique(bae_variante(klima_meta$Szenario[rc], klima_meta$Modell[rc])))
+  } else character(0)
+}
+
 ## ---- 0.6 Globals fuer reaktive Funktionen spiegeln ----
 # Mehrere Hilfsfunktionen in R/mod_*.R (z.B. get_boden(), get_standort_data())
 # lesen Datenobjekte explizit aus .GlobalEnv. shiny::runApp() sourct app.R
