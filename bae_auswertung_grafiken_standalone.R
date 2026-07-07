@@ -24,9 +24,13 @@
 #                       sowie einem Rahmen um die Kachel markiert.
 #      Standard (trennung = "klimalauf"): eine Matrix je Klimalauf, unaggregiert
 #      wie die Heatmap. Alternativ über Zeit/Szenario zählbar.
-#        * Zeilen (TV):     nach Anteil guter Empfehlungen sortiert -> beste oben
-#        * Spalten (Baumart): nach Anteil guter Empfehlungen sortiert -> beste rechts
-#      "gut" = "empfohlen" oder besser (bei 3st nur "sehr empfohlen").
+#      Sortierung GEWICHTET (dunkelgrün zählt am meisten) über die Summe der
+#      Empfehlungsstufe (sehr empfohlen = max … nicht empfohlen = 1; pBv / Keine
+#      Datengrundlage = 0):
+#        * Zeilen (TV):     höchste Summe -> bestes TV oben
+#        * Spalten (Baumart): höchste Summe -> beste Baumart rechts
+#      Je Zelle wird über hinweis_prefer GENAU EINE Methode gewählt (Default
+#      führt mit KHoriginal), damit nicht mehrere Methoden in eine Kachel zählen.
 #      Datei: ModusMatrix_<st>_<grp>_<MID>_<Modell>.png
 #
 #   bae_auswertung_grafiken() ruft beide nacheinander auf.
@@ -95,18 +99,45 @@ library(stringr)
   )
 }
 
+# Standard-Priorität der Methode (Spalte Hinweis). Je Zelle (TV × Baumart ×
+# Klimalauf) wird GENAU EINE Methode behalten: die erste vorhandene aus dieser
+# Liste. So mischt eine Kachel nicht mehrere Methoden (z. B. TV6 hatte
+# KHformfitting + KHoriginal + KM = 3 Zeilen). TVs ohne KH behalten über den
+# Fallback ihre eigene Variante (kor / "" / …), verschwinden also nicht.
+.bae_hinweis_prefer <- c("KHoriginal", "KHformfitting", "KM", "kor", "",
+                         "AltBA", "BAE20", "WKE")
+
 # ----------------------------------------------------------------------------
-#  Gemeinsame Aufbereitung: filtern auf MASTER_ID, Klimalauf zerlegen,
-#  RCP-Zukunft/OBS filtern. Liefert das aufbereitete data.frame `d`
-#  (ohne die stufenabhängige Kategorie/Stufe – die wird pro Stufe ergänzt).
+#  Gemeinsame Aufbereitung: filtern auf MASTER_ID, Methode je Zelle wählen
+#  (hinweis_prefer), Klimalauf zerlegen, RCP-Zukunft/OBS filtern. Liefert das
+#  aufbereitete data.frame `d` (ohne die stufenabhängige Kategorie/Stufe – die
+#  wird pro Stufe ergänzt).
 # ----------------------------------------------------------------------------
 .bae_prep <- function(data, master_id, rcp_zukunft_ab = 2021,
-                      obs_alle = TRUE, szen_rename = character(0)) {
+                      obs_alle = TRUE, szen_rename = character(0),
+                      hinweis_prefer = .bae_hinweis_prefer) {
 
   d <- data %>% dplyr::filter(as.character(MASTER_ID) == as.character(master_id))
   if (nrow(d) == 0) {
     message("Keine Daten für MASTER_ID: ", master_id)
     return(NULL)
+  }
+
+  # Methode je Zelle festlegen: pro (MASTER_ID, TV, Baumart, Klimalauf) nur den
+  # Eintrag mit der höchsten Priorität aus hinweis_prefer behalten. Nicht
+  # gelistete Hinweise landen als Fallback ganz hinten.
+  if ("Hinweis" %in% names(d) && length(hinweis_prefer) > 0) {
+    n_vor <- nrow(d)
+    d <- d %>%
+      dplyr::mutate(
+        hw_rang = match(as.character(Hinweis), hinweis_prefer),
+        hw_rang = ifelse(is.na(hw_rang), length(hinweis_prefer) + 1L, hw_rang)) %>%
+      dplyr::group_by(MASTER_ID, TV, Baumart, Klimalauf) %>%
+      dplyr::slice_min(hw_rang, n = 1, with_ties = FALSE) %>%
+      dplyr::ungroup() %>%
+      dplyr::select(-hw_rang)
+    message("Methode je Zelle gewählt (hinweis_prefer): ", n_vor, " -> ", nrow(d),
+            " Zeilen | Priorität: ", paste(hinweis_prefer, collapse = " > "))
   }
 
   # Szenario / Modell / Zeitraum / Variante aus Klimalauf ableiten
@@ -197,9 +228,10 @@ bae_kurven_function <- function(data,
                                 rcp_zukunft_ab = 2021,
                                 obs_alle       = TRUE,
                                 szen_rename    = character(0),
+                                hinweis_prefer = .bae_hinweis_prefer,
                                 out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
-  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename)
+  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, hinweis_prefer)
   if (is.null(d0)) return(invisible(NULL))
 
   modelle_str <- .bae_modell_str(d0)
@@ -294,18 +326,21 @@ bae_modus_matrix_function <- function(data,
                                       rcp_zukunft_ab = 2021,
                                       obs_alle       = TRUE,
                                       szen_rename    = character(0),
+                                      hinweis_prefer = .bae_hinweis_prefer,
                                       werte_anzeigen = TRUE,     # Anzahl je Zelle beschriften
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
   #   "klimalauf" -> UNAGGREGIERT, je Klimalauf eine Matrix (wie die Heatmap-
-  #                  Panels). Gezählt wird über die Hinweis-Varianten.  [Default]
+  #                  Panels). Pro Zelle 1 Methode -> Zahl ist hier meist 1. [Default]
   #   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe gezählt
   #   "szenario"  -> je Szen_label eine Matrix (gezählt über die Zeiträume)
   #   "keine"     -> eine gemeinsame Matrix über alles
+  # Die Zahl je Kachel wird erst > 1, wenn eine Gruppe mehrere Klimaläufe zählt
+  # (z. B. trennung = "zeit"/"keine"): dann = in wie vielen die Kategorie vorkam.
   trennung <- match.arg(trennung)
 
-  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename)
+  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, hinweis_prefer)
   if (is.null(d0)) return(invisible(NULL))
 
   d0 <- d0 %>%
@@ -332,7 +367,6 @@ bae_modus_matrix_function <- function(data,
     ordn     <- .bae_kat_order[[st]]                        # schlecht -> gut
     kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
     kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
-    gut_kat  <- intersect(c("sehr empfohlen", "empfohlen"), ordn)  # "gut" (3st: nur sehr empfohlen)
     dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
 
     for (grp in gruppen) {
@@ -361,14 +395,19 @@ bae_modus_matrix_function <- function(data,
           label     = ifelse(tie, paste0(n, "*"), as.character(n)),
           txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
 
-      # Sortierung nach Anteil guter Empfehlungen (bestes TV oben, beste rechts):
-      # aufsteigend -> beste (höchster Anteil) als letzter Faktor-Level.
-      tv_ord <- zaehl %>% dplyr::group_by(TV) %>%
-        dplyr::summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n), .groups = "drop") %>%
-        dplyr::arrange(anteil, TV)
-      ba_ord <- zaehl %>% dplyr::group_by(Baumart) %>%
-        dplyr::summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n), .groups = "drop") %>%
-        dplyr::arrange(anteil, Baumart)
+      # Sortierung GEWICHTET (dunkelgrün zählt am meisten): Summe der Stufe je
+      # TV/Baumart. Stufe = sehr empfohlen (max) … nicht empfohlen (1), grau/pBv
+      # (keine Stufe) = 0. Aufsteigend -> beste (höchste Summe) als letzter
+      # Faktor-Level -> bestes TV oben, beste Baumart rechts.
+      gew <- d_st %>%
+        dplyr::filter(Gruppe == grp) %>%
+        dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
+      tv_ord <- gew %>% dplyr::group_by(TV) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, TV)
+      ba_ord <- gew %>% dplyr::group_by(Baumart) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, Baumart)
 
       kachel <- kachel %>%
         dplyr::mutate(
@@ -386,7 +425,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(st, "-stufig  |  ", grp, "  |  Modell: ", modelle_str,
-                            "  |  bestes TV oben, beste Baumart rechts  |  ",
+                            "  |  gewichtet sortiert: bestes TV oben, beste Baumart rechts  |  ",
                             "Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV  (beste oben ↑)",
@@ -426,12 +465,16 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     rcp_zukunft_ab = 2021,
                                     obs_alle       = TRUE,
                                     szen_rename    = character(0),
+                                    hinweis_prefer = .bae_hinweis_prefer,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
-  kurven <- bae_kurven_function(data, master_id, stufen, rcp_zukunft_ab,
-                                obs_alle, szen_rename, out_dir)
-  matrix <- bae_modus_matrix_function(data, master_id, stufen, trennung,
-                                      rcp_zukunft_ab, obs_alle, szen_rename,
+  kurven <- bae_kurven_function(data, master_id, stufen = stufen,
+                                rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
+                                szen_rename = szen_rename, hinweis_prefer = hinweis_prefer,
+                                out_dir = out_dir)
+  matrix <- bae_modus_matrix_function(data, master_id, stufen = stufen, trennung = trennung,
+                                      rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
+                                      szen_rename = szen_rename, hinweis_prefer = hinweis_prefer,
                                       out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
 }

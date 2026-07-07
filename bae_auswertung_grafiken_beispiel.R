@@ -26,6 +26,11 @@ datei          <- "meine_bae_daten.csv"   # <- deine CSV-Datei
 master_id      <- "NR_130_08_66519"        # <- ein Beispiel-Standort
 stufe          <- "4st"                    # "3st" | "4st" | "5st"
 rcp_zukunft_ab <- 2021                     # RCP: nur Zeiträume ab diesem Jahr
+# Methode je Zelle (Spalte Hinweis): pro (TV × Baumart × Klimalauf) wird nur die
+# erste vorhandene Methode aus dieser Liste behalten -> KEINE Vermischung
+# mehrerer Methoden in einer Kachel (z. B. TV6 hatte KH*/KM = 3 Zeilen).
+hinweis_prefer <- c("KHoriginal", "KHformfitting", "KM", "kor", "",
+                    "AltBA", "BAE20", "WKE")
 
 
 # ============================================================================
@@ -112,6 +117,25 @@ ordn    <- kat_order[[stufe]]   # Kategorie-Reihenfolge für die gewählte Stufe
 d <- data %>% filter(as.character(MASTER_ID) == master_id)
 
 # ansehen:  nrow(d) ; head(d)
+#   table(d$Hinweis, d$TV)   # zeigt, welche Methode je TV vorkommt
+
+
+# ============================================================================
+# 3b. METHODE JE ZELLE WÄHLEN  (Spalte Hinweis) – gegen Mehrfach-Zählung
+# ============================================================================
+# Je (TV × Baumart × Klimalauf) nur EINE Zeile behalten: die Methode mit der
+# höchsten Priorität aus hinweis_prefer. Nicht gelistete Hinweise landen als
+# Fallback ganz hinten (verschwinden also nicht).
+if ("Hinweis" %in% names(d)) {
+  d <- d %>%
+    mutate(hw_rang = match(as.character(Hinweis), hinweis_prefer),
+           hw_rang = ifelse(is.na(hw_rang), length(hinweis_prefer) + 1L, hw_rang)) %>%
+    group_by(MASTER_ID, TV, Baumart, Klimalauf) %>%
+    slice_min(hw_rang, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    select(-hw_rang)
+}
+# ansehen:  table(d$Hinweis, d$TV)   # jetzt je TV nur noch eine Methode
 
 
 # ============================================================================
@@ -258,7 +282,6 @@ p_kurven                                   # im Plot-Fenster ansehen
 
 kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
 kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
-gut_kat  <- intersect(c("sehr empfohlen", "empfohlen"), ordn)  # "gut" (3st: nur sehr empfohlen)
 dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
 
 # ansehen: welche Klimaläufe gibt es?  ->  sort(unique(as.character(d$Klimalauf)))
@@ -285,11 +308,14 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
            txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
   # ansehen:  kachel
 
-  # 9c. Sortierung nach Anteil guter Empfehlungen: aufsteigend -> beste (höchster
-  #     Anteil) als letzter Faktor-Level, damit bei y = oben und bei x = rechts.
-  tv_rang <- zaehl %>% group_by(TV)      %>% summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n)) %>% arrange(anteil)
-  ba_rang <- zaehl %>% group_by(Baumart) %>% summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n)) %>% arrange(anteil)
-  # ansehen:  tv_rang ; ba_rang    (oben/rechts = höchster Anteil = beste)
+  # 9c. Sortierung GEWICHTET (dunkelgrün zählt am meisten): Summe der Stufe je
+  #     TV/Baumart (sehr empfohlen = max … nicht empfohlen = 1; pBv/leer = 0).
+  #     Aufsteigend -> beste (höchste Summe) als letzter Faktor-Level, damit bei
+  #     y = oben und bei x = rechts.
+  gew     <- d %>% filter(Klimalauf == kl) %>% mutate(w = coalesce(as.numeric(Stufe), 0))
+  tv_rang <- gew %>% group_by(TV)      %>% summarise(s = sum(w)) %>% arrange(s)
+  ba_rang <- gew %>% group_by(Baumart) %>% summarise(s = sum(w)) %>% arrange(s)
+  # ansehen:  tv_rang ; ba_rang    (oben/rechts = höchste Summe = beste)
 
   kachel <- kachel %>%
     mutate(TV      = factor(as.character(TV),      levels = as.character(tv_rang$TV)),
@@ -306,7 +332,7 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
     coord_equal() +
     labs(title = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
          subtitle = paste0(stufe, "-stufig  |  ", kl,
-                           "  |  bestes TV oben, beste Baumart rechts  |  ",
+                           "  |  gewichtet sortiert: bestes TV oben, beste Baumart rechts  |  ",
                            "Zahl = Anzahl; * / Rahmen = Gleichstand"),
          x = "Baumart  (beste Empfehlungen →)",
          y = "TV  (beste oben ↑)", fill = "häufigste Kategorie") +
