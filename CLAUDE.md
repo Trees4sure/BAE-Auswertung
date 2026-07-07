@@ -1,5 +1,14 @@
 # Hinweise für die Zusammenarbeit
 
+## Git / Zielbranch (WICHTIG)
+
+- **Aller Code kommt auf `BAE_Auswertung_Grafiken`.** Das ist der feste
+  Arbeitsbranch des Nutzers. NICHT auf einem separaten `claude/…`-Session-Branch
+  liegen lassen – auch wenn pro Session einer vorgegeben wird: den fertigen
+  Commit per Fast-Forward nach `BAE_Auswertung_Grafiken` schieben.
+- KEINE neuen Feature-Branches anlegen, sofern der Nutzer nicht ausdrücklich
+  danach fragt. Kein Wildwuchs an Branches.
+
 ## Code-Stil (Wunsch des Nutzers)
 
 - **Flach statt verschachtelt.** Logik, die in eine Schleife passt, gehört in
