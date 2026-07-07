@@ -10,7 +10,7 @@
 #
 # Erzeugt:
 #   Skizze 1  – Empfehlungs-Kurven je TV (pro Szenario × Zeitraum)
-#   Skizze 2  – Score-Matrix, unaggregiert je Klimalauf (sortiert + gewichtet)
+#   Skizze 2  – Modus-Matrix, unaggregiert je Klimalauf (ausgezählt + sortiert)
 # ============================================================================
 
 library(dplyr)
@@ -160,12 +160,13 @@ d <- d %>%
 # ============================================================================
 # 7.  WERT (Einteilung als Skala) + KATEGORIE/STUFE FÜR DIE GEWÄHLTE STUFIGKEIT
 # ============================================================================
-# Wert       = die Einteilung DIREKT wie in BAE_xST: 1 = beste Empfehlung …
-#              n = schlechteste. pBv / leer -> NA.  -> für Skizze 2 (Summe)
-# code       -> Kategorie (Text)                    -> nur für die Kurven-Farben
+# code       -> Kategorie (Text): sehr empfohlen … pBv / Keine Datengrundlage.
+#              -> für Skizze 2 (Auszählung/Modus) UND die Kurven-Farben.
 # Kategorie  -> Stufe (Zahl, INVERTIERT): match() gibt Position in `ordn`,
 #              nicht empfohlen = 1 … sehr empfohlen = n. Das ist NUR für die
 #              Kurven (Skizze 1), damit "sehr empfohlen" oben liegt.
+# Wert       = die Einteilung DIREKT wie in BAE_xST (1 = beste … n = schlechteste)
+#              bleibt nur zum Ansehen; Skizze 2 zählt jetzt Kategorien, kein Score.
 d <- d %>%
   mutate(
     code      = as.character(.data[[bae_col]]),
@@ -243,54 +244,72 @@ p_kurven                                   # im Plot-Fenster ansehen
 
 
 # ============================================================================
-# 9.  SKIZZE 2  – SUMME DER EINTEILUNGEN, UNAGGREGIERT JE KLIMALAUF
+# 9.  SKIZZE 2  – HÄUFIGSTE EMPFEHLUNG (AUSGEZÄHLT), UNAGGREGIERT JE KLIMALAUF
 # ============================================================================
 # Genau wie die Heatmap: NICHT über Klimaläufe aggregieren, sondern je Klimalauf
-# eine eigene Matrix. Die Einteilung (Wert, wie in BAE_xST: 1 = beste … n =
-# schlechteste) wird je Zelle (TV × Baumart) über ALLE Einträge aufsummiert –
-# inkl. der mehreren Hinweis-Varianten (KM, KHoriginal, …). pBv/leer (Wert = NA)
-# zählen nicht mit.  ==>  NIEDRIGE Summe = besser.
-# Sortierung je Klimalauf: kleinste Zeilensumme (bestes TV) oben, kleinste
-# Spaltensumme (beste Baumart) rechts. Farbe: grün (niedrig) -> rot (hoch).
+# eine eigene Matrix. KEIN Score – es wird nur AUSGEZÄHLT: je Zelle (TV × Baumart)
+# werden die Kategorien über ALLE Einträge gezählt (inkl. der Hinweis-Varianten
+# KM, KHoriginal, …). Die Kachel zeigt die HÄUFIGSTE Kategorie (Modus):
+#   Farbe = häufigste Kategorie (custom_palette; pBv/Keine Datengrundlage = grau)
+#   Zahl  = ABSOLUTE Anzahl dieser Kategorie
+#   Gleichstand: die BESSERE Kategorie wird gezeigt und mit "*" + Rahmen markiert.
+# Sortierung je Klimalauf nach Anteil guter Empfehlungen ("empfohlen" oder besser;
+# bei 3st nur "sehr empfohlen"): bestes TV oben, beste Baumart rechts.
 
-summe_gradient <- c("#1A9850", "#A6D96A", "#FEE08B", "#FDAE61", "#A50026")
+kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
+kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
+gut_kat  <- intersect(c("sehr empfohlen", "empfohlen"), ordn)  # "gut" (3st: nur sehr empfohlen)
+dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
 
 # ansehen: welche Klimaläufe gibt es?  ->  sort(unique(as.character(d$Klimalauf)))
 # Zum Durchklicken EINEN Klimalauf setzen und die Zeilen im Rumpf einzeln laufen
 # lassen, z. B.:  kl <- "RCP85_MPICLM_2071-2100"
 for (kl in sort(unique(as.character(d$Klimalauf)))) {
 
-  # 9a. nur dieser Klimalauf; Summe der Einteilungen je Zelle (mehrere Einträge!)
-  agg <- d %>%
-    filter(Klimalauf == kl, !is.na(Wert)) %>%
+  # 9a. nur dieser Klimalauf; je Zelle je Kategorie AUSZÄHLEN (mehrere Einträge!)
+  zaehl <- d %>%
+    filter(Klimalauf == kl) %>%
+    count(TV, Baumart, Kategorie, name = "n")
+  # ansehen:  zaehl   (Anzahl je TV × Baumart × Kategorie)
+
+  # 9b. Kachel = häufigste Kategorie (Modus). Gleichstand -> bessere (kleinster
+  #     kat_pref) + Markierung tie.
+  kachel <- zaehl %>%
     group_by(TV, Baumart) %>%
-    summarise(Summe = sum(Wert), N = n(), .groups = "drop") %>%
-    droplevels()
-  # ansehen:  agg   (Summe der Einteilungen je TV × Baumart; N = Anzahl Einträge)
+    mutate(tie = sum(n == max(n)) > 1) %>%
+    filter(n == max(n)) %>%
+    slice_min(match(Kategorie, kat_pref), n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(Kategorie = factor(Kategorie, levels = kat_lv),
+           label     = ifelse(tie, paste0(n, "*"), as.character(n)),
+           txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
+  # ansehen:  kachel
 
-  # 9b. Sortier-Reihenfolge: ABSTEIGEND -> kleinste (beste) Summe als letzter
-  #     Faktor-Level, damit bei y = oben und bei x = rechts.
-  tv_rang <- agg %>% group_by(TV)      %>% summarise(s = sum(Summe)) %>% arrange(desc(s))
-  ba_rang <- agg %>% group_by(Baumart) %>% summarise(s = sum(Summe)) %>% arrange(desc(s))
-  # ansehen:  tv_rang ; ba_rang    (unten = größte/schlechteste Summe)
+  # 9c. Sortierung nach Anteil guter Empfehlungen: aufsteigend -> beste (höchster
+  #     Anteil) als letzter Faktor-Level, damit bei y = oben und bei x = rechts.
+  tv_rang <- zaehl %>% group_by(TV)      %>% summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n)) %>% arrange(anteil)
+  ba_rang <- zaehl %>% group_by(Baumart) %>% summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n)) %>% arrange(anteil)
+  # ansehen:  tv_rang ; ba_rang    (oben/rechts = höchster Anteil = beste)
 
-  # 9c. Faktoren in dieser Reihenfolge setzen
-  agg <- agg %>%
+  kachel <- kachel %>%
     mutate(TV      = factor(as.character(TV),      levels = as.character(tv_rang$TV)),
            Baumart = factor(as.character(Baumart), levels = as.character(ba_rang$Baumart)))
 
   # 9d. EIN durchgehender ggplot-Aufruf
   p_matrix <-
-    ggplot(agg, aes(x = Baumart, y = TV, fill = Summe)) +
-    geom_tile(color = "white", linewidth = 0.6) +
-    geom_text(aes(label = Summe), size = 3, colour = "grey15") +
-    scale_fill_gradientn(colours = summe_gradient) +
+    ggplot(kachel, aes(x = Baumart, y = TV)) +
+    geom_tile(aes(fill = Kategorie), color = "white", linewidth = 0.6) +
+    geom_tile(data = filter(kachel, tie), fill = NA, color = "grey15", linewidth = 1.1) +
+    geom_text(aes(label = label, colour = txt_col), size = 3) +
+    scale_fill_manual(values = custom_palette, limits = kat_lv, drop = FALSE) +
+    scale_colour_identity() +
     coord_equal() +
-    labs(title = paste0("BAE – Summe der Einteilungen (niedrig = besser) – ", master_id),
+    labs(title = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
          subtitle = paste0(stufe, "-stufig  |  ", kl,
-                           "  |  bestes TV oben, beste Baumart rechts"),
+                           "  |  bestes TV oben, beste Baumart rechts  |  ",
+                           "Zahl = Anzahl; * / Rahmen = Gleichstand"),
          x = "Baumart  (beste Empfehlungen →)",
-         y = "TV  (beste oben ↑)", fill = "Summe") +
+         y = "TV  (beste oben ↑)", fill = "häufigste Kategorie") +
     theme_minimal(base_size = 11) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", size = 9),
           axis.text.y = element_text(face = "bold", size = 9),
@@ -298,6 +317,6 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
           plot.background = element_rect(fill = "white", color = NA))
 
   print(p_matrix)                          # im Plot-Fenster ansehen
-  # ggsave(paste0("SummenMatrix_", gsub("[^A-Za-z0-9]+","-",kl), "_beispiel.png"),
+  # ggsave(paste0("ModusMatrix_", gsub("[^A-Za-z0-9]+","-",kl), "_beispiel.png"),
   #        p_matrix, width = 22, height = 16, units = "cm", dpi = 150)
 }

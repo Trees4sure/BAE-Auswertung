@@ -12,18 +12,22 @@
 #      die TVs einig; wo sie auseinanderlaufen, sind sie uneinig.
 #      Datei: Kurven_<st>_<MID>_<Modell>.png
 #
-#   2) bae_score_matrix_function() -> "Summe der Einteilungen" (Skizze 2)
-#      DATENGETRIEBEN SORTIERTE Matrix TV × Baumart. Die Einteilung wird direkt
-#      als Skala genommen (wie in BAE_xST: 1 = beste Empfehlung … n =
-#      schlechteste) und je Zelle über ALLE Einträge aufsummiert – inkl. der
-#      mehreren Hinweis-Varianten (KM, KHoriginal, …). NIEDRIGE Summe = besser.
-#      pBv / leer / nicht-numerisch zählen nicht mit.
+#   2) bae_modus_matrix_function() -> "Häufigste Empfehlung" (Skizze 2)
+#      DATENGETRIEBEN SORTIERTE Matrix TV × Baumart. KEIN Score – es wird nur
+#      AUSGEZÄHLT: je Zelle (TV × Baumart) werden die Empfehlungskategorien über
+#      ALLE Einträge gezählt – inkl. der mehreren Hinweis-Varianten (KM,
+#      KHoriginal, …). Die Kachel zeigt die HÄUFIGSTE Kategorie (Modus):
+#        * Farbe = häufigste Kategorie (custom_palette, diskret; pBv / Keine
+#                  Datengrundlage erscheinen als graue Kacheln)
+#        * Zahl  = ABSOLUTE Anzahl dieser häufigsten Kategorie
+#        * Gleichstand: die BESSERE Kategorie wird gezeigt und mit "*" am Wert
+#                       sowie einem Rahmen um die Kachel markiert.
 #      Standard (trennung = "klimalauf"): eine Matrix je Klimalauf, unaggregiert
-#      wie die Heatmap. Alternativ über Zeit/Szenario summierbar.
-#        * Zeilen (TV):     nach Gesamt-Summe sortiert -> kleinste (beste) oben
-#        * Spalten (Baumart): nach Gesamt-Summe sortiert -> kleinste (beste) rechts
-#        * Farbe:           grün (niedrig/best) -> gelb -> rot (hoch/schlecht)
-#      Datei: SummenMatrix_<st>_<grp>_<MID>_<Modell>.png
+#      wie die Heatmap. Alternativ über Zeit/Szenario zählbar.
+#        * Zeilen (TV):     nach Anteil guter Empfehlungen sortiert -> beste oben
+#        * Spalten (Baumart): nach Anteil guter Empfehlungen sortiert -> beste rechts
+#      "gut" = "empfohlen" oder besser (bei 3st nur "sehr empfohlen").
+#      Datei: ModusMatrix_<st>_<grp>_<MID>_<Modell>.png
 #
 #   bae_auswertung_grafiken() ruft beide nacheinander auf.
 #
@@ -80,10 +84,6 @@ library(stringr)
   "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02",
   "#A6761D", "#666666", "#1F78B4", "#B2182B", "#33A02C", "#6A3D9A"
 )
-
-# Farbverlauf Summen-Matrix: NIEDRIG = besser -> grün, HOCH = schlechter -> rot
-# (Einteilungen 1 = beste … n = schlechteste, also kleine Summe = grün.)
-.bae_summe_gradient <- c("#1A9850", "#A6D96A", "#FEE08B", "#FDAE61", "#A50026")
 
 # Code -> Kategorie (nicht-numerische Werte -> pBv / Keine Datengrundlage)
 .bae_map_val <- function(val, mapping) {
@@ -285,23 +285,23 @@ bae_kurven_function <- function(data,
 }
 
 # ============================================================================
-#  SKIZZE 2 – Summe der Einteilungen (sortierte Matrix, niedrig = besser)
+#  SKIZZE 2 – Häufigste Empfehlung (ausgezählte, sortierte Matrix)
 # ============================================================================
-bae_score_matrix_function <- function(data,
+bae_modus_matrix_function <- function(data,
                                       master_id,
                                       stufen         = c("3st", "4st", "5st"),
                                       trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                       rcp_zukunft_ab = 2021,
                                       obs_alle       = TRUE,
                                       szen_rename    = character(0),
-                                      werte_anzeigen = TRUE,     # Score je Zelle beschriften
+                                      werte_anzeigen = TRUE,     # Anzahl je Zelle beschriften
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
   #   "klimalauf" -> UNAGGREGIERT, je Klimalauf eine Matrix (wie die Heatmap-
-  #                  Panels). Pro Zelle genau ein Wert (die Stufe).   [Default]
-  #   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe summiert
-  #   "szenario"  -> je Szen_label eine Matrix (summiert über die Zeiträume)
+  #                  Panels). Gezählt wird über die Hinweis-Varianten.  [Default]
+  #   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe gezählt
+  #   "szenario"  -> je Szen_label eine Matrix (gezählt über die Zeiträume)
   #   "keine"     -> eine gemeinsame Matrix über alles
   trennung <- match.arg(trennung)
 
@@ -329,52 +329,68 @@ bae_score_matrix_function <- function(data,
       next
     }
 
-    for (grp in gruppen) {
-      # Summe je TV×Baumart innerhalb der Gruppe: die Einteilungen (Wert; wie
-      # in BAE_xST, 1 = beste … n = schlechteste) über alle Einträge der Zelle
-      # aufsummieren – inkl. der mehreren Hinweis-Varianten je Zelle.
-      # pBv / leer / nicht-numerisch (Wert = NA) zählen nicht mit.
-      # NIEDRIGE Summe = besser.
-      agg <- d_st %>%
-        dplyr::filter(Gruppe == grp, !is.na(Wert)) %>%
-        dplyr::group_by(TV, Baumart) %>%
-        dplyr::summarise(Summe = sum(Wert), N = dplyr::n(), .groups = "drop") %>%
-        droplevels()
+    ordn     <- .bae_kat_order[[st]]                        # schlecht -> gut
+    kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
+    kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
+    gut_kat  <- intersect(c("sehr empfohlen", "empfohlen"), ordn)  # "gut" (3st: nur sehr empfohlen)
+    dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
 
-      if (nrow(agg) == 0) {
+    for (grp in gruppen) {
+      # Auszählen (KEIN Score): je Zelle (TV×Baumart) je Kategorie die Anzahl
+      # über alle Einträge – inkl. der mehreren Hinweis-Varianten je Zelle.
+      zaehl <- d_st %>%
+        dplyr::filter(Gruppe == grp) %>%
+        dplyr::count(TV, Baumart, Kategorie, name = "n")
+
+      if (nrow(zaehl) == 0) {
         message("Stufe '", st, "', Gruppe '", grp,
-                "': keine bewerteten Einträge – übersprungen.")
+                "': keine Einträge – übersprungen.")
         next
       }
 
-      # Sortierung: absteigend nach Gesamt-Summe -> KLEINSTE (beste) als letzter
-      # Faktor-Level. In ggplot heißt das: bestes TV oben, beste Baumart rechts.
-      # Jede Gruppe wird eigenständig sortiert.
-      tv_ord <- agg %>% dplyr::group_by(TV) %>%
-        dplyr::summarise(s = sum(Summe), .groups = "drop") %>%
-        dplyr::arrange(dplyr::desc(s), TV)
-      ba_ord <- agg %>% dplyr::group_by(Baumart) %>%
-        dplyr::summarise(s = sum(Summe), .groups = "drop") %>%
-        dplyr::arrange(dplyr::desc(s), Baumart)
+      # Kachel = häufigste Kategorie (Modus). Bei Gleichstand die BESSERE
+      # (kleinster kat_pref) + Markierung tie (Sternchen/Rahmen).
+      kachel <- zaehl %>%
+        dplyr::group_by(TV, Baumart) %>%
+        dplyr::mutate(tie = sum(n == max(n)) > 1) %>%
+        dplyr::filter(n == max(n)) %>%
+        dplyr::slice_min(match(Kategorie, kat_pref), n = 1, with_ties = FALSE) %>%
+        dplyr::ungroup() %>%
+        dplyr::mutate(
+          Kategorie = factor(Kategorie, levels = kat_lv),
+          label     = ifelse(tie, paste0(n, "*"), as.character(n)),
+          txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
 
-      agg <- agg %>%
+      # Sortierung nach Anteil guter Empfehlungen (bestes TV oben, beste rechts):
+      # aufsteigend -> beste (höchster Anteil) als letzter Faktor-Level.
+      tv_ord <- zaehl %>% dplyr::group_by(TV) %>%
+        dplyr::summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n), .groups = "drop") %>%
+        dplyr::arrange(anteil, TV)
+      ba_ord <- zaehl %>% dplyr::group_by(Baumart) %>%
+        dplyr::summarise(anteil = sum(n[Kategorie %in% gut_kat]) / sum(n), .groups = "drop") %>%
+        dplyr::arrange(anteil, Baumart)
+
+      kachel <- kachel %>%
         dplyr::mutate(
           TV      = factor(as.character(TV),      levels = as.character(tv_ord$TV)),
           Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)))
 
-      p <- ggplot2::ggplot(agg, ggplot2::aes(x = Baumart, y = TV, fill = Summe)) +
-        ggplot2::geom_tile(color = "white", linewidth = 0.6) +
+      p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV)) +
+        ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
+        ggplot2::geom_tile(data = dplyr::filter(kachel, tie),
+                           fill = NA, color = "grey15", linewidth = 1.1) +
         { if (werte_anzeigen)
-            ggplot2::geom_text(ggplot2::aes(label = Summe), size = 3,
-                               colour = "grey15") } +
-        ggplot2::scale_fill_gradientn(colours = .bae_summe_gradient) +
+            ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
+        ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
+        ggplot2::scale_colour_identity() +
         ggplot2::labs(
-          title    = paste0("BAE – Summe der Einteilungen (niedrig = besser) – ", master_id),
+          title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(st, "-stufig  |  ", grp, "  |  Modell: ", modelle_str,
-                            "  |  bestes TV oben, beste Baumart rechts"),
+                            "  |  bestes TV oben, beste Baumart rechts  |  ",
+                            "Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV  (beste oben ↑)",
-          fill = "Summe") +
+          fill = "häufigste Kategorie") +
         ggplot2::coord_equal() +
         ggplot2::theme_minimal(base_size = 11) +
         ggplot2::theme(
@@ -385,10 +401,10 @@ bae_score_matrix_function <- function(data,
           legend.position = "right",
           plot.background = ggplot2::element_rect(fill = "white", color = NA))
 
-      n_ba <- length(levels(agg$Baumart))
-      n_tv <- length(levels(agg$TV))
+      n_ba <- length(levels(kachel$Baumart))
+      n_tv <- length(levels(kachel$TV))
       grp_tag <- gsub("[^A-Za-z0-9]+", "-", grp)
-      f <- file.path(mid_dir, paste0("SummenMatrix_", st, "_", grp_tag, "_",
+      f <- file.path(mid_dir, paste0("ModusMatrix_", st, "_", grp_tag, "_",
                                      master_id, "_", modelle_str, ".png"))
       ggplot2::ggsave(f, plot = p, device = "png",
                       width  = 700 + n_ba * 95,
@@ -414,7 +430,7 @@ bae_auswertung_grafiken <- function(data, master_id,
   trennung <- match.arg(trennung)
   kurven <- bae_kurven_function(data, master_id, stufen, rcp_zukunft_ab,
                                 obs_alle, szen_rename, out_dir)
-  matrix <- bae_score_matrix_function(data, master_id, stufen, trennung,
+  matrix <- bae_modus_matrix_function(data, master_id, stufen, trennung,
                                       rcp_zukunft_ab, obs_alle, szen_rename,
                                       out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
@@ -425,18 +441,18 @@ bae_auswertung_grafiken <- function(data, master_id,
 # ----------------------------------------------------------------------------
 # data <- data.table::fread("meine_bae_daten.csv")
 #
-# # Beide Grafiken je Stufe (Score-Matrix UNAGGREGIERT je Klimalauf = Default):
+# # Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default):
 # bae_auswertung_grafiken(data, master_id = "NR_130_08_66519")
 #
 # # Nur die Kurven (Skizze 1), nur 4-stufig:
 # bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
 #
-# # Score-Matrix (Skizze 2) über Klimaläufe summiert, Vergangenheit vs. Zukunft:
-# bae_score_matrix_function(data, master_id = "NR_130_08_66519",
+# # Modus-Matrix (Skizze 2) über Klimaläufe gezählt, Vergangenheit vs. Zukunft:
+# bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
 #                           trennung = "zeit")
 #
-# # Score-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
-# bae_score_matrix_function(
+# # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
+# bae_modus_matrix_function(
 #   data, master_id = "NR_130_08_66519", trennung = "keine",
 #   szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
 # ============================================================================
