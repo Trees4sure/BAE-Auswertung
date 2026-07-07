@@ -102,17 +102,17 @@ library(stringr)
 }
 
 # Hinweis (= Rechenmethode) -> Zeilen-Label in der Matrix (Skizze 2). Jede
-# eigenständige Methode wird zu einer eigenen Zeile "TVx (Label)"; ein leeres
-# Label lässt die Zeile "TVx". AltBA/BAE20/WKE sind baumart-spezifische
-# Teil-Methoden und werden in die Standardzeile ("") ZUSAMMENGELEGT (füllen dort
-# ihre jeweiligen Baumart-Spalten). Nicht gelistete Hinweise dienen sich selbst
-# als Label.
+# eigenständige Methode wird zu einer eigenen Zeile "TVx (Label)". Ein leeres
+# Label ("") legt in die Standardzeile "TVx" zusammen: AltBA/BAE20/WKE sind
+# baumart-spezifisch und landen so in "TVx" (füllen dort ihre Baumart-Spalten).
+# Ein leerer Hinweis ("") und nicht gelistete Hinweise fallen automatisch auf
+# sich selbst zurück (leerer Hinweis -> Standardzeile). Kein ""-Eintrag hier,
+# da c("" = ...) in R einen Fehler wirft (leerer Variablenname).
 .bae_hinweis_row <- c(
   "KHoriginal"    = "KHorg",
   "KHformfitting" = "KHff",
   "KM"            = "KM",
   "kor"           = "kor",
-  ""              = "",
   "AltBA"         = "",
   "BAE20"         = "",
   "WKE"           = ""

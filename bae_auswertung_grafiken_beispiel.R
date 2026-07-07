@@ -28,14 +28,15 @@ stufe          <- "4st"                    # "3st" | "4st" | "5st"
 rcp_zukunft_ab <- 2021                     # RCP: nur Zeiträume ab diesem Jahr
 # Hinweis (= Rechenmethode) -> Zeilen-Label in der Matrix. Jede echte Methode
 # wird eine eigene Zeile "TVx (Label)" (TV6 hat z. B. KHorg/KHff/KM = 3 Zeilen);
-# ein leeres Label legt in die Standardzeile "TVx" zusammen. AltBA/BAE20/WKE
-# betreffen nur einzelne Baumarten -> leeres Label -> zusammengelegt.
+# ein leeres Label ("") legt in die Standardzeile "TVx" zusammen. AltBA/BAE20/WKE
+# betreffen nur einzelne Baumarten -> leeres Label -> zusammengelegt. Ein leerer
+# Hinweis fällt automatisch auf die Standardzeile zurück; KEIN ""-Eintrag hier,
+# da c("" = ...) in R einen Fehler wirft (leerer Variablenname).
 hinweis_row <- c(
   "KHoriginal"    = "KHorg",
   "KHformfitting" = "KHff",
   "KM"            = "KM",
   "kor"           = "kor",
-  ""              = "",
   "AltBA"         = "",
   "BAE20"         = "",
   "WKE"           = ""
