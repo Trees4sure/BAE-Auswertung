@@ -1893,9 +1893,9 @@ server <- function(input, output, session) {
               plot.margin      = margin(10, 10, 8, 10)
             )
 
-          fname <- paste0("BAE_", ba, "_", input$szenario, "_", input$modell, "_",
-                          input$zeitraum, "_", tolower(sub("^BAE_", "", stufe)),
-                          "_", region_tag, ".png")
+          fname <- paste0("BAE_", region_tag, "_", input$szenario, "_", input$modell, "_",
+                          input$zeitraum, "_", ba, "_",
+                          tolower(sub("^BAE_", "", stufe)), ".png")
           ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
                           width = 28, height = 24, units = "cm", dpi = 300)
           n_ok    <- n_ok + 1
