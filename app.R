@@ -1666,7 +1666,7 @@ server <- function(input, output, session) {
         {
           if (is_nr) {
             geom_sf(data = df, aes(fill = .data[[color_aes]]),
-                    color = "#555555", linewidth = 0.3, alpha = 0.80)
+                    color = NA, linewidth = 0, alpha = 0.90)
           } else {
             geom_point(data = df_plot,
                        aes(x = lon, y = lat, color = .data[[color_aes]]),
@@ -1712,7 +1712,7 @@ server <- function(input, output, session) {
       
       incProgress(0.4, detail = "Speichern...")
       ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
-                      width = 40, height = 34, units = "cm", dpi = 400)
+                      width = 40, height = 34, units = "cm", dpi = 600)
       showNotification(paste0("PNG gespeichert: ", fname), type = "message", duration = 6)
     })
   })
@@ -1905,7 +1905,7 @@ server <- function(input, output, session) {
             {
               if (is_nr)
                 geom_sf(data = df_ba, aes(fill = Kat),
-                        color = "#555555", linewidth = 0.3, alpha = 0.80)
+                        color = NA, linewidth = 0, alpha = 0.90)
               else
                 geom_point(data = df_plot, aes(x = lon, y = lat, color = Kat),
                            size = (input$punktgroesse %||% 4) * 0.55,
@@ -1946,7 +1946,7 @@ server <- function(input, output, session) {
                           input$zeitraum, "_", ba, "_",
                           tolower(sub("^BAE_", "", stufe)), ".png")
           ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
-                          width = 40, height = 34, units = "cm", dpi = 400)
+                          width = 40, height = 34, units = "cm", dpi = 600)
           n_ok    <- n_ok + 1
           erzeugt <- c(erzeugt, fname)
         }

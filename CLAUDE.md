@@ -63,4 +63,7 @@
   HTML: Geometrie-Dispatch (NR → `addPolygons`, sonst `addCircleMarkers`),
   sonst zerfällt jedes NR-Polygon in tausende Vertex-Punkte.
 - Auflösung PNG (Einzel + Schleife): `ggsave(width=40, height=34, units="cm",
-  dpi=400)` → ~6300×5350 px.
+  dpi=600)` → ~9450×8030 px (~76 MP). dpi ist der Regler für die Auflösung.
+- NR-Polygone im PNG **ohne Rand** (`color = NA`): bei ~15k dichten Polygonen
+  bildet ein Rand sonst ein dunkles Gitter, das die Fläche grob wirken lässt.
+  (Interaktive Karte + HTML behalten dünnen Rand für Klickbarkeit.)
