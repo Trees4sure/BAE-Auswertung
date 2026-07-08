@@ -1547,9 +1547,7 @@ server <- function(input, output, session) {
       "<b>Klimalauf:</b> ", df$Szenario, " / ", df$Modell, " / ", df$Zeitraum
     )
     geom_type <- unique(as.character(sf::st_geometry_type(df)))
-    m <- leaflet() %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = 10.5, lat = 51.2, zoom = 6)
+    m <- leaflet() %>% addProviderTiles("CartoDB.Positron")
     if (any(grepl("POLYGON", geom_type, ignore.case = TRUE))) {
       m <- m %>% addPolygons(
         data = df, fillColor = df$Farbe, fillOpacity = 0.75,
@@ -1564,6 +1562,15 @@ server <- function(input, output, session) {
     }
     m <- m %>% addLayersControl(overlayGroups = unique(df$Baumart),
                                 options = layersControlOptions(collapsed = FALSE))
+    # Kartenausschnitt: NR auf die Region zoomen (Bounding-Box der Daten, in 4326),
+    # BWI bundesweit. Sonst zeigt das NR-HTML ganz Deutschland (Bug 2026-07).
+    if (is_nr) {
+      bb <- sf::st_bbox(sf::st_transform(df, 4326))
+      m  <- m %>% fitBounds(as.numeric(bb[["xmin"]]), as.numeric(bb[["ymin"]]),
+                            as.numeric(bb[["xmax"]]), as.numeric(bb[["ymax"]]))
+    } else {
+      m <- m %>% setView(lng = 10.5, lat = 51.2, zoom = 6)
+    }
     # saveWidget schreibt am zuverlaessigsten in tempdir (libdir-Pfade) -> danach kopieren
     tryCatch(withProgress(message = "Speichere HTML...", value = 0.5, {
       tmp <- file.path(tempdir(), fname)
