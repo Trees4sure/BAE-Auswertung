@@ -326,7 +326,14 @@ karte_sidebar <- sidebarPanel(width = 3,
                                        downloadButton("save_png", "PNG speichern",
                                                       style = "width:100%;"),
                                        tags$small(style = "color:#aaa; font-size:10px; margin-top:3px; display:block;",
-                                                  "PNG-Download der aktuellen Karte")
+                                                  "PNG-Download der aktuellen Karte"),
+                                       tags$hr(style = "margin:8px 0 6px;"),
+                                       actionButton("open_schleife", "Als Schleife abspeichern",
+                                                    icon  = icon("layer-group"),
+                                                    style = paste("width:100%; background:#00695C;",
+                                                                  "color:white; font-weight:bold;")),
+                                       tags$small(style = "color:#aaa; font-size:10px; margin-top:3px; display:block;",
+                                                  "Alle Baumarten × Stufen ins Ergebnisverzeichnis rendern")
                               ),
                               
                               ### ---- 1.1.7 Legende (reaktiv je Farb-Modus) ----
@@ -1660,6 +1667,258 @@ server <- function(input, output, session) {
     })
     }
   )
+
+  ## ---- 2.16b Schleifen-Export (Batch-PNG ins Ergebnisverzeichnis) ----
+  # "Als Schleife abspeichern": rendert je gewaehlter Baumart x Stufe eine Karte
+  # (gleicher Look wie output$save_png, aber ohne Browser-Download) und legt sie
+  # unter 04_results/BAE_Auswertung/maps/<TV>/ ab. Die sichtbare Karte bleibt
+  # unangetastet - geladen wird unabhaengig von input$run_karte / input$baumart_sel.
+  observeEvent(input$open_schleife, {
+    tv_label <- names(tv_bezeichnung)[tv_bezeichnung == input$tv_sel]
+    if (length(tv_label) == 0) tv_label <- paste0("TV", input$tv_sel)
+    showModal(modalDialog(
+      title = "Karten als Schleife speichern", size = "m", easyClose = TRUE,
+      tags$p(tags$b("Teilvorhaben: "), tv_label, tags$br(),
+             tags$b("Datenquelle: "),
+             if (isTRUE(input$datenquelle == "NR")) input$nr_sel else "BWI-BZE"),
+      radioButtons("schleife_ba_modus", "Baumart:",
+                   choices = c("Alle Baumarten" = "alle", "Auswahl" = "auswahl"),
+                   selected = "alle", inline = TRUE),
+      conditionalPanel(
+        condition = "input.schleife_ba_modus == 'auswahl'",
+        selectizeInput("schleife_ba", label = NULL,
+                       choices = baumart_choices, selected = input$baumart_sel,
+                       multiple = TRUE,
+                       options = list(placeholder = "Baumart(en) wählen...",
+                                      plugins = list("remove_button")),
+                       width = "100%")
+      ),
+      radioButtons("schleife_stufe", "Stufe:",
+                   choices = c("Alle" = "alle", "3-stufig" = "BAE_3ST",
+                               "4-stufig" = "BAE_4ST", "5-stufig" = "BAE_5ST"),
+                   selected = "alle", inline = TRUE),
+      footer = tagList(
+        modalButton("Abbrechen"),
+        actionButton("run_schleife", "Schleife durchführen",
+                     icon = icon("play"), class = "btn-primary")
+      )
+    ))
+  })
+
+  observeEvent(input$run_schleife, {
+    removeModal()
+    if (is.null(input$szenario) || is.null(input$modell) ||
+        is.null(input$zeitraum) || is.null(input$tv_sel)) {
+      showNotification("Bitte zuerst Klimalauf und TV wählen.", type = "error")
+      return(invisible())
+    }
+    is_nr  <- isTRUE(input$datenquelle == "NR")
+    ba_set <- if (isTRUE(input$schleife_ba_modus == "auswahl"))
+                input$schleife_ba else baumart_choices
+    if (length(ba_set) == 0) {
+      showNotification("Keine Baumart gewählt.", type = "error")
+      return(invisible())
+    }
+
+    tryCatch({
+      ## ---- Daten laden (einmalig, alle gewaehlten Baumarten) ----
+      ## Parallel zur NR-/BWI-Ladelogik aus filtered_raw(), aber unabhaengig von
+      ## input$baumart_sel, damit "Alle Baumarten" auch ohne Sidebar-Auswahl geht.
+      if (is_nr) {
+        if (is.null(BAE_WM_DIR) || !dir.exists(BAE_WM_DIR))
+          stop("NR-Pfad nicht konfiguriert (BAE_WM_DIR).")
+        if (is.null(NR_GEO_ALL)) stop("NR-Geodaten nicht gefunden.")
+        if (is.null(input$nr_sel)) stop("Keine Nachbarschaftsregion gewählt.")
+        tv_pad  <- sprintf("%02d", as.integer(input$tv_sel))
+        tv_dirs <- list.dirs(BAE_WM_DIR, recursive = FALSE, full.names = TRUE)
+        tv_dirs <- tv_dirs[grepl(paste0("^BAE_", tv_pad, "_"),
+                                 basename(tv_dirs), ignore.case = TRUE)]
+        if (length(tv_dirs) == 0) stop("Kein BAE-Ordner für TV", input$tv_sel, ".")
+        nr_dirs <- unlist(lapply(tv_dirs, function(d) {
+          sub <- list.dirs(d, recursive = FALSE, full.names = TRUE)
+          sub[grepl(paste0("^", input$nr_sel, "$"), basename(sub), ignore.case = TRUE)]
+        }))
+        if (length(nr_dirs) == 0)
+          stop("Kein Ordner ", input$nr_sel, " unter den TV", input$tv_sel, "-Ordnern.")
+        leaf_dirs <- file.path(nr_dirs, input$szenario, input$modell, input$zeitraum)
+        leaf_dirs <- leaf_dirs[dir.exists(leaf_dirs)]
+        alle_csv  <- if (length(leaf_dirs) > 0)
+          list.files(leaf_dirs, pattern = "\\.csv$", full.names = TRUE) else character(0)
+        if (length(alle_csv) == 0)
+          alle_csv <- list.files(nr_dirs, pattern = "\\.csv$",
+                                 recursive = TRUE, full.names = TRUE)
+        ba_pat <- paste0("_(", paste(ba_set, collapse = "|"), ")\\.csv$")
+        bn     <- basename(alle_csv)
+        match_files <- unique(alle_csv[
+          grepl(paste0("_", input$nr_sel,   "_"), bn, ignore.case = TRUE) &
+            grepl(paste0("_", input$szenario, "_"), bn) &
+            grepl(paste0("_", input$modell,   "_"), bn) &
+            grepl(paste0("_", input$zeitraum, "_"), bn) &
+            grepl(ba_pat, bn)
+        ])
+        if (length(match_files) == 0) stop("Keine NR-CSV für die Auswahl gefunden.")
+        df_raw <- data.table::rbindlist(lapply(match_files, function(f) {
+          dt <- data.table::fread(f, fill = TRUE)
+          if ("MASTER_ID" %in% names(dt))
+            data.table::set(dt, j = "MASTER_ID", value = as.character(dt$MASTER_ID))
+          bae_cols <- grep("^BAE_", names(dt), ignore.case = TRUE, value = TRUE)
+          for (col in bae_cols)
+            data.table::set(dt, j = col, value = as.character(dt[[col]]))
+          dt$Baumart <- sub("\\.csv$", "", sub(".*_", "", basename(f)))
+          dt
+        }), fill = TRUE)
+      } else {
+        df_raw <- csv_raw()
+      }
+
+      df <- df_raw %>% rename_with(toupper)
+      if ("BAUMART" %in% names(df) && !is_nr)
+        df <- df %>% filter(BAUMART %in% ba_set)
+      if ("TV" %in% names(df))
+        df <- df %>% filter(TV %in% as.integer(input$tv_sel))
+      if ("BAUMART" %in% names(df)) {
+        df <- df %>% rename(Baumart = BAUMART)
+      } else if (!"Baumart" %in% names(df)) {
+        df$Baumart <- NA_character_
+      }
+      if (nrow(df) == 0) stop("Keine Daten für die gewählte Kombination.")
+      df <- df %>% distinct(MASTER_ID, Baumart, .keep_all = TRUE)
+
+      geo    <- geo_daten()
+      joined <- geo %>% left_join(df, by = "MASTER_ID") %>% filter(!is.na(Baumart))
+      if (nrow(joined) == 0) stop("Join ohne Treffer (MASTER_ID prüfen).")
+
+      ## ---- Stufen / Baumarten / Zielordner bestimmen ----
+      verfuegbar <- intersect(c("BAE_3ST", "BAE_4ST", "BAE_5ST", "BAE_7ST"),
+                              toupper(names(joined)))
+      stufen <- if (isTRUE(input$schleife_stufe == "alle")) verfuegbar
+                else intersect(input$schleife_stufe, verfuegbar)
+      if (length(stufen) == 0) stop("Gewählte Stufe in den Daten nicht vorhanden.")
+      ba_loop <- intersect(ba_set, sort(unique(joined$Baumart)))
+      if (length(ba_loop) == 0) stop("Keine der gewählten Baumarten in den Daten.")
+
+      tv_label  <- names(tv_bezeichnung)[tv_bezeichnung == input$tv_sel]
+      if (length(tv_label) == 0) tv_label <- paste0("TV", input$tv_sel)
+      tv_folder <- gsub("/", "-", gsub("[: ]+", "_", tv_label))   # "TV2: LFOA-MV" -> "TV2_LFOA-MV"
+      out_dir   <- file.path(result_dir, "BAE_Auswertung", "maps", tv_folder)
+      dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+      region_tag   <- if (is_nr) input$nr_sel else "BWI"
+      stufe_labels <- c(BAE_3ST = "3-stufig", BAE_4ST = "4-stufig",
+                        BAE_5ST = "5-stufig", BAE_7ST = "7-stufig")
+
+      ## ---- Render-Schleife: je Baumart x Stufe eine Karte ----
+      kombis  <- expand.grid(ba = ba_loop, stufe = stufen, stringsAsFactors = FALSE)
+      n_total <- nrow(kombis); n_ok <- 0; erzeugt <- character(0)
+
+      withProgress(message = "Schleife: Karten rendern...", value = 0, {
+        for (i in seq_len(n_total)) {
+          ba    <- kombis$ba[i]
+          stufe <- kombis$stufe[i]
+          incProgress(1 / n_total,
+                      detail = paste0(ba, " / ", stufe_labels[stufe],
+                                      "  (", i, "/", n_total, ")"))
+
+          df_ba <- joined %>% filter(Baumart == ba)
+          if (nrow(df_ba) == 0) next
+          df_ba <- df_ba %>%
+            mutate(Kat   = map_stufe(.data[[stufe]], stufe),
+                   Farbe = dplyr::coalesce(unname(kat_palette[Kat]), "#B0B0B0"))
+
+          kat_order   <- names(kat_palette)
+          farben      <- kat_palette[kat_order[kat_order %in% unique(df_ba$Kat)]]
+
+          if (is_nr) {
+            df_plot <- sf::st_drop_geometry(df_ba)
+            bb   <- sf::st_bbox(sf::st_transform(df_ba, 4326))
+            padx <- max(as.numeric(bb["xmax"] - bb["xmin"]) * 0.1, 0.05)
+            pady <- max(as.numeric(bb["ymax"] - bb["ymin"]) * 0.1, 0.05)
+            karte_xlim <- as.numeric(c(bb["xmin"] - padx, bb["xmax"] + padx))
+            karte_ylim <- as.numeric(c(bb["ymin"] - pady, bb["ymax"] + pady))
+          } else {
+            coords  <- sf::st_coordinates(df_ba)
+            df_plot <- sf::st_drop_geometry(df_ba) %>%
+              mutate(lon = coords[, 1], lat = coords[, 2])
+            karte_xlim <- c(5.7, 15.2); karte_ylim <- c(47.1, 55.2)
+          }
+
+          subtitle_txt <- paste0(input$szenario, "  |  ", input$modell, "  |  ",
+                                 input$zeitraum, "  |  ", stufe_labels[stufe],
+                                 "  –  Teilvorhaben: ", tv_label,
+                                 if (is_nr) paste0("  |  ", input$nr_sel) else "")
+          caption_txt  <- paste0("Baumart: ", ba, "   •   N = ",
+                                 fmt_n(nrow(df_plot)), " Punkte   •  ",
+                                 if (is_nr) input$nr_sel else "BWI-BZE")
+
+          # EIN durchgehender ggplot-Aufruf (parallel zu output$save_png)
+          p <- ggplot() +
+            geom_sf(data = DE_GRENZE, fill = "#f4f4f2",
+                    color = "#aaaaaa", linewidth = 0.35) +
+            {
+              if (is_nr)
+                geom_sf(data = df_ba, aes(fill = Kat),
+                        color = "#555555", linewidth = 0.3, alpha = 0.80)
+              else
+                geom_point(data = df_plot, aes(x = lon, y = lat, color = Kat),
+                           size = (input$punktgroesse %||% 4) * 0.55,
+                           alpha = 0.80, shape = 16)
+            } +
+            {
+              if (is_nr)
+                scale_fill_manual(name = "Empfehlung", values = farben,
+                                  breaks = names(farben),
+                                  guide = guide_legend(override.aes = list(alpha = 1), ncol = 1))
+              else
+                scale_color_manual(name = "Empfehlung", values = farben,
+                                   breaks = names(farben),
+                                   guide = guide_legend(override.aes = list(size = 3.5, alpha = 1), ncol = 1))
+            } +
+            coord_sf(xlim = karte_xlim, ylim = karte_ylim, expand = FALSE) +
+            labs(title = "Baumartenempfehlung MRS", subtitle = subtitle_txt,
+                 caption = caption_txt, x = NULL, y = NULL) +
+            theme_minimal(base_size = 11) +
+            theme(
+              plot.title       = element_text(face = "bold", size = 15, margin = margin(b = 3)),
+              plot.subtitle    = element_text(size = 9.5, color = "#444444", margin = margin(b = 8)),
+              plot.caption     = element_text(size = 8, color = "#888888", hjust = 0, margin = margin(t = 6)),
+              legend.position  = "right",
+              legend.title     = element_text(face = "bold", size = 9),
+              legend.text      = element_text(size = 8.5),
+              legend.key.size  = unit(0.45, "cm"),
+              legend.background = element_rect(fill = "white", color = "#dddddd", linewidth = 0.3),
+              legend.margin    = margin(6, 8, 6, 8),
+              panel.grid.major = element_line(color = "#e8e8e8", linewidth = 0.2),
+              panel.grid.minor = element_blank(),
+              axis.text        = element_text(size = 7, color = "#aaaaaa"),
+              plot.background  = element_rect(fill = "white", color = NA),
+              plot.margin      = margin(10, 10, 8, 10)
+            )
+
+          fname <- paste0("BAE_", ba, "_", input$szenario, "_", input$modell, "_",
+                          input$zeitraum, "_", tolower(sub("^BAE_", "", stufe)),
+                          "_", region_tag, ".png")
+          ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
+                          width = 28, height = 24, units = "cm", dpi = 300)
+          n_ok    <- n_ok + 1
+          erzeugt <- c(erzeugt, fname)
+        }
+      })
+
+      message("Schleifen-Export: ", n_ok, "/", n_total, " Karten -> ", out_dir)
+      showModal(modalDialog(
+        title = "Schleife abgeschlossen", easyClose = TRUE,
+        tags$p(tags$b(n_ok), " von ", n_total, " Karten gespeichert unter:"),
+        tags$pre(style = "white-space:pre-wrap;", out_dir),
+        if (length(erzeugt) > 0)
+          tags$details(tags$summary("Dateien anzeigen"),
+                       tags$pre(style = "max-height:220px; overflow:auto;",
+                                paste(erzeugt, collapse = "\n"))),
+        footer = modalButton("Schließen")
+      ))
+    }, error = function(e) {
+      showNotification(paste0("Schleife fehlgeschlagen: ", conditionMessage(e)),
+                       type = "error", duration = NULL)
+    })
+  })
 
   ## ---- 2.17 Analyse-Tab (Phase 2) ----
   
