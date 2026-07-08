@@ -932,8 +932,13 @@ server <- function(input, output, session) {
     )
     stufe_labels <- c("BAE_3ST" = "3-stufig", "BAE_4ST" = "4-stufig",
                       "BAE_5ST" = "5-stufig", "BAE_7ST" = "7-stufig")
+    # choices als benannter Vektor Label -> Wert (wie im Ausgangs-UI):
+    # names = Anzeige ("5-stufig"), Werte = Rueckgabe ("BAE_5ST"). NICHT
+    # stufe_labels[verfuegbar] direkt nehmen - das ist invertiert (Name=BAE_5ST,
+    # Wert="5-stufig") und liefert input$stufe = "5-stufig", das nie in
+    # verfuegbar liegt -> bae_col fiele immer auf die letzte Stufe zurueck.
     updateRadioButtons(session, "stufe",
-                       choices  = stufe_labels[verfuegbar],
+                       choices  = setNames(verfuegbar, unname(stufe_labels[verfuegbar])),
                        selected = if (input$stufe %in% verfuegbar) input$stufe
                        else verfuegbar[length(verfuegbar)])
     
