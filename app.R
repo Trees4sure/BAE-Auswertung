@@ -820,7 +820,7 @@ server <- function(input, output, session) {
   
   ## ---- 2.4 filtered(): Geodaten + BAE-Join ----
   
-  filtered <- eventReactive(input$run_karte, {
+  filtered_raw <- eventReactive(input$run_karte, {
     req(input$szenario, input$modell, input$zeitraum,
         input$baumart_sel, input$tv_sel, input$stufe)
     
@@ -993,7 +993,21 @@ server <- function(input, output, session) {
     validate(need(nrow(joined) > 0,
                   "Join ohne Treffer \u2013 MASTER_ID-\u00dcbereinstimmung pr\u00fcfen."))
     
-    ### ---- 2.4.6 Einfaerbung ----
+    ### ---- 2.4.6 Rohdaten zurueckgeben (Einfaerbung erfolgt in filtered()) ----
+    # Einfaerbung bewusst NICHT hier: filtered_raw() ist an input$run_karte
+    # gebunden und laedt die (schweren) CSV/NR-Daten. Die Farbe haengt nur an
+    # input$stufe / input$farb_modus und wird in filtered() live nachgerechnet,
+    # ohne die Daten erneut zu laden.
+    joined
+  })
+
+  ## ---- 2.4.7 Einfaerbung (live, ohne Reload) ----
+  # Leichtes reactive() ueber filtered_raw(): reagiert zusaetzlich auf
+  # input$stufe und input$farb_modus, damit ein Stufen-/Farb-Moduswechsel die
+  # Karte SOFORT umfaerbt. filtered_raw() bleibt gecacht (nur "Karte erstellen"
+  # laedt neu). Alle bisherigen Aufrufer nutzen unveraendert filtered().
+  filtered <- reactive({
+    joined <- filtered_raw()
     if (isTRUE(input$farb_modus == "baumart")) {
       baumarten <- sort(unique(joined$Baumart))
       ba_farben <- setNames(baumart_farben_basis[seq_along(baumarten)], baumarten)
@@ -1001,6 +1015,10 @@ server <- function(input, output, session) {
         mutate(Kat   = Baumart,
                Farbe = unname(ba_farben[Baumart]))
     } else {
+      verfuegbar <- intersect(c("BAE_3ST", "BAE_4ST", "BAE_5ST", "BAE_7ST"),
+                              names(joined))
+      bae_col    <- if (input$stufe %in% verfuegbar) input$stufe
+                    else verfuegbar[length(verfuegbar)]
       joined <- joined %>%
         mutate(Kat   = map_stufe(.data[[bae_col]], bae_col),
                Farbe = dplyr::coalesce(unname(kat_palette[Kat]), "#B0B0B0"))
