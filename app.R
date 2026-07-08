@@ -232,7 +232,14 @@ body { font-size: 13px; }
 
 ## ---- 1.1 Sidebar (geteilt zwischen Tabs) ----
 
-karte_sidebar <- sidebarPanel(width = 3,
+# karte_sidebar als FUNKTION: die Sidebar wird in Tab "Karte" UND Tab "Analyse"
+# eingebaut. Waere sie ein einziges Objekt, entstuenden doppelte Element-IDs
+# (save_png/save_html/run_karte ...). Fuer normale Inputs vertraegt Shiny das
+# noch (beide Kopien melden auf denselben input$...), aber Download-Links
+# (downloadButton) werden dann NICHT verdrahtet -> Button grau/nicht klickbar,
+# ohne Konsolenfehler. Deshalb erscheint der Export-Block (HTML/PNG/Schleife)
+# nur EINMAL, im Karte-Tab (with_export = TRUE). Analyse hat eigene Downloads.
+karte_sidebar <- function(with_export = TRUE) sidebarPanel(width = 3,
                               
                               ### ---- 1.1.1 Klimalauf ----
                               tags$div(class = "sidebar-section",
@@ -318,8 +325,8 @@ karte_sidebar <- sidebarPanel(width = 3,
                                                   "Daten werden erst nach Klick geladen")
                               ),
                               
-                              ### ---- 1.1.6 Export ----
-                              tags$div(class = "sidebar-section",
+                              ### ---- 1.1.6 Export (nur Karte-Tab: with_export) ----
+                              if (with_export) tags$div(class = "sidebar-section",
                                        tags$p(class = "section-title", "\u25B6 Export"),
                                        downloadButton("save_html", "HTML speichern",
                                                       style = "width:100%; margin-bottom:5px;"),
@@ -363,7 +370,7 @@ ui <- tagList(
     tabPanel(
       title = tagList(icon("map"), " Karte"),
       sidebarLayout(
-        karte_sidebar,
+        karte_sidebar(with_export = TRUE),
         mainPanel(width = 9,
                   # Status/Fehler aus filtered() – ohne diesen Output verschwinden
                   # validate()-Meldungen (z.B. "Keine NR-CSV gefunden") unsichtbar
@@ -390,7 +397,7 @@ ui <- tagList(
     tabPanel(
       title = tagList(icon("chart-bar"), " Analyse"),
       sidebarLayout(
-        karte_sidebar,
+        karte_sidebar(with_export = FALSE),   # Export nur im Karte-Tab (doppelte IDs vermeiden)
         mainPanel(width = 9,
                   uiOutput("analyse_header"),
                   hr(style = "margin:8px 0 14px 0; border-color:#e0e0e0;"),
