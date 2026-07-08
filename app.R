@@ -328,12 +328,14 @@ karte_sidebar <- function(with_export = TRUE) sidebarPanel(width = 3,
                               ### ---- 1.1.6 Export (nur Karte-Tab: with_export) ----
                               if (with_export) tags$div(class = "sidebar-section",
                                        tags$p(class = "section-title", "\u25B6 Export"),
-                                       downloadButton("save_html", "HTML speichern",
-                                                      style = "width:100%; margin-bottom:5px;"),
-                                       downloadButton("save_png", "PNG speichern",
-                                                      style = "width:100%;"),
+                                       actionButton("save_html", "HTML speichern",
+                                                    icon = icon("code"),
+                                                    style = "width:100%; margin-bottom:5px;"),
+                                       actionButton("save_png", "PNG speichern",
+                                                    icon = icon("image"),
+                                                    style = "width:100%;"),
                                        tags$small(style = "color:#aaa; font-size:10px; margin-top:3px; display:block;",
-                                                  "PNG-Download der aktuellen Karte"),
+                                                  "Aktuelle Karte nach 04_results/BAE_Auswertung/maps/<TV>/"),
                                        tags$hr(style = "margin:8px 0 6px;"),
                                        actionButton("open_schleife", "Als Schleife abspeichern",
                                                     icon  = icon("layer-group"),
@@ -1514,53 +1516,86 @@ server <- function(input, output, session) {
     )
   })
   
-  ## ---- 2.15 Export HTML ----
-  output$save_html <- downloadHandler(
-    filename = function() {
-      paste0("BAE_", input$szenario, "_", input$modell, "_",
-             input$zeitraum, "_", input$stufe, "_",
-             format(Sys.time(), "%Y%m%d_%H%M%S"), ".html")
-    },
-    content = function(file) {
-      df     <- filtered()
-      coords <- sf::st_coordinates(df)
-      popups <- paste0(
-        "<b>MASTER_ID:</b> ", df$MASTER_ID, "<br>",
-        "<b>Baumart:</b> ",   df$Baumart,   "<br>",
-        "<b>TV:</b> ",        df$TV,        "<br>",
-        "<b>Kategorie:</b> ", df$Kat,       "<br>",
-        "<b>Klimalauf:</b> ", df$Szenario, " / ", df$Modell, " / ", df$Zeitraum
-      )
-      m <- leaflet() %>%
-        addProviderTiles("CartoDB.Positron") %>%
-        setView(lng = 10.5, lat = 51.2, zoom = 6) %>%
-        addCircleMarkers(
-          lng = coords[, 1], lat = coords[, 2],
-          color = df$Farbe, fillColor = df$Farbe,
-          fillOpacity = 0.8, radius = input$punktgroesse %||% 4,
-          stroke = FALSE, popup = popups, group = df$Baumart
-        ) %>%
-        addLayersControl(overlayGroups = unique(df$Baumart),
-                         options = layersControlOptions(collapsed = FALSE))
-      htmlwidgets::saveWidget(m, file = file, selfcontained = TRUE)
+  ## ---- 2.15 Export HTML (in 04_results/BAE_Auswertung/maps/<TV>/) ----
+  # Schreibt die aktuelle Karte als selbstenthaltendes HTML ins Ergebnis-
+  # verzeichnis (kein Browser-Download mehr). Dispatch auf den Geometrietyp:
+  # NR-Flaechen als Polygone, BWI/Punkt-Geometrie als CircleMarker - sonst
+  # zerfaellt jedes NR-Polygon in tausende Vertex-Punkte (Bug 2026-07).
+  observeEvent(input$save_html, {
+    df <- tryCatch(filtered(), error = function(e) NULL)
+    if (is.null(df) || nrow(df) == 0) {
+      showNotification("Bitte zuerst Filter wählen und 'Karte erstellen' klicken.",
+                       type = "error"); return(invisible())
     }
-  )
+    is_nr     <- isTRUE(input$datenquelle == "NR")
+    region    <- if (is_nr) input$nr_sel else "BWI"
+    tv_label  <- names(tv_bezeichnung)[tv_bezeichnung == input$tv_sel]
+    if (length(tv_label) == 0) tv_label <- paste0("TV", input$tv_sel)
+    tv_folder <- gsub("/", "-", gsub("[: ]+", "_", tv_label))
+    out_dir   <- file.path(result_dir, "BAE_Auswertung", "maps", tv_folder)
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    ba_tag    <- paste(sort(unique(input$baumart_sel)), collapse = "-")
+    fname     <- paste0("BAE_", region, "_", input$szenario, "_", input$modell, "_",
+                        input$zeitraum, "_", ba_tag, "_",
+                        tolower(sub("^BAE_", "", input$stufe)), ".html")
+
+    popups <- paste0(
+      "<b>MASTER_ID:</b> ", df$MASTER_ID, "<br>",
+      "<b>Baumart:</b> ",   df$Baumart,   "<br>",
+      "<b>TV:</b> ",        df$TV,        "<br>",
+      "<b>Kategorie:</b> ", df$Kat,       "<br>",
+      "<b>Klimalauf:</b> ", df$Szenario, " / ", df$Modell, " / ", df$Zeitraum
+    )
+    geom_type <- unique(as.character(sf::st_geometry_type(df)))
+    m <- leaflet() %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      setView(lng = 10.5, lat = 51.2, zoom = 6)
+    if (any(grepl("POLYGON", geom_type, ignore.case = TRUE))) {
+      m <- m %>% addPolygons(
+        data = df, fillColor = df$Farbe, fillOpacity = 0.75,
+        color = "#555555", weight = 0.6, popup = popups, group = df$Baumart)
+    } else {
+      coords <- sf::st_coordinates(df)
+      m <- m %>% addCircleMarkers(
+        lng = coords[, 1], lat = coords[, 2],
+        color = df$Farbe, fillColor = df$Farbe,
+        fillOpacity = 0.8, radius = input$punktgroesse %||% 4,
+        stroke = FALSE, popup = popups, group = df$Baumart)
+    }
+    m <- m %>% addLayersControl(overlayGroups = unique(df$Baumart),
+                                options = layersControlOptions(collapsed = FALSE))
+    # saveWidget schreibt am zuverlaessigsten in tempdir (libdir-Pfade) -> danach kopieren
+    tryCatch(withProgress(message = "Speichere HTML...", value = 0.5, {
+      tmp <- file.path(tempdir(), fname)
+      htmlwidgets::saveWidget(m, file = tmp, selfcontained = TRUE)
+      file.copy(tmp, file.path(out_dir, fname), overwrite = TRUE)
+      unlink(tmp)
+      showNotification(paste0("HTML gespeichert: ", fname), type = "message", duration = 6)
+    }), error = function(e)
+      showNotification(paste0("HTML-Export fehlgeschlagen: ", conditionMessage(e)),
+                       type = "error", duration = NULL))
+  })
   
-  ## ---- 2.16 Export PNG (ggplot) ----
-  # PNG-Download der aktuellen Karte (Browser-Download, analog zu save_html).
-  # Die Karte wird als ggplot mit geom_sf neu gerendert (unabhaengig vom
-  # interaktiven Leaflet) und direkt in die vom Browser gelieferte Datei
-  # geschrieben - kein serverseitiges Verzeichnis mehr.
-  output$save_png <- downloadHandler(
-    filename = function() {
-      paste0("BAE_", input$szenario, "_", input$modell, "_",
-             input$zeitraum, "_", input$stufe, "_",
-             format(Sys.time(), "%Y%m%d_%H%M%S"), ".png")
-    },
-    content = function(file) {
-    df <- filtered()
-    validate(need(!is.null(df) && nrow(df) > 0,
-                  "Bitte zuerst Filter wählen und 'Karte erstellen' klicken."))
+  ## ---- 2.16 Export PNG (ggplot, in 04_results/BAE_Auswertung/maps/<TV>/) ----
+  # Rendert die aktuelle Karte als hochaufgeloestes PNG ins Ergebnisverzeichnis
+  # (kein Browser-Download mehr). Look identisch zur Schleife.
+  observeEvent(input$save_png, {
+    df <- tryCatch(filtered(), error = function(e) NULL)
+    if (is.null(df) || nrow(df) == 0) {
+      showNotification("Bitte zuerst Filter wählen und 'Karte erstellen' klicken.",
+                       type = "error"); return(invisible())
+    }
+    is_nr_name <- isTRUE(input$datenquelle == "NR")
+    region     <- if (is_nr_name) input$nr_sel else "BWI"
+    tv_label   <- names(tv_bezeichnung)[tv_bezeichnung == input$tv_sel]
+    if (length(tv_label) == 0) tv_label <- paste0("TV", input$tv_sel)
+    tv_folder  <- gsub("/", "-", gsub("[: ]+", "_", tv_label))
+    out_dir    <- file.path(result_dir, "BAE_Auswertung", "maps", tv_folder)
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    ba_tag     <- paste(sort(unique(input$baumart_sel)), collapse = "-")
+    fname      <- paste0("BAE_", region, "_", input$szenario, "_", input$modell, "_",
+                         input$zeitraum, "_", ba_tag, "_",
+                         tolower(sub("^BAE_", "", input$stufe)), ".png")
 
     withProgress(message = "Erstelle Karte...", value = 0.2, {
       is_nr <- isTRUE(input$datenquelle == "NR")
@@ -1669,11 +1704,11 @@ server <- function(input, output, session) {
         )
       
       incProgress(0.4, detail = "Speichern...")
-      ggplot2::ggsave(filename = file, plot = p,
-                      width = 28, height = 24, units = "cm", dpi = 300)
+      ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
+                      width = 40, height = 34, units = "cm", dpi = 400)
+      showNotification(paste0("PNG gespeichert: ", fname), type = "message", duration = 6)
     })
-    }
-  )
+  })
 
   ## ---- 2.16b Schleifen-Export (Batch-PNG ins Ergebnisverzeichnis) ----
   # "Als Schleife abspeichern": rendert je gewaehlter Baumart x Stufe eine Karte
@@ -1904,7 +1939,7 @@ server <- function(input, output, session) {
                           input$zeitraum, "_", ba, "_",
                           tolower(sub("^BAE_", "", stufe)), ".png")
           ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
-                          width = 28, height = 24, units = "cm", dpi = 300)
+                          width = 40, height = 34, units = "cm", dpi = 400)
           n_ok    <- n_ok + 1
           erzeugt <- c(erzeugt, fname)
         }

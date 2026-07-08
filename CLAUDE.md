@@ -56,3 +56,11 @@
   Empfehlung) und legt sie unter `04_results/BAE_Auswertung/maps/<TV>/` ab.
   Dateiname `BAE_{NR|BWI}_{Szenario}_{Modell}_{Zeitraum}_{Baumart}_{stufe}.png`
   (ohne Zeitstempel, überschreibbar). Lädt unabhängig von `filtered_raw()`.
+- **Einzel-Export „PNG/HTML speichern"** sind KEINE `downloadButton` mehr,
+  sondern `actionButton` + `observeEvent`: sie schreiben die AKTUELLE Karte
+  (aktuelle Baumart-Auswahl, Stufe, Farb-Modus) in denselben Ordner mit
+  gleichem Namensschema (Baumart-Token = gewählte Baumarten mit „-" verbunden).
+  HTML: Geometrie-Dispatch (NR → `addPolygons`, sonst `addCircleMarkers`),
+  sonst zerfällt jedes NR-Polygon in tausende Vertex-Punkte.
+- Auflösung PNG (Einzel + Schleife): `ggsave(width=40, height=34, units="cm",
+  dpi=400)` → ~6300×5350 px.
