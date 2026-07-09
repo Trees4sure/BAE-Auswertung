@@ -1730,6 +1730,33 @@ server <- function(input, output, session) {
       tags$p(tags$b("Teilvorhaben: "), tv_label, tags$br(),
              tags$b("Datenquelle: "),
              if (isTRUE(input$datenquelle == "NR")) input$nr_sel else "BWI-BZE"),
+      # --- Klimalauf-Auswahl: Szenario / Modell / Zeitraum (je mehrfach) ---
+      # Aus den drei Auswahlen werden nur die GUELTIGEN Kombinationen aus
+      # klima_meta gerendert; je Kombination entsteht ein eigener Unterordner.
+      tags$p(class = "section-title",
+             style = "margin-top:4px;", "▶ Klimaläufe (Szenario × Modell × Zeitraum)"),
+      selectizeInput("schleife_szenario", "Szenario:",
+                     choices = szenario_choices, selected = input$szenario,
+                     multiple = TRUE,
+                     options = list(placeholder = "Szenario(en) wählen...",
+                                    plugins = list("remove_button")),
+                     width = "100%"),
+      selectizeInput("schleife_modell", "Klimamodell:",
+                     choices = modell_choices, selected = input$modell,
+                     multiple = TRUE,
+                     options = list(placeholder = "Modell(e) wählen...",
+                                    plugins = list("remove_button")),
+                     width = "100%"),
+      selectizeInput("schleife_zeitraum", "Zeitraum:",
+                     choices = zeitraum_choices, selected = input$zeitraum,
+                     multiple = TRUE,
+                     options = list(placeholder = "Zeitraum/-räume wählen...",
+                                    plugins = list("remove_button")),
+                     width = "100%"),
+      tags$p(class = "text-muted", style = "font-size:12px; margin:2px 0 8px;",
+             "Nur real vorhandene Klimalauf-Kombinationen werden erzeugt. ",
+             "Je Kombination ein Unterordner."),
+      hr(style = "margin:6px 0;"),
       radioButtons("schleife_ba_modus", "Baumart:",
                    choices = c("Alle Baumarten" = "alle", "Auswahl" = "auswahl"),
                    selected = "alle", inline = TRUE),
@@ -1756,9 +1783,8 @@ server <- function(input, output, session) {
 
   observeEvent(input$run_schleife, {
     removeModal()
-    if (is.null(input$szenario) || is.null(input$modell) ||
-        is.null(input$zeitraum) || is.null(input$tv_sel)) {
-      showNotification("Bitte zuerst Klimalauf und TV wählen.", type = "error")
+    if (is.null(input$tv_sel)) {
+      showNotification("Bitte zuerst TV wählen.", type = "error")
       return(invisible())
     }
     is_nr  <- isTRUE(input$datenquelle == "NR")
@@ -1769,8 +1795,52 @@ server <- function(input, output, session) {
       return(invisible())
     }
 
+    ## ---- Gueltige Klimalauf-Kombinationen bestimmen ----
+    ## Aus den drei (Mehrfach-)Auswahlen nur die real vorhandenen Kombinationen
+    ## aus klima_meta uebernehmen. Leere Auswahl -> aktuelle Sidebar-Auswahl.
+    szen_set <- if (length(input$schleife_szenario)) input$schleife_szenario
+                else input$szenario
+    mod_set  <- if (length(input$schleife_modell))   input$schleife_modell
+                else input$modell
+    zeit_set <- if (length(input$schleife_zeitraum)) input$schleife_zeitraum
+                else input$zeitraum
+    klimalaeufe <- klima_meta %>%
+      filter(Szenario %in% szen_set, Modell %in% mod_set, Zeitraum %in% zeit_set) %>%
+      distinct(Szenario, Modell, Zeitraum) %>%
+      arrange(Szenario, Modell, Zeitraum)
+    if (nrow(klimalaeufe) == 0) {
+      showNotification("Keine gültige Klimalauf-Kombination (Szenario × Modell × Zeitraum).",
+                       type = "error")
+      return(invisible())
+    }
+
+    ## ---- Gemeinsame Ziel-/Beschriftungs-Grundlagen (einmalig) ----
+    tv_label  <- names(tv_bezeichnung)[tv_bezeichnung == input$tv_sel]
+    if (length(tv_label) == 0) tv_label <- paste0("TV", input$tv_sel)
+    tv_folder <- gsub("/", "-", gsub("[: ]+", "_", tv_label))   # "TV2: LFOA-MV" -> "TV2_LFOA-MV"
+    out_dir   <- file.path(result_dir, "BAE_Auswertung", "maps", tv_folder)
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    region_tag   <- if (is_nr) input$nr_sel else "BWI"
+    stufe_labels <- c(BAE_3ST = "3-stufig", BAE_4ST = "4-stufig",
+                      BAE_5ST = "5-stufig", BAE_7ST = "7-stufig")
+    geo <- geo_daten()
+
+    n_kl    <- nrow(klimalaeufe)
+    n_ok    <- 0L; erzeugt <- character(0); fehler <- character(0)
+    combo_dirs <- character(0)
+
+    withProgress(message = "Schleife: Karten rendern...", value = 0, {
+    ## ==== Aeussere Schleife: je Klimalauf (Szenario x Modell x Zeitraum) ====
+    for (kl in seq_len(n_kl)) {
+      szen <- klimalaeufe$Szenario[kl]
+      mod  <- klimalaeufe$Modell[kl]
+      zeit <- klimalaeufe$Zeitraum[kl]
+      incProgress(1 / n_kl,
+                  detail = paste0("Klimalauf ", kl, "/", n_kl, ": ",
+                                  szen, " / ", mod, " / ", zeit))
+
     tryCatch({
-      ## ---- Daten laden (einmalig, alle gewaehlten Baumarten) ----
+      ## ---- Daten laden (je Klimalauf, alle gewaehlten Baumarten) ----
       ## Parallel zur NR-/BWI-Ladelogik aus filtered_raw(), aber unabhaengig von
       ## input$baumart_sel, damit "Alle Baumarten" auch ohne Sidebar-Auswahl geht.
       if (is_nr) {
@@ -1789,7 +1859,7 @@ server <- function(input, output, session) {
         }))
         if (length(nr_dirs) == 0)
           stop("Kein Ordner ", input$nr_sel, " unter den TV", input$tv_sel, "-Ordnern.")
-        leaf_dirs <- file.path(nr_dirs, input$szenario, input$modell, input$zeitraum)
+        leaf_dirs <- file.path(nr_dirs, szen, mod, zeit)
         leaf_dirs <- leaf_dirs[dir.exists(leaf_dirs)]
         alle_csv  <- if (length(leaf_dirs) > 0)
           list.files(leaf_dirs, pattern = "\\.csv$", full.names = TRUE) else character(0)
@@ -1799,10 +1869,10 @@ server <- function(input, output, session) {
         ba_pat <- paste0("_(", paste(ba_set, collapse = "|"), ")\\.csv$")
         bn     <- basename(alle_csv)
         match_files <- unique(alle_csv[
-          grepl(paste0("_", input$nr_sel,   "_"), bn, ignore.case = TRUE) &
-            grepl(paste0("_", input$szenario, "_"), bn) &
-            grepl(paste0("_", input$modell,   "_"), bn) &
-            grepl(paste0("_", input$zeitraum, "_"), bn) &
+          grepl(paste0("_", input$nr_sel, "_"), bn, ignore.case = TRUE) &
+            grepl(paste0("_", szen, "_"), bn) &
+            grepl(paste0("_", mod,  "_"), bn) &
+            grepl(paste0("_", zeit, "_"), bn) &
             grepl(ba_pat, bn)
         ])
         if (length(match_files) == 0) stop("Keine NR-CSV für die Auswahl gefunden.")
@@ -1817,7 +1887,11 @@ server <- function(input, output, session) {
           dt
         }), fill = TRUE)
       } else {
-        df_raw <- csv_raw()
+        row_meta <- klima_meta %>%
+          filter(Szenario == szen, Modell == mod, Zeitraum == zeit)
+        if (nrow(row_meta) != 1) stop("Keine eindeutige BWI-CSV für den Klimalauf.")
+        df_raw <- data.table::fread(row_meta$file[1],
+                                    colClasses = list(character = "MASTER_ID"))
       }
 
       df <- df_raw %>% rename_with(toupper)
@@ -1833,11 +1907,10 @@ server <- function(input, output, session) {
       if (nrow(df) == 0) stop("Keine Daten für die gewählte Kombination.")
       df <- df %>% distinct(MASTER_ID, Baumart, .keep_all = TRUE)
 
-      geo    <- geo_daten()
       joined <- geo %>% left_join(df, by = "MASTER_ID") %>% filter(!is.na(Baumart))
       if (nrow(joined) == 0) stop("Join ohne Treffer (MASTER_ID prüfen).")
 
-      ## ---- Stufen / Baumarten / Zielordner bestimmen ----
+      ## ---- Stufen / Baumarten / Klimalauf-Unterordner bestimmen ----
       verfuegbar <- intersect(c("BAE_3ST", "BAE_4ST", "BAE_5ST", "BAE_7ST"),
                               toupper(names(joined)))
       stufen <- if (isTRUE(input$schleife_stufe == "alle")) verfuegbar
@@ -1846,26 +1919,22 @@ server <- function(input, output, session) {
       ba_loop <- intersect(ba_set, sort(unique(joined$Baumart)))
       if (length(ba_loop) == 0) stop("Keine der gewählten Baumarten in den Daten.")
 
-      tv_label  <- names(tv_bezeichnung)[tv_bezeichnung == input$tv_sel]
-      if (length(tv_label) == 0) tv_label <- paste0("TV", input$tv_sel)
-      tv_folder <- gsub("/", "-", gsub("[: ]+", "_", tv_label))   # "TV2: LFOA-MV" -> "TV2_LFOA-MV"
-      out_dir   <- file.path(result_dir, "BAE_Auswertung", "maps", tv_folder)
-      dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-      region_tag   <- if (is_nr) input$nr_sel else "BWI"
-      stufe_labels <- c(BAE_3ST = "3-stufig", BAE_4ST = "4-stufig",
-                        BAE_5ST = "5-stufig", BAE_7ST = "7-stufig")
+      # Je Klimalauf ein eigener Unterordner: <TV>/<Szenario>_<Modell>_<Zeitraum>/
+      kl_folder <- gsub("[^A-Za-z0-9._-]+", "-", paste(szen, mod, zeit, sep = "_"))
+      combo_dir <- file.path(out_dir, kl_folder)
+      dir.create(combo_dir, recursive = TRUE, showWarnings = FALSE)
+      combo_dirs <- c(combo_dirs, combo_dir)
 
       ## ---- Render-Schleife: je Baumart x Stufe eine Karte ----
       kombis  <- expand.grid(ba = ba_loop, stufe = stufen, stringsAsFactors = FALSE)
-      n_total <- nrow(kombis); n_ok <- 0; erzeugt <- character(0)
+      n_total <- nrow(kombis)
 
-      withProgress(message = "Schleife: Karten rendern...", value = 0, {
-        for (i in seq_len(n_total)) {
+      for (i in seq_len(n_total)) {
           ba    <- kombis$ba[i]
           stufe <- kombis$stufe[i]
-          incProgress(1 / n_total,
-                      detail = paste0(ba, " / ", stufe_labels[stufe],
-                                      "  (", i, "/", n_total, ")"))
+          setProgress(detail = paste0("Klimalauf ", kl, "/", n_kl, "  •  ",
+                                       ba, " / ", stufe_labels[stufe],
+                                       "  (", i, "/", n_total, ")"))
 
           df_ba <- joined %>% filter(Baumart == ba)
           if (nrow(df_ba) == 0) next
@@ -1890,8 +1959,8 @@ server <- function(input, output, session) {
             karte_xlim <- c(5.7, 15.2); karte_ylim <- c(47.1, 55.2)
           }
 
-          subtitle_txt <- paste0(input$szenario, "  |  ", input$modell, "  |  ",
-                                 input$zeitraum, "  |  ", stufe_labels[stufe],
+          subtitle_txt <- paste0(szen, "  |  ", mod, "  |  ",
+                                 zeit, "  |  ", stufe_labels[stufe],
                                  "  –  Teilvorhaben: ", tv_label,
                                  if (is_nr) paste0("  |  ", input$nr_sel) else "")
           caption_txt  <- paste0("Baumart: ", ba, "   •   N = ",
@@ -1942,31 +2011,44 @@ server <- function(input, output, session) {
               plot.margin      = margin(10, 10, 8, 10)
             )
 
-          fname <- paste0("BAE_", region_tag, "_", input$szenario, "_", input$modell, "_",
-                          input$zeitraum, "_", ba, "_",
+          fname <- paste0("BAE_", region_tag, "_", szen, "_", mod, "_",
+                          zeit, "_", ba, "_",
                           tolower(sub("^BAE_", "", stufe)), ".png")
-          ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
+          ggplot2::ggsave(filename = file.path(combo_dir, fname), plot = p,
                           width = 40, height = 34, units = "cm", dpi = 600)
-          n_ok    <- n_ok + 1
-          erzeugt <- c(erzeugt, fname)
-        }
-      })
-
-      message("Schleifen-Export: ", n_ok, "/", n_total, " Karten -> ", out_dir)
-      showModal(modalDialog(
-        title = "Schleife abgeschlossen", easyClose = TRUE,
-        tags$p(tags$b(n_ok), " von ", n_total, " Karten gespeichert unter:"),
-        tags$pre(style = "white-space:pre-wrap;", out_dir),
-        if (length(erzeugt) > 0)
-          tags$details(tags$summary("Dateien anzeigen"),
-                       tags$pre(style = "max-height:220px; overflow:auto;",
-                                paste(erzeugt, collapse = "\n"))),
-        footer = modalButton("Schließen")
-      ))
+          n_ok    <- n_ok + 1L
+          erzeugt <- c(erzeugt, file.path(kl_folder, fname))
+      }
+      message("Schleifen-Export ", szen, "/", mod, "/", zeit, ": ",
+              n_total, " Karten -> ", combo_dir)
     }, error = function(e) {
-      showNotification(paste0("Schleife fehlgeschlagen: ", conditionMessage(e)),
-                       type = "error", duration = NULL)
+      # Ein fehlerhafter Klimalauf stoppt die Schleife nicht - protokollieren
+      # und mit dem naechsten weitermachen.
+      fehler <<- c(fehler,
+                   paste0(szen, " / ", mod, " / ", zeit, ": ", conditionMessage(e)))
     })
+    }  # for kl (Klimalauf)
+    })  # withProgress
+
+    ## ---- Abschluss-Meldung ----
+    showModal(modalDialog(
+      title = "Schleife abgeschlossen", easyClose = TRUE,
+      tags$p(tags$b(n_ok), " Karten aus ", tags$b(n_kl),
+             " Klimalauf-Kombination(en) gespeichert unter:"),
+      tags$pre(style = "white-space:pre-wrap;", out_dir),
+      if (length(combo_dirs) > 0)
+        tags$p(tags$b(length(combo_dirs)), " Unterordner (je Klimalauf):"),
+      if (length(erzeugt) > 0)
+        tags$details(tags$summary("Dateien anzeigen"),
+                     tags$pre(style = "max-height:220px; overflow:auto;",
+                              paste(erzeugt, collapse = "\n"))),
+      if (length(fehler) > 0)
+        tags$details(
+          tags$summary(paste0("Übersprungene Klimaläufe (", length(fehler), ")")),
+          tags$pre(style = "max-height:160px; overflow:auto; color:#a00;",
+                   paste(fehler, collapse = "\n"))),
+      footer = modalButton("Schließen")
+    ))
   })
 
   ## ---- 2.17 Analyse-Tab (Phase 2) ----
