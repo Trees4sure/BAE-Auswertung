@@ -428,6 +428,8 @@ ui <- tagList(
                            downloadButton("download_kreuztab", "Kreuztabelle CSV",
                                           style = "width:100%; margin-bottom:6px;"),
                            downloadButton("download_stats", "Statistik CSV",
+                                          style = "width:100%; margin-bottom:6px;"),
+                           downloadButton("download_grafik", "Grafik (PNG)",
                                           style = "width:100%;"),
                            br(), br(),
                            uiOutput("kennzahlen_boxes")
@@ -452,6 +454,19 @@ ui <- tagList(
       title = tagList(icon("code-branch"), " Vergleich"),
       fluidRow(
         column(3,
+               div(class = "sidebar-section",
+                   tags$p(class = "section-title", "▶ Datenquelle"),
+                   radioButtons("vgl_datenquelle", label = NULL,
+                                choices  = c("BWI-BZE" = "BWI", "NR" = "NR"),
+                                selected = "BWI", inline = TRUE),
+                   conditionalPanel(
+                     condition = "input.vgl_datenquelle == 'NR'",
+                     selectInput("vgl_nr_sel", "Nachbarschaftsregion:",
+                                 choices = nr_choices, selected = "NR01", width = "100%")
+                   ),
+                   tags$small(style = "color:#888; font-size:10px; display:block;",
+                              "Gilt fuer beide Klimalaeufe (A und B)")
+               ),
                div(class = "sidebar-section",
                    tags$p(class = "section-title",
                           icon("circle", style="color:#1565C0; font-size:8px;"),
@@ -528,7 +543,9 @@ ui <- tagList(
                DT::dataTableOutput("vgl_tabelle"),
                br(),
                downloadButton("vgl_download", "Differenztabelle CSV",
-                              style = "font-size:12px;")
+                              style = "font-size:12px;"),
+               downloadButton("vgl_download_grafik", "Grafik (PNG)",
+                              style = "font-size:12px; margin-left:6px;")
         )
       )
     ),
@@ -2385,12 +2402,13 @@ server <- function(input, output, session) {
   })
   
   ### ---- 2.17.3 Balkendiagramm ----
-  output$analyse_balken <- renderPlot({
+  # Balkendiagramm als Reaktive: dieselbe ggplot fuer Anzeige UND PNG-Download.
+  analyse_balken_plot <- reactive({
     ad <- tryCatch(analyse_data(), error = function(e) NULL)
     req(ad)
-    
+
     farben_plot <- kat_palette[names(kat_palette) %in% ad$balken_df$Kat]
-    
+
     ggplot(ad$balken_df,
            aes(x = Baumart, y = Pct,
                fill = factor(Kat, levels = names(kat_palette)))) +
@@ -2418,8 +2436,21 @@ server <- function(input, output, session) {
         plot.background   = element_rect(fill = "white", color = NA)
       ) +
       guides(fill = guide_legend(nrow = 2))
-  }, bg = "white")
-  
+  })
+
+  output$analyse_balken <- renderPlot({ analyse_balken_plot() }, bg = "white")
+
+  output$download_grafik <- downloadHandler(
+    filename = function() {
+      paste0("Balkendiagramm_", input$an_szenario, "_", input$an_modell, "_",
+             input$an_zeitraum, "_", input$an_stufe, ".png")
+    },
+    content = function(file) {
+      ggplot2::ggsave(file, plot = analyse_balken_plot(),
+                      width = 26, height = 15, units = "cm", dpi = 300, bg = "white")
+    }
+  )
+
   ### ---- 2.17.4 Kreuztabelle ----
   output$analyse_kreuztab <- DT::renderDataTable({
     ad <- tryCatch(analyse_data(), error = function(e) NULL)
@@ -2471,18 +2502,18 @@ server <- function(input, output, session) {
   ### ---- 2.17.6 Downloads ----
   output$download_kreuztab <- downloadHandler(
     filename = function() {
-      paste0("Kreuztabelle_", input$szenario, "_", input$modell, "_",
-             input$zeitraum, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
+      paste0("Kreuztabelle_", input$an_szenario, "_", input$an_modell, "_",
+             input$an_zeitraum, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
     },
-    content = function(file) data.table::fwrite(analyse_data()$kreuztab_n, 
+    content = function(file) data.table::fwrite(analyse_data()$kreuztab_n,
                                                 file, sep = ";", dec = ",", bom = TRUE)
-    
+
   )
-  
+
   output$download_stats <- downloadHandler(
     filename = function() {
-      paste0("Statistik_", input$szenario, "_", input$modell, "_",
-             input$zeitraum, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
+      paste0("Statistik_", input$an_szenario, "_", input$an_modell, "_",
+             input$an_zeitraum, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
     },
     content = function(file) data.table::fwrite(analyse_data()$stats_df,
                                                 file, sep = ";", dec = ",", bom = TRUE)
@@ -2526,36 +2557,93 @@ server <- function(input, output, session) {
         input$vgl_sz_b, input$vgl_mod_b, input$vgl_zr_b,
         input$vgl_baumart, input$vgl_tv, input$vgl_stufe)
     
-    # CSV A laden
-    meta_a <- klima_meta %>%
-      filter(Szenario == input$vgl_sz_a, Modell == input$vgl_mod_a,
-             Zeitraum == input$vgl_zr_a)
-    validate(need(nrow(meta_a) == 1, "Lauf A: keine eindeutige CSV gefunden."))
-    
-    # CSV B laden
-    meta_b <- klima_meta %>%
-      filter(Szenario == input$vgl_sz_b, Modell == input$vgl_mod_b,
-             Zeitraum == input$vgl_zr_b)
-    validate(need(nrow(meta_b) == 1, "Lauf B: keine eindeutige CSV gefunden."))
-    
-    bae_col <- input$vgl_stufe
-    
-    lese_csv <- function(meta, baumarten, tvs) {
-      df <- data.table::fread(meta$file) %>%
-        rename_with(toupper) %>%
-        filter(BAUMART %in% baumarten, TV %in% as.integer(tvs)) %>%
-        rename(Baumart = BAUMART)
-      validate(need(bae_col %in% names(df),
-                    paste0("Spalte '", bae_col, "' nicht in CSV.")))
-      df %>%
-        dplyr::select(MASTER_ID, Baumart, TV,
-                      Kat_num = !!dplyr::sym(bae_col)) %>%
-        mutate(Kat_num = suppressWarnings(as.integer(Kat_num)))
+    is_nr <- isTRUE(input$vgl_datenquelle == "NR")
+    if (is_nr) {
+      validate(need(!is.null(BAE_WM_DIR) && dir.exists(BAE_WM_DIR),
+                    "NR-Pfad nicht konfiguriert (BAE_WM_DIR)."))
+      validate(need(!is.null(NR_GEO_ALL), "NR-Geodaten nicht gefunden (Shapefile)."))
+      req(input$vgl_nr_sel)
     }
-    
-    df_a <- lese_csv(meta_a, input$vgl_baumart, input$vgl_tv)
-    df_b <- lese_csv(meta_b, input$vgl_baumart, input$vgl_tv)
-    
+
+    bae_col <- input$vgl_stufe
+
+    # Liest EINEN Klimalauf. BWI: eine vor-aggregierte CSV (klima_meta$file).
+    # NR: je gewaehltem TV die passenden Region-Dateien finden (Schema wie
+    # an_filtered_raw) - Baumart steckt im Dateinamen, TV kommt aus der Schleife.
+    # Rueckgabe einheitlich: MASTER_ID / Baumart / TV / Kat_num.
+    lese_lauf <- function(szenario, modell, zeitraum, baumarten, tvs) {
+      if (!is_nr) {
+        meta <- klima_meta %>%
+          filter(Szenario == szenario, Modell == modell, Zeitraum == zeitraum)
+        validate(need(nrow(meta) == 1, "Kein eindeutiger BWI-Klimalauf gefunden."))
+        df <- data.table::fread(meta$file) %>%
+          rename_with(toupper) %>%
+          filter(BAUMART %in% baumarten, TV %in% as.integer(tvs)) %>%
+          rename(Baumart = BAUMART)
+        validate(need(bae_col %in% names(df),
+                      paste0("Spalte '", bae_col, "' nicht in CSV.")))
+        return(df %>%
+          dplyr::select(MASTER_ID, Baumart, TV,
+                        Kat_num = !!dplyr::sym(bae_col)) %>%
+          mutate(Kat_num = suppressWarnings(as.integer(Kat_num))))
+      }
+
+      # NR: je TV die passenden CSV der Region einlesen
+      stufe_suf <- tolower(sub("^BAE_", "", bae_col))
+      teile <- lapply(tvs, function(tv) {
+        tv_pad  <- sprintf("%02d", as.integer(tv))
+        tv_dirs <- list.dirs(BAE_WM_DIR, recursive = FALSE, full.names = TRUE)
+        tv_dirs <- tv_dirs[grepl(paste0("^BAE_", tv_pad, "_"),
+                                 basename(tv_dirs), ignore.case = TRUE)]
+        tv_stufe <- tv_dirs[grepl(paste0("_", stufe_suf, "$"),
+                                  basename(tv_dirs), ignore.case = TRUE)]
+        if (length(tv_stufe) > 0) tv_dirs <- tv_stufe
+        nr_dirs <- unlist(lapply(tv_dirs, function(d) {
+          sub <- list.dirs(d, recursive = FALSE, full.names = TRUE)
+          sub[grepl(paste0("^", input$vgl_nr_sel, "$"),
+                    basename(sub), ignore.case = TRUE)]
+        }))
+        if (length(nr_dirs) == 0) return(NULL)
+        leaf_dirs <- file.path(nr_dirs, szenario, modell, zeitraum)
+        leaf_dirs <- leaf_dirs[dir.exists(leaf_dirs)]
+        alle_csv  <- if (length(leaf_dirs) > 0)
+          list.files(leaf_dirs, pattern = "\\.csv$", full.names = TRUE) else character(0)
+        if (length(alle_csv) == 0)
+          alle_csv <- list.files(nr_dirs, pattern = "\\.csv$",
+                                 recursive = TRUE, full.names = TRUE)
+        ba_pat <- paste0("_(", paste(baumarten, collapse = "|"), ")\\.csv$")
+        bn     <- basename(alle_csv)
+        match_files <- unique(alle_csv[
+          grepl(paste0("_", input$vgl_nr_sel, "_"), bn, ignore.case = TRUE) &
+            grepl(paste0("_", szenario, "_"), bn) &
+            grepl(paste0("_", modell,   "_"), bn) &
+            grepl(paste0("_", zeitraum, "_"), bn) &
+            grepl(ba_pat, bn)])
+        if (length(match_files) == 0) return(NULL)
+        data.table::rbindlist(lapply(match_files, function(f) {
+          dt <- data.table::fread(f, fill = TRUE)
+          names(dt) <- toupper(names(dt))
+          if (!bae_col %in% names(dt)) return(NULL)
+          data.frame(
+            MASTER_ID = as.character(dt$MASTER_ID),
+            Baumart   = sub("\\.csv$", "", sub(".*_", "", basename(f))),
+            TV        = as.integer(tv),
+            Kat_num   = suppressWarnings(as.integer(dt[[bae_col]])),
+            stringsAsFactors = FALSE)
+        }), fill = TRUE)
+      })
+      out <- data.table::rbindlist(teile, fill = TRUE)
+      validate(need(!is.null(out) && nrow(out) > 0,
+                    paste0("Keine NR-CSV gefunden: ", input$vgl_nr_sel, " / ",
+                           szenario, " / ", modell, " / ", zeitraum)))
+      as.data.frame(out)
+    }
+
+    df_a <- lese_lauf(input$vgl_sz_a, input$vgl_mod_a, input$vgl_zr_a,
+                      input$vgl_baumart, input$vgl_tv)
+    df_b <- lese_lauf(input$vgl_sz_b, input$vgl_mod_b, input$vgl_zr_b,
+                      input$vgl_baumart, input$vgl_tv)
+
     # Join und Differenz
     diff_df <- inner_join(
       df_a %>% rename(Kat_A = Kat_num),
@@ -2582,18 +2670,22 @@ server <- function(input, output, session) {
     
     validate(need(nrow(diff_df) > 0, "Keine gemeinsamen MASTER_IDs gefunden."))
     
-    # Geodaten joinen
-    geo_joined <- BWI_GEO %>%
+    # Geodaten joinen (BWI-Punkte bzw. NR-Polygone der Region)
+    geo_src <- if (is_nr) {
+      NR_GEO_ALL %>% filter(NR_ID == input$vgl_nr_sel)
+    } else BWI_GEO
+    geo_joined <- geo_src %>%
       inner_join(diff_df, by = "MASTER_ID") %>%
       { if (isTRUE(input$vgl_nur_aenderung))
         filter(., Richtung != "unver\u00e4ndert") else . }
-    
+
     validate(need(nrow(geo_joined) > 0,
                   "Keine ver\u00e4nderten Punkte im gew\u00e4hlten Filter."))
-    
+
     list(
       geo  = geo_joined,
       df   = sf::st_drop_geometry(geo_joined),
+      is_nr   = is_nr,
       label_a = paste(input$vgl_sz_a, input$vgl_mod_a, input$vgl_zr_a, sep = " / "),
       label_b = paste(input$vgl_sz_b, input$vgl_mod_b, input$vgl_zr_b, sep = " / ")
     )
@@ -2611,12 +2703,11 @@ server <- function(input, output, session) {
     leafletProxy("map_vgl") %>% setView(lng = 10.5, lat = 51.2, zoom = 6)
   })
   
-  # Marker auf Vergleichskarte rendern
+  # Marker/Polygone auf Vergleichskarte rendern
   observeEvent(vgl_result(), {
     res    <- vgl_result()
     df     <- res$geo
-    coords <- sf::st_coordinates(df)
-    
+
     popups <- paste0(
       "<b>MASTER_ID:</b> ", df$MASTER_ID,   "<br>",
       "<b>Baumart:</b> ",   df$Baumart,     "<br>",
@@ -2626,25 +2717,43 @@ server <- function(input, output, session) {
       "<b>Delta:</b> ",     df$Delta,       "<br>",
       "<b>Richtung:</b> ",  df$Richtung
     )
-    
+
     diff_farben <- c(
       "verbessert"     = "#1A9850",
       "verschlechtert" = "#A50026",
       "unver\u00e4ndert"  = "#BBBBBB"
     )
-    
-    leafletProxy("map_vgl") %>%
-      clearMarkers() %>% clearControls() %>%
-      addCircleMarkers(
-        lng = coords[, 1], lat = coords[, 2],
-        color       = df$Farbe,
-        fillColor   = df$Farbe,
-        fillOpacity = 0.85,
-        radius      = 4,
-        stroke      = FALSE,
-        popup       = popups,
-        group       = df$Richtung
-      ) %>%
+
+    # Geometrie-Dispatch: NR -> Polygone (addPolygons), sonst Punkte
+    # (addCircleMarkers). NR-Polygone wuerden als CircleMarker in tausende
+    # Vertex-Punkte zerfallen.
+    prox <- leafletProxy("map_vgl") %>%
+      clearMarkers() %>% clearShapes() %>% clearControls()
+    if (isTRUE(res$is_nr)) {
+      prox <- prox %>%
+        addPolygons(
+          data        = df,
+          color       = "#666666", weight = 0.4,
+          fillColor   = df$Farbe, fillOpacity = 0.85,
+          popup       = popups, group = df$Richtung
+        ) %>%
+        setView(lng = mean(sf::st_bbox(df)[c("xmin", "xmax")]),
+                lat = mean(sf::st_bbox(df)[c("ymin", "ymax")]), zoom = 9)
+    } else {
+      coords <- sf::st_coordinates(df)
+      prox <- prox %>%
+        addCircleMarkers(
+          lng = coords[, 1], lat = coords[, 2],
+          color       = df$Farbe,
+          fillColor   = df$Farbe,
+          fillOpacity = 0.85,
+          radius      = 4,
+          stroke      = FALSE,
+          popup       = popups,
+          group       = df$Richtung
+        )
+    }
+    prox %>%
       addLayersControl(
         overlayGroups = names(diff_farben)[names(diff_farben) %in% unique(df$Richtung)],
         options = layersControlOptions(collapsed = FALSE)
@@ -2737,7 +2846,69 @@ server <- function(input, output, session) {
     content = function(file) data.table::fwrite(vgl_result()$df,
                                                 file, sep = ";", dec = ",", bom = TRUE)
   )
-  
+
+  # Vergleichskarte als ggplot (fuer PNG-Download). Geometrie-Dispatch wie in
+  # der Leaflet-Karte: NR -> Polygone (fill), BWI -> Punkte (color).
+  vgl_plot <- reactive({
+    res <- vgl_result()
+    df  <- res$geo
+    diff_farben <- c("verbessert"     = "#1A9850",
+                     "verschlechtert" = "#A50026",
+                     "unverändert"    = "#BBBBBB")
+    df$Richtung <- factor(df$Richtung, levels = names(diff_farben))
+
+    ggplot() +
+      geom_sf(data = DE_GRENZE, fill = "#f4f4f2", color = "#aaaaaa", linewidth = 0.35) +
+      {
+        if (isTRUE(res$is_nr))
+          geom_sf(data = df, aes(fill = Richtung), color = NA, alpha = 0.9)
+        else
+          geom_sf(data = df, aes(color = Richtung), size = 1.1, alpha = 0.85)
+      } +
+      {
+        if (isTRUE(res$is_nr))
+          scale_fill_manual(name = "Veränderung", values = diff_farben, drop = FALSE)
+        else
+          scale_color_manual(name = "Veränderung", values = diff_farben, drop = FALSE,
+                             guide = guide_legend(override.aes = list(size = 3.5)))
+      } +
+      {
+        if (isTRUE(res$is_nr)) {
+          bb <- sf::st_bbox(df)
+          coord_sf(xlim = c(bb[["xmin"]], bb[["xmax"]]),
+                   ylim = c(bb[["ymin"]], bb[["ymax"]]), expand = TRUE)
+        } else {
+          coord_sf(xlim = c(5.7, 15.2), ylim = c(47.1, 55.2), expand = FALSE)
+        }
+      } +
+      labs(title    = "Vergleich der Baumartenempfehlung MRS",
+           subtitle = paste0("A: ", res$label_a, "   →   B: ", res$label_b),
+           x = NULL, y = NULL) +
+      theme_minimal(base_size = 11) +
+      theme(
+        plot.title       = element_text(face = "bold", size = 15, margin = margin(b = 3)),
+        plot.subtitle    = element_text(size = 9.5, color = "#444444", margin = margin(b = 8)),
+        legend.position  = "right",
+        legend.title     = element_text(face = "bold", size = 9),
+        panel.grid.major = element_line(color = "#e8e8e8", linewidth = 0.2),
+        panel.grid.minor = element_blank(),
+        axis.text        = element_text(size = 7, color = "#aaaaaa"),
+        plot.background  = element_rect(fill = "white", color = NA)
+      )
+  })
+
+  output$vgl_download_grafik <- downloadHandler(
+    filename = function() {
+      res <- vgl_result()
+      paste0("Vergleich_", gsub(" / ", "_", res$label_a), "_vs_",
+             gsub(" / ", "_", res$label_b), ".png")
+    },
+    content = function(file) {
+      ggplot2::ggsave(file, plot = vgl_plot(),
+                      width = 24, height = 24, units = "cm", dpi = 300, bg = "white")
+    }
+  )
+
   ## ---- 2.19 Standortblatt PDF (Phase 6) ----
   
   output$download_standortblatt <- downloadHandler(
