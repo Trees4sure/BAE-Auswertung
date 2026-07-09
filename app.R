@@ -239,84 +239,94 @@ body { font-size: 13px; }
 # (downloadButton) werden dann NICHT verdrahtet -> Button grau/nicht klickbar,
 # ohne Konsolenfehler. Deshalb erscheint der Export-Block (HTML/PNG/Schleife)
 # nur EINMAL, im Karte-Tab (with_export = TRUE). Analyse hat eigene Downloads.
-karte_sidebar <- function(with_export = TRUE) sidebarPanel(width = 3,
-                              
+# id_prefix erlaubt eine ZWEITE, unabhaengige Sidebar (Analyse-Tab) ohne
+# doppelte Element-IDs: mit id_prefix = "an_" heissen die Inputs an_szenario,
+# an_modell, ... Frueher wurde diese Sidebar 1:1 mit denselben IDs in zwei Tabs
+# eingebaut -> die per updateSelectInput dynamisch befuellten Selects (modell,
+# zeitraum) erreichten nur die ERSTE DOM-Kopie (Karte); im Analyse-Tab blieben
+# sie leer und die Filter waren wirkungslos.
+karte_sidebar <- function(with_export = TRUE, id_prefix = "") {
+  p <- id_prefix
+  sidebarPanel(width = 3,
+
                               ### ---- 1.1.1 Klimalauf ----
                               tags$div(class = "sidebar-section",
                                        tags$p(class = "section-title", "\u25B6 Datenquelle & Klimalauf"),
-                                       
+
                                        # Datenquelle-Umschalter
                                        tags$label(class = "control-label", "Datenquelle:"),
-                                       radioButtons("datenquelle", label = NULL,
+                                       radioButtons(paste0(p, "datenquelle"), label = NULL,
                                                     choices  = c("BWI-BZE" = "BWI", "NR" = "NR"),
                                                     selected = "BWI", inline = TRUE),
-                                       
+
                                        # NR-Selector (nur sichtbar bei NR)
                                        conditionalPanel(
-                                         condition = "input.datenquelle == 'NR'",
-                                         selectInput("nr_sel", "Nachbarschaftsregion:",
+                                         condition = paste0("input.", p, "datenquelle == 'NR'"),
+                                         selectInput(paste0(p, "nr_sel"), "Nachbarschaftsregion:",
                                                      choices  = nr_choices,
                                                      selected = "NR01",
                                                      width    = "100%")
                                        ),
-                                       
+
                                        hr(style = "margin:6px 0;"),
-                                       
-                                       selectInput("szenario", "Szenario:",
+
+                                       selectInput(paste0(p, "szenario"), "Szenario:",
                                                    choices = szenario_choices, selected = szenario_choices[1],
                                                    width = "100%"),
-                                       selectInput("modell",   "Klimamodell:", choices = character(0), width = "100%"),
-                                       selectInput("zeitraum", "Zeitraum:",    choices = character(0), width = "100%")
+                                       selectInput(paste0(p, "modell"),   "Klimamodell:", choices = character(0), width = "100%"),
+                                       selectInput(paste0(p, "zeitraum"), "Zeitraum:",    choices = character(0), width = "100%")
                               ),
-                              
+
                               ### ---- 1.1.2 Baumart & TV ----
                               tags$div(class = "sidebar-section",
                                        tags$p(class = "section-title", "\u25B6 Baumart & TV"),
-                                       selectizeInput("baumart_sel", "Baumart:",
+                                       selectizeInput(paste0(p, "baumart_sel"), "Baumart:",
                                                       choices  = baumart_choices,
                                                       selected = if ("Bu" %in% baumart_choices) "Bu" else baumart_choices[1],
                                                       multiple = TRUE,
                                                       options  = list(placeholder = "Baumart w\u00e4hlen...",
                                                                       plugins = list("remove_button"), maxOptions = 50),
                                                       width = "100%"),
-                                       selectizeInput("tv_sel", "TV (Teilvorhaben):",
+                                       selectizeInput(paste0(p, "tv_sel"), "TV (Teilvorhaben):",
                                                       choices  = tv_choices,
                                                       selected = if ("2" %in% tv_choices) "2" else as.character(tv_choices[1]),
                                                       multiple = FALSE,
                                                       options  = list(placeholder = "TV w\u00e4hlen..."),
                                                       width = "100%")
                               ),
-                              
+
                               ### ---- 1.1.3 Darstellung ----
                               tags$div(class = "sidebar-section",
                                        tags$p(class = "section-title", "\u25B6 Darstellung"),
-                                       
+
                                        # Farb-Modus
                                        tags$label(class = "control-label", "Einf\u00e4rbung:"),
-                                       radioButtons("farb_modus", label = NULL,
+                                       radioButtons(paste0(p, "farb_modus"), label = NULL,
                                                     choices  = c("Empfehlung" = "empfehlung",
                                                                  "Baumart"    = "baumart"),
                                                     selected = "empfehlung", inline = TRUE),
-                                       
+
                                        # Bewertungsstufe (wird dynamisch aktualisiert)
                                        tags$label(class = "control-label", "Bewertungsstufe:"),
-                                       radioButtons("stufe", label = NULL,
+                                       radioButtons(paste0(p, "stufe"), label = NULL,
                                                     choices  = c("3-stufig" = "BAE_3ST",
                                                                  "4-stufig" = "BAE_4ST",
                                                                  "5-stufig" = "BAE_5ST"),
                                                     selected = "BAE_5ST", inline = TRUE),
-                                       
-                                       sliderInput("punktgroesse", "Punktgr\u00f6\u00dfe:",
+
+                                       sliderInput(paste0(p, "punktgroesse"), "Punktgr\u00f6\u00dfe:",
                                                    min = 1, max = 10, value = 4, step = 0.5, width = "100%")
                               ),
-                              
-                              ### ---- 1.1.4 Trefferanzahl ----
-                              uiOutput("treffer_box"),
-                              
+
+                              ### ---- 1.1.4 Trefferanzahl (nur Karte-Tab) ----
+                              if (p == "") uiOutput("treffer_box"),
+
                               ### ---- 1.1.5 Karte laden ----
                               tags$div(class = "sidebar-section",
-                                       tags$p(class = "section-title", "\u25B6 Karte laden"),
-                                       actionButton("run_karte", "Karte erstellen",
+                                       tags$p(class = "section-title",
+                                              if (p == "") "\u25B6 Karte laden" else "\u25B6 Auswerten"),
+                                       actionButton(paste0(p, "run_karte"),
+                                                    if (p == "") "Karte erstellen" else "Auswerten",
                                                     icon  = icon("play"),
                                                     style = paste("width:100%; background:#2E7D32;",
                                                                   "color:white; font-weight:bold;",
@@ -324,7 +334,7 @@ karte_sidebar <- function(with_export = TRUE) sidebarPanel(width = 3,
                                        tags$small(style = "color:#aaa; font-size:10px; display:block;",
                                                   "Daten werden erst nach Klick geladen")
                               ),
-                              
+
                               ### ---- 1.1.6 Export (nur Karte-Tab: with_export) ----
                               if (with_export) tags$div(class = "sidebar-section",
                                        tags$p(class = "section-title", "\u25B6 Export"),
@@ -345,12 +355,13 @@ karte_sidebar <- function(with_export = TRUE) sidebarPanel(width = 3,
                                                   "Alle Baumarten × Stufen ins Ergebnisverzeichnis rendern")
                               ),
                               
-                              ### ---- 1.1.7 Legende (reaktiv je Farb-Modus) ----
-                              tags$div(class = "sidebar-section",
+                              ### ---- 1.1.7 Legende (reaktiv je Farb-Modus, nur Karte-Tab) ----
+                              if (p == "") tags$div(class = "sidebar-section",
                                        tags$p(class = "section-title", "\u25B6 Legende"),
                                        uiOutput("legende_ui")
                               )
-)
+  )
+}
 
 ## ---- 1.2 UI-Zusammenbau (navbarPage) ----
 
@@ -399,7 +410,7 @@ ui <- tagList(
     tabPanel(
       title = tagList(icon("chart-bar"), " Analyse"),
       sidebarLayout(
-        karte_sidebar(with_export = FALSE),   # Export nur im Karte-Tab (doppelte IDs vermeiden)
+        karte_sidebar(with_export = FALSE, id_prefix = "an_"),   # eigene IDs (an_*): unabhaengige Analyse-Filter
         mainPanel(width = 9,
                   uiOutput("analyse_header"),
                   hr(style = "margin:8px 0 14px 0; border-color:#e0e0e0;"),
@@ -471,11 +482,12 @@ ui <- tagList(
                                   options  = list(placeholder = "Baumart...",
                                                   plugins = list("remove_button")),
                                   width = "100%"),
-                   # selectizeInput("sa_tv", "TVs:",
-                   #                choices  = tv_choices,
-                   #                selected = tv_choices,   # nur BWI-TVs
-                   #                multiple = TRUE,
-                   selectizeInput("sa_tv", "TVs:",
+                   # Muss "vgl_tv" heissen: der Server liest input$vgl_tv
+                   # (vgl_result). Vorher "sa_tv" -> input$vgl_tv war stets NULL,
+                   # req() schlug still fehl -> "Vergleich starten" tot. Zudem
+                   # kollidierte "sa_tv" mit dem gleichnamigen Selector im
+                   # Standortanalyse-Tab (doppelte DOM-ID).
+                   selectizeInput("vgl_tv", "TVs:",
                                   choices  = tv_bezeichnung,   # alle 9 TVs unabhängig vom BWI-Subset
                                   selected = tv_bezeichnung,   # alle vorausgewählt
                                   multiple = TRUE,
@@ -2051,11 +2063,201 @@ server <- function(input, output, session) {
     ))
   })
 
+  ## ---- 2.16b Analyse-eigene Datenpipeline (unabhaengige Filter) ----
+  # Der Analyse-Tab hat eine EIGENE Sidebar (Prefix "an_") und laedt komplett
+  # unabhaengig von der Karte. Bewusst als eigener, sichtbarer Zweig (kein
+  # geteilter Input) - so kann man Karte und Analyse getrennt filtern, und der
+  # fruehere Doppel-ID-Bug (leere modell/zeitraum-Dropdowns -> Filter
+  # wirkungslos) entfaellt. Spiegelt filtered_raw()/filtered() der Karte.
+
+  # Kaskadierung Szenario -> Modell -> Zeitraum (nur Analyse-Sidebar)
+  observeEvent(input$an_szenario, {
+    mod <- klima_meta %>% filter(Szenario == input$an_szenario) %>%
+      pull(Modell) %>% unique() %>% sort()
+    updateSelectInput(session, "an_modell", choices = mod, selected = mod[1])
+  }, ignoreNULL = TRUE)
+
+  observeEvent(input$an_modell, {
+    req(input$an_szenario)
+    zr <- klima_meta %>%
+      filter(Szenario == input$an_szenario, Modell == input$an_modell) %>%
+      pull(Zeitraum) %>% unique() %>% sort()
+    updateSelectInput(session, "an_zeitraum", choices = zr, selected = zr[1])
+  }, ignoreNULL = TRUE)
+
+  an_filtered_raw <- eventReactive(input$an_run_karte, {
+    req(input$an_szenario, input$an_modell, input$an_zeitraum,
+        input$an_baumart_sel, input$an_tv_sel, input$an_stufe)
+
+    is_nr <- isTRUE(input$an_datenquelle == "NR")
+
+    ### CSV laden (BWI / NR) ---------------------------------------------------
+    if (is_nr) {
+      validate(need(!is.null(BAE_WM_DIR) && dir.exists(BAE_WM_DIR),
+                    "NR-Pfad nicht konfiguriert. Bitte BAE_WM_DIR in config.R setzen."))
+      validate(need(!is.null(NR_GEO_ALL),
+                    "NR-Geodaten nicht gefunden (Shapefile)."))
+      req(input$an_nr_sel)
+
+      tv_pad    <- sprintf("%02d", as.integer(input$an_tv_sel))
+      stufe_suf <- tolower(sub("^BAE_", "", input$an_stufe))
+
+      tv_dirs <- list.dirs(BAE_WM_DIR, recursive = FALSE, full.names = TRUE)
+      tv_dirs <- tv_dirs[grepl(paste0("^BAE_", tv_pad, "_"),
+                               basename(tv_dirs), ignore.case = TRUE)]
+      tv_stufe <- tv_dirs[grepl(paste0("_", stufe_suf, "$"),
+                                basename(tv_dirs), ignore.case = TRUE)]
+      if (length(tv_stufe) > 0) tv_dirs <- tv_stufe
+
+      validate(need(length(tv_dirs) > 0,
+                    paste0("Kein BAE-Ordner für TV", input$an_tv_sel,
+                           " unter ", BAE_WM_DIR)))
+
+      nr_dirs <- unlist(lapply(tv_dirs, function(d) {
+        sub <- list.dirs(d, recursive = FALSE, full.names = TRUE)
+        sub[grepl(paste0("^", input$an_nr_sel, "$"),
+                  basename(sub), ignore.case = TRUE)]
+      }))
+      validate(need(length(nr_dirs) > 0,
+                    paste0("Kein Ordner ", input$an_nr_sel,
+                           " unter den TV", input$an_tv_sel, "-Ordnern gefunden.")))
+
+      leaf_dirs <- file.path(nr_dirs, input$an_szenario, input$an_modell, input$an_zeitraum)
+      leaf_dirs <- leaf_dirs[dir.exists(leaf_dirs)]
+      alle_csv  <- if (length(leaf_dirs) > 0)
+        list.files(leaf_dirs, pattern = "\\.csv$", full.names = TRUE) else character(0)
+      if (length(alle_csv) == 0)
+        alle_csv <- list.files(nr_dirs, pattern = "\\.csv$",
+                               recursive = TRUE, full.names = TRUE)
+
+      ba_pat <- paste0("_(", paste(input$an_baumart_sel, collapse = "|"), ")\\.csv$")
+      bn     <- basename(alle_csv)
+      match_files <- unique(alle_csv[
+        grepl(paste0("_", input$an_nr_sel,    "_"), bn, ignore.case = TRUE) &
+          grepl(paste0("_", input$an_szenario,  "_"), bn) &
+          grepl(paste0("_", input$an_modell,    "_"), bn) &
+          grepl(paste0("_", input$an_zeitraum,  "_"), bn) &
+          grepl(ba_pat, bn)
+      ])
+
+      validate(need(length(match_files) > 0,
+                    paste0("Keine NR-CSV gefunden für: ",
+                           input$an_nr_sel, " / TV", input$an_tv_sel, " / ",
+                           input$an_szenario, " / ", input$an_modell, " / ",
+                           input$an_zeitraum, " / ",
+                           paste(input$an_baumart_sel, collapse = ", "))))
+
+      df_raw <- data.table::rbindlist(
+        lapply(match_files, function(f) {
+          dt <- data.table::fread(f, fill = TRUE)
+          if ("MASTER_ID" %in% names(dt))
+            data.table::set(dt, j = "MASTER_ID", value = as.character(dt$MASTER_ID))
+          bae_cols <- grep("^BAE_", names(dt), ignore.case = TRUE, value = TRUE)
+          for (col in bae_cols)
+            data.table::set(dt, j = col, value = as.character(dt[[col]]))
+          dt$Baumart <- sub("\\.csv$", "", sub(".*_", "", basename(f)))
+          dt
+        }),
+        fill = TRUE
+      )
+    } else {
+      # BWI: pre-aggregierte CSV direkt aus klima_meta lesen
+      row_meta <- klima_meta %>%
+        filter(Szenario == input$an_szenario,
+               Modell   == input$an_modell,
+               Zeitraum == input$an_zeitraum)
+      validate(need(nrow(row_meta) == 1,
+                    paste0("Keine eindeutige CSV: ", input$an_szenario,
+                           " / ", input$an_modell, " / ", input$an_zeitraum)))
+      df_raw <- data.table::fread(row_meta$file,
+                                  colClasses = list(character = "MASTER_ID"))
+    }
+
+    ### Dynamische Stufenerkennung ---------------------------------------------
+    verfuegbar <- intersect(
+      c("BAE_3ST", "BAE_4ST", "BAE_5ST", "BAE_7ST"),
+      toupper(names(df_raw))
+    )
+    stufe_labels <- c("BAE_3ST" = "3-stufig", "BAE_4ST" = "4-stufig",
+                      "BAE_5ST" = "5-stufig", "BAE_7ST" = "7-stufig")
+    updateRadioButtons(session, "an_stufe",
+                       choices  = setNames(verfuegbar, unname(stufe_labels[verfuegbar])),
+                       selected = if (input$an_stufe %in% verfuegbar) input$an_stufe
+                       else verfuegbar[length(verfuegbar)])
+
+    ### Filtern & Baumart-Spalte vereinheitlichen ------------------------------
+    df <- df_raw %>% rename_with(toupper)
+    if ("BAUMART" %in% names(df) && !is_nr)
+      df <- df %>% filter(BAUMART %in% input$an_baumart_sel)
+    if ("TV" %in% names(df))
+      df <- df %>% filter(TV %in% as.integer(input$an_tv_sel))
+    if ("BAUMART" %in% names(df)) {
+      df <- df %>% rename(Baumart = BAUMART)
+    } else if (!"Baumart" %in% names(df)) {
+      df$Baumart <- if (length(input$an_baumart_sel) == 1) input$an_baumart_sel
+      else NA_character_
+    }
+    df <- df %>%
+      mutate(Szenario    = input$an_szenario,
+             Modell      = input$an_modell,
+             Zeitraum    = input$an_zeitraum,
+             Datenquelle = if (is_nr) input$an_nr_sel else "BWI-BZE")
+
+    validate(need(nrow(df) > 0, "Keine Daten für die gewählte Kombination."))
+
+    df <- df %>% distinct(MASTER_ID, Baumart, .keep_all = TRUE)
+
+    ### Geo-Join ---------------------------------------------------------------
+    geo <- if (is_nr) {
+      req(!is.null(NR_GEO_ALL), input$an_nr_sel)
+      NR_GEO_ALL %>% filter(NR_ID == input$an_nr_sel)
+    } else BWI_GEO
+
+    joined <- tryCatch({
+      res <- geo %>%
+        left_join(df, by = "MASTER_ID") %>%
+        filter(!is.na(Baumart))
+      if (nrow(res) > nrow(geo) * max(length(input$an_baumart_sel), 1) * 3) {
+        res <- res %>% group_by(MASTER_ID, Baumart) %>% slice(1) %>% ungroup()
+      }
+      res
+    }, error = function(e) {
+      validate(need(FALSE, paste0(
+        "Geo-Join fehlgeschlagen (möglicherweise doppelte MASTER_IDs).\n",
+        conditionMessage(e))))
+    })
+
+    validate(need(nrow(joined) > 0,
+                  "Join ohne Treffer – MASTER_ID-Übereinstimmung prüfen."))
+    joined
+  })
+
+  # Einfaerbung (live) analog filtered() der Karte, aber mit an_-Inputs.
+  an_filtered <- reactive({
+    joined <- an_filtered_raw()
+    if (isTRUE(input$an_farb_modus == "baumart")) {
+      baumarten <- sort(unique(joined$Baumart))
+      ba_farben <- setNames(baumart_farben_basis[seq_along(baumarten)], baumarten)
+      joined <- joined %>%
+        mutate(Kat   = Baumart,
+               Farbe = unname(ba_farben[Baumart]))
+    } else {
+      verfuegbar <- intersect(c("BAE_3ST", "BAE_4ST", "BAE_5ST", "BAE_7ST"),
+                              names(joined))
+      bae_col    <- if (input$an_stufe %in% verfuegbar) input$an_stufe
+                    else verfuegbar[length(verfuegbar)]
+      joined <- joined %>%
+        mutate(Kat   = map_stufe(.data[[bae_col]], bae_col),
+               Farbe = dplyr::coalesce(unname(kat_palette[Kat]), "#B0B0B0"))
+    }
+    joined
+  })
+
   ## ---- 2.17 Analyse-Tab (Phase 2) ----
-  
+
   # Gemeinsame Hilfsfunktion: Kreuztabelle aus gefilterten Daten
   analyse_data <- reactive({
-    df <- tryCatch(filtered(), error = function(e) NULL)
+    df <- tryCatch(an_filtered(), error = function(e) NULL)
     req(!is.null(df) && nrow(df) > 0)
     
     kat_order <- names(kat_palette)
@@ -2089,8 +2291,8 @@ server <- function(input, output, session) {
     
     # Deskriptive Statistik: BAE-Wert numerisch je Baumart/TV
     # Fallback: wenn gewählte Stufe nicht in df_plain, höchste verfügbare nehmen
-    bae_col <- if (!is.null(input$stufe) && input$stufe %in% names(df_plain)) {
-      input$stufe
+    bae_col <- if (!is.null(input$an_stufe) && input$an_stufe %in% names(df_plain)) {
+      input$an_stufe
     } else {
       found <- intersect(c("BAE_3ST","BAE_4ST","BAE_5ST","BAE_7ST"), names(df_plain))
       if (length(found) > 0) found[length(found)] else NULL
@@ -2125,19 +2327,19 @@ server <- function(input, output, session) {
   
   ### ---- 2.17.1 Analyse-Header ----
   output$analyse_header <- renderUI({
-    df <- tryCatch(filtered(), error = function(e) NULL)
+    df <- tryCatch(an_filtered(), error = function(e) NULL)
     if (is.null(df)) return(tags$p(style = "color:#999;",
-                                   "Bitte Filter w\u00e4hlen und Karte laden."))
-    
-    tv_str <- paste(names(tv_bezeichnung)[tv_bezeichnung %in% input$tv_sel],
+                                   "Bitte Filter w\u00e4hlen und auf \u201eAuswerten\u201c klicken."))
+
+    tv_str <- paste(names(tv_bezeichnung)[tv_bezeichnung %in% input$an_tv_sel],
                     collapse = ", ")
     tags$div(style = "margin-top:10px;",
              tags$span(style = "font-size:15px; font-weight:bold;",
                        "Analyse: Baumartenempfehlungen MRS"),
              tags$br(),
              tags$span(style = "font-size:12px; color:#555;",
-                       paste0(input$szenario, "  |  ", input$modell, "  |  ",
-                              input$zeitraum, "  |  ", input$stufe,
+                       paste0(input$an_szenario, "  |  ", input$an_modell, "  |  ",
+                              input$an_zeitraum, "  |  ", input$an_stufe,
                               "  \u2013  ", tv_str,
                               "  \u2022  N = ",
                               fmt_n(nrow(df)), " Punkte"))
@@ -2149,9 +2351,9 @@ server <- function(input, output, session) {
     ad <- tryCatch(analyse_data(), error = function(e) NULL)
     req(ad)
     
-    df <- tryCatch(sf::st_drop_geometry(filtered()), error = function(e) NULL)
+    df <- tryCatch(sf::st_drop_geometry(an_filtered()), error = function(e) NULL)
     req(df)
-    
+
     kat_order <- names(kat_palette)[1:2]   # sehr + empfohlen
     
     n_positiv <- df %>%
