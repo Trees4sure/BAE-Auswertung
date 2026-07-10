@@ -69,9 +69,12 @@ horizont_abfolge_plot(DB_Lp_BWI,
 # Variante 2: Streuung eigenstaendig (Korn in Erdtoenen, Chemie getrennt):
 # print(leitprofil_streuung_plot(DB_Lp_NR, soeh_krz = "DüSG"))
 #
-# Variante 2b: Kornfraktionen + Basen als LINIEN ueber die Tiefe (linear,
-# kein geom_smooth). NFK optional (mm-Skala) ueber mit_nfk = TRUE:
+# Variante 2b: Kornfraktionen + Basen (+ NFK) als LINIEN ueber die Tiefe
+# (linear, kein geom_smooth). NFK abschaltbar ueber mit_nfk = FALSE:
 # print(leitprofil_linien_plot(DB_Lp_NR, soeh_krz = "DüSG"))
+#
+# Variante 1b: dieselben Linien NEBEN dem aqp-Horizontprofil (Tiefe vertikal):
+# print(horizont_mit_linien(DB_Lp_NR, soeh_krz = "DüSG"))
 #
 # Nur die aggregierten Kennwerte je Horizont ansehen (zum Debuggen):
 # leitprofil_kennwerte(DB_Lp_NR, soeh_krz = "DüSG")
