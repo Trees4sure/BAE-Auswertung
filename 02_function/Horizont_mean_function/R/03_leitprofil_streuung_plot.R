@@ -17,6 +17,7 @@
 # Einstiege:
 #   leitprofil_kennwerte()      -> Aggregation je HORIZONT (dplyr)
 #   leitprofil_streuung_plot()  -> eigenstaendige Abbildung        (Variante 2)
+#   leitprofil_linien_plot()    -> Linien ueber die Tiefe, linear  (Variante 2b)
 #   horizont_mit_streuung()     -> aqp-Profil + Streuung seitlich  (Variante 1)
 #
 # Die bestehende horizont_abfolge_plot() wird NICHT veraendert; Variante 1
@@ -145,6 +146,81 @@ leitprofil_streuung_plot <- function(data_input, soeh_krz, region = NULL,
 
   patchwork::wrap_plots(p_korn, p_chem, widths = c(1, 1.2)) +
     patchwork::plot_annotation(title = titel)
+}
+
+
+# ---------------------------------------------------------------------
+# 2b) Linien-Variante: Kornfraktionen + Basen ueber die Horizonttiefe
+# ---------------------------------------------------------------------
+# Entspricht dem urspruenglichen "Auswertung der mittleren Horizonteigen-
+# schaften"-Plot, aber mit GERADEN Segmenten (geom_line) statt geom_smooth.
+# geom_smooth (Loess) schwingt bei nur wenigen Horizonten ueber und liefert
+# unplausible Werte (<0 / >100); die lineare Verbindung der echten Horizont-
+# Mittelwerte bleibt dagegen exakt auf den gemessenen Punkten.
+#
+# NFK ist bewusst NICHT dabei (mit_nfk = FALSE): NFK ist in mm, die anderen
+# Kennwerte in % -> auf einer gemeinsamen y-Achse wuerde NFK alles plattdruecken
+# (deshalb liegt NFK im Chemie-Panel der Balken-Variante mit eigener Achse).
+#' @param data_input,soeh_krz,region  wie leitprofil_kennwerte()
+#' @param titel    optionaler Titel; NULL = aus SOEH_KRZ/Region gebaut
+#' @param mit_nfk  TRUE = NFK-Linie zusaetzlich (Achtung: mm-Skala, s.o.)
+#' @return  ggplot-Objekt
+leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
+                                   titel = NULL, mit_nfk = FALSE) {
+
+  # Farben: Erdtoene fuer die Kornfraktionen, Basen (und NFK) als Kontrast.
+  farben <- c(Sand       = "#E4C68C",   # sandgelb
+              Feinsand   = "#E2A93B",   # gold
+              Mittelsand = "#C9772D",   # orange-braun
+              Grobsand   = "#8C4A2F",   # rotbraun
+              Schluff    = "#9C7A3C",   # oliv-ocker
+              Ton        = "#5B3A29",   # dunkelbraun
+              Basen      = "#3B6E9A",   # blau (Chemie, hebt sich ab)
+              NFK        = "#2E7D64")   # gruen (nur bei mit_nfk)
+
+  kw <- leitprofil_kennwerte(data_input, soeh_krz, region = region) %>%
+    dplyr::rename(Basen = BASEN)
+
+  if (is.null(titel))
+    titel <- paste0("Mittlere Horizonteigenschaften - ", paste(soeh_krz, collapse = ", "),
+                    if (!is.null(region)) paste0("  (", region, ")") else "  (alle Regionen)")
+
+  # Welche Linien: Kornfraktionen + Basen, optional NFK. x = untere Horizont-
+  # grenze (TIEFE_UG), wie in der Ausgangsfunktion (mean_HORZ = mean(TIEFE_UG)).
+  kennwerte <- c("Sand", "Feinsand", "Mittelsand", "Grobsand", "Schluff", "Ton", "Basen")
+  if (mit_nfk) kennwerte <- c(kennwerte, "NFK")
+
+  lang <- kw %>%
+    dplyr::select(HORIZONT, TIEFE_UG, dplyr::all_of(kennwerte)) %>%
+    tidyr::pivot_longer(dplyr::all_of(kennwerte),
+                        names_to = "Kennwert", values_to = "Wert") %>%
+    dplyr::mutate(Kennwert = factor(Kennwert, levels = kennwerte)) %>%
+    dplyr::arrange(Kennwert, TIEFE_UG)
+
+  # Ende jeder Linie (tiefster Horizont) fuer die Direkt-Beschriftung.
+  enden <- dplyr::filter(lang, TIEFE_UG == max(TIEFE_UG))
+
+  ggplot2::ggplot(lang, ggplot2::aes(x = TIEFE_UG, y = Wert, color = Kennwert)) +
+    ggplot2::geom_vline(data = kw, ggplot2::aes(xintercept = TIEFE_UG),
+                        inherit.aes = FALSE, color = "grey85", linewidth = 0.3) +
+    ggplot2::geom_text(data = kw, ggplot2::aes(x = TIEFE_UG, y = Inf, label = HORIZONT),
+                       inherit.aes = FALSE, angle = 90, vjust = -0.4, hjust = 1,
+                       size = 3, color = "grey55") +
+    ggplot2::geom_line(linewidth = 1, na.rm = TRUE) +
+    ggplot2::geom_point(size = 1.6, na.rm = TRUE) +
+    ggplot2::geom_text(data = enden, ggplot2::aes(label = Kennwert),
+                       hjust = -0.15, vjust = 0.4, size = 3.2, na.rm = TRUE) +
+    ggplot2::scale_color_manual(values = farben, guide = "none") +
+    ggplot2::scale_x_continuous(name = "Tiefe des Horizontes [cm]",
+                                breaks = round(kw$TIEFE_UG),
+                                limits = c(0, max(kw$TIEFE_UG) + 8),
+                                expand = ggplot2::expansion(mult = c(0.01, 0.12))) +
+    ggplot2::scale_y_continuous(name = "Mittelwert je Horizont [%]") +
+    ggplot2::labs(title = titel) +
+    ggplot2::theme_minimal() +
+    ggplot2::coord_cartesian(clip = "off") +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+                   plot.margin = ggplot2::margin(12, 12, 6, 6))
 }
 
 
