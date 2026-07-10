@@ -48,6 +48,17 @@ message("App-Verzeichnis: ", APP_DIR_ABS)
 source(file.path(APP_DIR_ABS, "config.R"))
 source(file.path(APP_DIR_ABS, "cache.R"))
 
+# R/mod_*.R (reine Funktionsbibliotheken) bei JEDEM Start FRISCH von Platte
+# sourcen. Shiny laedt R/ zwar automatisch, aber haengt aus einer frueheren
+# Sitzung noch eine ALTE Funktionsdefinition in .GlobalEnv (app.R aktualisiert,
+# R/-Helfer aber nicht neu geladen), zieht die veraltete Version. Symptom
+# 2026-07: "unused arguments (szenarien = ..., zeitraeume = ...)" in
+# lade_standort_alle_laeufe() - der aktuelle Aufruf uebergibt neue Filter, die
+# die alte, im Speicher haengende Funktion nicht kennt. source() (local=FALSE)
+# schreibt nach .GlobalEnv und ueberschreibt so jede stale Definition sicher.
+for (.rf in list.files(file.path(APP_DIR_ABS, "R"), pattern = "\\.R$", full.names = TRUE))
+  source(.rf)
+
 ## ---- 0.4 Pfade ----
 # Projektstamm: Anzahl Ebenen ueber dem App-Verzeichnis ist je nach
 # Installation unterschiedlich (z.B. .../BAE_Auswertung_app/BWI_Geo_BAE
