@@ -23,7 +23,9 @@
 #        * Farbe = häufigste Kategorie (custom_palette, diskret; pBv / Keine
 #                  Datengrundlage erscheinen als graue Kacheln)
 #        * Zahl  = ABSOLUTE Anzahl dieser häufigsten Kategorie (je Klimalauf
-#                  meist 1; > 1 erst, wenn eine Gruppe mehrere Klimaläufe zählt)
+#                  meist 1; > 1 erst, wenn eine Gruppe mehrere Klimaläufe zählt).
+#                  Bei nur EINEM Klimalauf in der Gruppe (alles zwangsläufig 1)
+#                  wird die Zahl NICHT gedruckt – sie trägt dort keine Info.
 #        * Gleichstand: die BESSERE Kategorie wird gezeigt und mit "*" am Wert
 #                       sowie einem Rahmen um die Kachel markiert.
 #      Standard (trennung = "klimalauf"): eine Matrix je Klimalauf, unaggregiert
@@ -413,19 +415,27 @@ bae_modus_matrix_function <- function(data,
           TV_M    = factor(as.character(TV_M),    levels = as.character(tv_ord$TV_M)),
           Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)))
 
+      # Nur EIN Klimalauf in der Gruppe -> jede Kachel ist zwangsläufig "1"
+      # (keine Aggregation, kein Gleichstand) -> Zahl weglassen, sie trägt nichts
+      # bei. Ab 2 Klimaläufen ist die Anzahl echte Information und bleibt.
+      n_laeufe <- dplyr::n_distinct(gew$Klimalauf)
+      zahl_zeigen <- werte_anzeigen && n_laeufe > 1
+
       p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
         ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
         ggplot2::geom_tile(data = dplyr::filter(kachel, tie),
                            fill = NA, color = "grey15", linewidth = 1.1) +
-        { if (werte_anzeigen)
+        { if (zahl_zeigen)
             ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(st, "-stufig  |  ", grp, "  |  Modell: ", modelle_str,
-                            "  |  gewichtet sortiert: beste Zeile oben, beste Baumart rechts  |  ",
-                            "Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"),
+                            "  |  gewichtet sortiert: beste Zeile oben, beste Baumart rechts",
+                            if (zahl_zeigen)
+                              "  |  Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"
+                            else ""),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV × Methode  (beste oben ↑)",
           fill = "häufigste Kategorie") +
