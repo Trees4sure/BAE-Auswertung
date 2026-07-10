@@ -24,6 +24,7 @@ suppressPackageStartupMessages({
 source("02_function/Horizont_mean_function/R/00_ka5_referenz.R")
 source("02_function/Horizont_mean_function/R/01_db_zugriff.R")
 source("02_function/Horizont_mean_function/R/02_horizont_abfolge_plot.R")
+source("02_function/Horizont_mean_function/R/03_leitprofil_streuung_plot.R")
 
 # ---- 0) Datenbanken finden / Struktur pruefen (einmalig hilfreich) ---
 boden_dateien()                        # gefundene SQLite-Dateien je Quelle
@@ -59,6 +60,17 @@ horizont_abfolge_plot(DB_Lp_NR, soeh_krz = "DüSG")
 horizont_abfolge_plot(DB_Lp_BWI,
                       soeh_krz = c("BiS", "AhLG", "BäS", "WnS", "DgL"),
                       region = "MV")
+
+# ---- 2a) Leitprofil-Kennwerte (Kornanteile + Chemie) -----------------
+# Benoetigt zusaetzlich: ggplot2, tidyr, patchwork, cowplot
+# Variante 1: aqp-Profil UND Streuung seitlich daneben in einer Abbildung:
+# horizont_mit_streuung(DB_Lp_NR, soeh_krz = "DüSG")
+#
+# Variante 2: Streuung eigenstaendig (Korn in Erdtoenen, Chemie getrennt):
+# print(leitprofil_streuung_plot(DB_Lp_NR, soeh_krz = "DüSG"))
+#
+# Nur die aggregierten Kennwerte je Horizont ansehen (zum Debuggen):
+# leitprofil_kennwerte(DB_Lp_NR, soeh_krz = "DüSG")
 
 # ---- 2b) Horizontabfolge direkt ueber eine MASTER_ID -----------------
 # Quelle wird aus dem Praefix (NR_/BWI_/BZE_) erkannt, sonst alle durchsucht.
