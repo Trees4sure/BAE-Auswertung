@@ -171,10 +171,13 @@ leitprofil_streuung_plot <- function(data_input, soeh_krz, region = NULL,
 #' @param data_input,soeh_krz,region  wie leitprofil_kennwerte()
 #' @param titel    optionaler Titel; NULL = aus SOEH_KRZ/Region gebaut
 #' @param mit_nfk  TRUE = NFK-Linie zusaetzlich (mm, laeuft auf gleicher Achse mit)
+#' @param glatt    TRUE = weiche Spline-Kurven DURCH die Punkte (geklammert);
+#'                 FALSE = gerade Verbindungen (linear) zwischen den Horizonten
 #' @param vertikal TRUE = Tiefe vertikal (zum Anlegen neben das aqp-Profil)
 #' @return  ggplot-Objekt
 leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
-                                   titel = NULL, mit_nfk = TRUE, vertikal = FALSE) {
+                                   titel = NULL, mit_nfk = TRUE,
+                                   glatt = TRUE, vertikal = FALSE) {
 
   # Farben: Erdtoene fuer die Kornfraktionen, Basen (und NFK) als Kontrast.
   farben <- c(Sand       = "#E4C68C",   # sandgelb
@@ -208,12 +211,32 @@ leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
   # Ende jeder Linie (tiefster Horizont) fuer die Direkt-Beschriftung.
   enden <- dplyr::filter(lang, TIEFE_UG == max(TIEFE_UG))
 
+  # Linien-Datensatz: bei glatt = TRUE ein kubischer Spline (n = 200) DURCH die
+  # echten Horizontpunkte, je Kennwert auf einen plausiblen Bereich geklammert
+  # (0..100 %, NFK bis Datenmaximum). So bleiben die Kurven weich wie bei
+  # geom_smooth, laufen aber - anders als Loess - nicht ins Unplausible (<0/>100)
+  # und bleiben an den gemessenen Punkten. glatt = FALSE -> die rohen Punkte
+  # (gerade Verbindung). Die echten Werte werden separat als Punkte gezeichnet.
+  linien <- lang
+  if (glatt) {
+    linien <- lang %>%
+      dplyr::filter(!is.na(Wert)) %>%
+      dplyr::group_by(Kennwert) %>%
+      dplyr::filter(dplyr::n() >= 3) %>%
+      dplyr::group_modify(~ {
+        s  <- stats::spline(.x$TIEFE_UG, .x$Wert, n = 200)
+        og <- if (identical(as.character(.y$Kennwert), "NFK")) max(.x$Wert) else 100
+        data.frame(TIEFE_UG = s$x, Wert = pmin(pmax(s$y, 0), og))
+      }) %>%
+      dplyr::ungroup()
+  }
+
   if (vertikal) {
     # Tiefe nach unten (scale_y_reverse) -> deckt sich mit dem aqp-Profil.
     ggplot2::ggplot(lang, ggplot2::aes(x = Wert, y = TIEFE_UG, color = Kennwert)) +
       ggplot2::geom_hline(data = kw, ggplot2::aes(yintercept = TIEFE_UG),
-                          inherit.aes = FALSE, color = "grey85", linewidth = 0.3) +
-      ggplot2::geom_path(linewidth = 1, na.rm = TRUE) +
+                          color = "grey85", linewidth = 0.3) +
+      ggplot2::geom_path(data = linien, linewidth = 1, na.rm = TRUE) +
       ggplot2::geom_point(size = 1.6, na.rm = TRUE) +
       ggplot2::geom_text(data = enden, ggplot2::aes(label = Kennwert),
                          hjust = -0.1, vjust = 0.4, size = 3, na.rm = TRUE) +
@@ -229,11 +252,11 @@ leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
   } else {
     ggplot2::ggplot(lang, ggplot2::aes(x = TIEFE_UG, y = Wert, color = Kennwert)) +
       ggplot2::geom_vline(data = kw, ggplot2::aes(xintercept = TIEFE_UG),
-                          inherit.aes = FALSE, color = "grey85", linewidth = 0.3) +
+                          color = "grey85", linewidth = 0.3) +
       ggplot2::geom_text(data = kw, ggplot2::aes(x = TIEFE_UG, y = Inf, label = HORIZONT),
                          inherit.aes = FALSE, angle = 90, vjust = -0.4, hjust = 1,
                          size = 3, color = "grey55") +
-      ggplot2::geom_line(linewidth = 1, na.rm = TRUE) +
+      ggplot2::geom_line(data = linien, linewidth = 1, na.rm = TRUE) +
       ggplot2::geom_point(size = 1.6, na.rm = TRUE) +
       ggplot2::geom_text(data = enden, ggplot2::aes(label = Kennwert),
                          hjust = -0.15, vjust = 0.4, size = 3.2, na.rm = TRUE) +
@@ -281,14 +304,15 @@ horizont_mit_streuung <- function(data_input, soeh_krz, region = NULL,
 # in beiden nach unten, damit die Horizonte auf gleicher Hoehe liegen.
 #' @param koernung   an horizont_abfolge_plot() durchgereicht (KA5-Symbole)
 #' @param mit_nfk    an leitprofil_linien_plot() durchgereicht (NFK-Linie)
+#' @param glatt      an leitprofil_linien_plot() durchgereicht (weiche Kurven)
 #' @param rel_breite relative Spaltenbreiten c(Profil, Linien)
 #' @return  cowplot-Objekt (mit print()/plot() zeichnen oder ggsave())
 horizont_mit_linien <- function(data_input, soeh_krz, region = NULL,
-                                koernung = TRUE, mit_nfk = TRUE,
+                                koernung = TRUE, mit_nfk = TRUE, glatt = TRUE,
                                 rel_breite = c(1, 1.6)) {
 
   gg <- leitprofil_linien_plot(data_input, soeh_krz, region = region,
-                               mit_nfk = mit_nfk, vertikal = TRUE)
+                               mit_nfk = mit_nfk, glatt = glatt, vertikal = TRUE)
 
   aqp_grob <- cowplot::as_grob(function()
     horizont_abfolge_plot(data_input, soeh_krz = soeh_krz,
