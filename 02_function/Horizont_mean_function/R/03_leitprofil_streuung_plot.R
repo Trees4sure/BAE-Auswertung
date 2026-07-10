@@ -159,10 +159,10 @@ leitprofil_streuung_plot <- function(data_input, soeh_krz, region = NULL,
 # unplausible Werte (<0 / >100); die lineare Verbindung der echten Horizont-
 # Mittelwerte bleibt dagegen exakt auf den gemessenen Punkten.
 #
-# NFK laeuft auf derselben Werte-Achse mit (mit_nfk = TRUE): NFK ist zwar in mm
-# und die uebrigen Kennwerte in %, aber wie in der Ausgangsdarstellung teilen
-# sie sich eine Achse. Die Werte-Achse traegt deshalb KEINE Einheit; NFK
-# abschaltbar ueber mit_nfk = FALSE (dann nur %-Werte, Achse sauber 0-100).
+# NFK (mit_nfk = TRUE) ist in mm, die uebrigen Kennwerte in %. Damit alle Linien
+# in EINEM Panel bleiben, wird NFK auf die 0-100-%-Achse gestaucht und ueber eine
+# ZWEITE Achse (oben bzw. rechts, sec_axis) wieder in mm beschriftet. So draengt
+# NFK die %-Linien nicht mehr zusammen. mit_nfk = FALSE -> nur %-Achse.
 #
 # vertikal = FALSE  -> Tiefe auf der x-Achse (freistehender Plot).
 # vertikal = TRUE   -> Tiefe auf der y-Achse (nach unten), damit die Linien
@@ -170,7 +170,7 @@ leitprofil_streuung_plot <- function(data_input, soeh_krz, region = NULL,
 #                      (so nutzt horizont_mit_linien() die Funktion).
 #' @param data_input,soeh_krz,region  wie leitprofil_kennwerte()
 #' @param titel    optionaler Titel; NULL = aus SOEH_KRZ/Region gebaut
-#' @param mit_nfk  TRUE = NFK-Linie zusaetzlich (mm, laeuft auf gleicher Achse mit)
+#' @param mit_nfk  TRUE = NFK-Linie zusaetzlich (mm, ueber zweite Achse lesbar)
 #' @param glatt    TRUE = weiche Spline-Kurven DURCH die Punkte (geklammert);
 #'                 FALSE = gerade Verbindungen (linear) zwischen den Horizonten
 #' @param vertikal TRUE = Tiefe vertikal (zum Anlegen neben das aqp-Profil)
@@ -201,6 +201,16 @@ leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
   kennwerte <- c("Sand", "Feinsand", "Mittelsand", "Grobsand", "Schluff", "Ton", "Basen")
   if (mit_nfk) kennwerte <- c(kennwerte, "NFK")
 
+  # NFK ist in mm, alle anderen Kennwerte in %. Damit NFK auf der 0-100-%-Achse
+  # mitlaeuft, wird es auf diesen Bereich gestaucht (NFK/nfk_max*100) und ueber
+  # eine ZWEITE Achse (sec_axis) wieder in mm lesbar gemacht. nfk_max = auf 10er
+  # aufgerundetes Datenmaximum, damit die zweite Achse runde Werte zeigt.
+  nfk_max <- NA_real_
+  if (mit_nfk) {
+    m <- suppressWarnings(max(kw$NFK, na.rm = TRUE))
+    nfk_max <- if (!is.finite(m) || m <= 0) 100 else ceiling(m / 10) * 10
+  }
+
   lang <- kw %>%
     dplyr::select(HORIZONT, TIEFE_UG, dplyr::all_of(kennwerte)) %>%
     tidyr::pivot_longer(dplyr::all_of(kennwerte),
@@ -208,8 +218,18 @@ leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
     dplyr::mutate(Kennwert = factor(Kennwert, levels = kennwerte)) %>%
     dplyr::arrange(Kennwert, TIEFE_UG)
 
+  # NFK-Werte in den %-Raum stauchen (Punkte, Kurve und Labels teilen danach
+  # dieselbe 0-100-Skala; die sec_axis rechnet fuer die Beschriftung zurueck).
+  if (!is.na(nfk_max))
+    lang <- dplyr::mutate(lang,
+      Wert = dplyr::if_else(Kennwert == "NFK", Wert / nfk_max * 100, Wert))
+
   # Ende jeder Linie (tiefster Horizont) fuer die Direkt-Beschriftung.
   enden <- dplyr::filter(lang, TIEFE_UG == max(TIEFE_UG))
+
+  # Zweite Achse fuer NFK (mm); ohne NFK bleibt es bei der reinen %-Achse.
+  sek <- if (!is.na(nfk_max))
+    ggplot2::sec_axis(~ . / 100 * nfk_max, name = "NFK [mm]") else ggplot2::waiver()
 
   # Linien-Datensatz: bei glatt = TRUE ein kubischer Spline (n = 200) DURCH die
   # echten Horizontpunkte, je Kennwert auf einen plausiblen Bereich geklammert
@@ -224,9 +244,9 @@ leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
       dplyr::group_by(Kennwert) %>%
       dplyr::filter(dplyr::n() >= 3) %>%
       dplyr::group_modify(~ {
-        s  <- stats::spline(.x$TIEFE_UG, .x$Wert, n = 200)
-        og <- if (identical(as.character(.y$Kennwert), "NFK")) max(.x$Wert) else 100
-        data.frame(TIEFE_UG = s$x, Wert = pmin(pmax(s$y, 0), og))
+        s <- stats::spline(.x$TIEFE_UG, .x$Wert, n = 200)
+        # Alle Werte liegen jetzt im 0-100-Raum (NFK oben bereits gestaucht).
+        data.frame(TIEFE_UG = s$x, Wert = pmin(pmax(s$y, 0), 100))
       }) %>%
       dplyr::ungroup()
   }
@@ -242,7 +262,8 @@ leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
                          hjust = -0.1, vjust = 0.4, size = 3, na.rm = TRUE) +
       ggplot2::scale_color_manual(values = farben, guide = "none") +
       ggplot2::scale_y_reverse(name = "Tiefe [cm]", breaks = round(kw$TIEFE_UG)) +
-      ggplot2::scale_x_continuous(name = "Mittelwert je Horizont",
+      ggplot2::scale_x_continuous(name = "Mittelwert je Horizont [%]", sec.axis = sek,
+                                  limits = c(0, 100),
                                   expand = ggplot2::expansion(mult = c(0.02, 0.16))) +
       ggplot2::labs(title = titel) +
       ggplot2::theme_minimal() +
@@ -265,7 +286,8 @@ leitprofil_linien_plot <- function(data_input, soeh_krz, region = NULL,
                                   breaks = round(kw$TIEFE_UG),
                                   limits = c(0, max(kw$TIEFE_UG) + 8),
                                   expand = ggplot2::expansion(mult = c(0.01, 0.12))) +
-      ggplot2::scale_y_continuous(name = "Mittelwert je Horizont") +
+      ggplot2::scale_y_continuous(name = "Mittelwert je Horizont [%]", sec.axis = sek,
+                                  limits = c(0, 100)) +
       ggplot2::labs(title = titel) +
       ggplot2::theme_minimal() +
       ggplot2::coord_cartesian(clip = "off") +
