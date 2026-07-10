@@ -94,6 +94,7 @@ if (is.null(WM_DIR)) {
 boden_dir  <- normalizePath(file.path(LOCAL_DIR, "01_data/Grundlagen/Bodendatenbank"),         mustWork = FALSE)
 geo_dir    <- normalizePath(file.path(LOCAL_DIR, "01_data/Grundlagen/Geodaten"),         mustWork = FALSE)
 result_dir <- normalizePath(file.path(LOCAL_DIR, "04_results"),         mustWork = FALSE)
+log_dir    <- normalizePath(file.path(result_dir, "BAE_Auswertung", "logs"), mustWork = FALSE)
 bzt_dir    <- normalizePath(file.path(LOCAL_DIR, "01_data/BZT_Mergings") ,         mustWork = FALSE)
 
 Boden.dir <- list.files(boden_dir, recursive = TRUE, full.names = TRUE)
@@ -813,6 +814,12 @@ server <- function(input, output, session) {
   wm_cache       <- reactiveValues(data = list())
   bzt_cache      <- reactiveValues(data = list())
   selected_punkt <- reactiveVal(NULL)
+
+  # Herkunft der zuletzt geladenen Daten je Tab. Wird an den Ladestellen
+  # (filtered_raw, an_filtered_raw, vgl_result, Schleife) befuellt und beim
+  # Export in schreibe_datenlog() ausgewertet -> nachvollziehbar, aus welchen
+  # Dateien eine exportierte Grafik/Tabelle stammt.
+  herkunft <- reactiveValues(karte = NULL, analyse = NULL, vergleich = NULL)
   
   # CSV-Cache: Rohdaten nur neu lesen wenn sich Klimalauf ändert,
   # NICHT bei Baumart/TV/Stufen-Wechsel
@@ -938,7 +945,16 @@ server <- function(input, output, session) {
       message("NR-CSV-Treffer: ", length(match_files),
               if (length(match_files) > 0)
                 paste0(" (z.B. ", basename(match_files[1]), ")") else "")
-      
+
+      # Herkunft festhalten (fuer Datenverbindungs-Log beim Export)
+      herkunft$karte <- list(
+        inputs = list(Datenquelle = "NR", NR = input$nr_sel, TV = input$tv_sel,
+                      Stufe = input$stufe, Szenario = input$szenario,
+                      Modell = input$modell, Zeitraum = input$zeitraum,
+                      Baumart = input$baumart_sel),
+        quellen  = match_files,
+        fallback = length(leaf_dirs) == 0)
+
       validate(need(length(match_files) > 0,
                     paste0("Keine NR-CSV gefunden f\u00fcr: ",
                            input$nr_sel, " / TV", input$tv_sel, " / ",
@@ -968,6 +984,15 @@ server <- function(input, output, session) {
       # BWI: Pre-aggregierte CSV
       # csv_raw() ist gecacht – wird nur bei Klimalauf-Änderung neu gelesen
       df_raw <- csv_raw()
+      row_bwi <- klima_meta %>%
+        filter(Szenario == input$szenario, Modell == input$modell,
+               Zeitraum == input$zeitraum)
+      herkunft$karte <- list(
+        inputs = list(Datenquelle = "BWI", TV = input$tv_sel, Stufe = input$stufe,
+                      Szenario = input$szenario, Modell = input$modell,
+                      Zeitraum = input$zeitraum, Baumart = input$baumart_sel),
+        quellen  = row_bwi$file,
+        fallback = FALSE)
     }
     
     ### ---- 2.4.2 Dynamische Stufenerkennung ----
@@ -1042,7 +1067,8 @@ server <- function(input, output, session) {
     
     validate(need(nrow(joined) > 0,
                   "Join ohne Treffer \u2013 MASTER_ID-\u00dcbereinstimmung pr\u00fcfen."))
-    
+    if (!is.null(herkunft$karte)) herkunft$karte$n <- nrow(joined)
+
     ### ---- 2.4.6 Rohdaten zurueckgeben (Einfaerbung erfolgt in filtered()) ----
     # Einfaerbung bewusst NICHT hier: filtered_raw() ist an input$run_karte
     # gebunden und laedt die (schweren) CSV/NR-Daten. Die Farbe haengt nur an
@@ -1606,6 +1632,9 @@ server <- function(input, output, session) {
       htmlwidgets::saveWidget(m, file = tmp, selfcontained = TRUE)
       file.copy(tmp, file.path(out_dir, fname), overwrite = TRUE)
       unlink(tmp)
+      schreibe_datenlog(fname, "Karte / HTML-Export", herkunft$karte,
+                        zentral_dir = log_dir,
+                        sidecar_datei = file.path(out_dir, fname))
       showNotification(paste0("HTML gespeichert: ", fname), type = "message", duration = 6)
     }), error = function(e)
       showNotification(paste0("HTML-Export fehlgeschlagen: ", conditionMessage(e)),
@@ -1742,6 +1771,9 @@ server <- function(input, output, session) {
       incProgress(0.4, detail = "Speichern...")
       ggplot2::ggsave(filename = file.path(out_dir, fname), plot = p,
                       width = 40, height = 34, units = "cm", dpi = 600)
+      schreibe_datenlog(fname, "Karte / PNG-Export", herkunft$karte,
+                        zentral_dir = log_dir,
+                        sidecar_datei = file.path(out_dir, fname))
       showNotification(paste0("PNG gespeichert: ", fname), type = "message", duration = 6)
     })
   })
@@ -2048,6 +2080,19 @@ server <- function(input, output, session) {
           n_ok    <- n_ok + 1L
           erzeugt <- c(erzeugt, file.path(kl_folder, fname))
       }
+      schreibe_datenlog(
+        paste0(kl_folder, " (", n_total, " Karten)"),
+        "Karte / Schleifen-Export",
+        list(inputs = list(Datenquelle = region_tag, TV = input$tv_sel,
+                           Szenario = szen, Modell = mod, Zeitraum = zeit,
+                           Baumart = ba_set,
+                           Stufe = if (isTRUE(input$schleife_stufe == "alle"))
+                                     "alle" else input$schleife_stufe),
+             quellen  = if (is_nr) match_files else row_meta$file,
+             fallback = if (is_nr) length(leaf_dirs) == 0 else FALSE,
+             n = nrow(joined)),
+        zentral_dir   = log_dir,
+        sidecar_datei = file.path(combo_dir, "_datenquellen"))
       message("Schleifen-Export ", szen, "/", mod, "/", zeit, ": ",
               n_total, " Karten -> ", combo_dir)
     }, error = function(e) {
@@ -2157,6 +2202,14 @@ server <- function(input, output, session) {
           grepl(ba_pat, bn)
       ])
 
+      herkunft$analyse <- list(
+        inputs = list(Datenquelle = "NR", NR = input$an_nr_sel, TV = input$an_tv_sel,
+                      Stufe = input$an_stufe, Szenario = input$an_szenario,
+                      Modell = input$an_modell, Zeitraum = input$an_zeitraum,
+                      Baumart = input$an_baumart_sel),
+        quellen  = match_files,
+        fallback = length(leaf_dirs) == 0)
+
       validate(need(length(match_files) > 0,
                     paste0("Keine NR-CSV gefunden für: ",
                            input$an_nr_sel, " / TV", input$an_tv_sel, " / ",
@@ -2188,6 +2241,12 @@ server <- function(input, output, session) {
                            " / ", input$an_modell, " / ", input$an_zeitraum)))
       df_raw <- data.table::fread(row_meta$file,
                                   colClasses = list(character = "MASTER_ID"))
+      herkunft$analyse <- list(
+        inputs = list(Datenquelle = "BWI", TV = input$an_tv_sel, Stufe = input$an_stufe,
+                      Szenario = input$an_szenario, Modell = input$an_modell,
+                      Zeitraum = input$an_zeitraum, Baumart = input$an_baumart_sel),
+        quellen  = row_meta$file,
+        fallback = FALSE)
     }
 
     ### Dynamische Stufenerkennung ---------------------------------------------
@@ -2246,6 +2305,7 @@ server <- function(input, output, session) {
 
     validate(need(nrow(joined) > 0,
                   "Join ohne Treffer – MASTER_ID-Übereinstimmung prüfen."))
+    if (!is.null(herkunft$analyse)) herkunft$analyse$n <- nrow(joined)
     joined
   })
 
@@ -2446,6 +2506,8 @@ server <- function(input, output, session) {
              input$an_zeitraum, "_", input$an_stufe, ".png")
     },
     content = function(file) {
+      schreibe_datenlog("Balkendiagramm (PNG-Download)", "Analyse-Tab",
+                        herkunft$analyse, zentral_dir = log_dir)
       ggplot2::ggsave(file, plot = analyse_balken_plot(),
                       width = 26, height = 15, units = "cm", dpi = 300, bg = "white")
     }
@@ -2505,9 +2567,12 @@ server <- function(input, output, session) {
       paste0("Kreuztabelle_", input$an_szenario, "_", input$an_modell, "_",
              input$an_zeitraum, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
     },
-    content = function(file) data.table::fwrite(analyse_data()$kreuztab_n,
-                                                file, sep = ";", dec = ",", bom = TRUE)
-
+    content = function(file) {
+      schreibe_datenlog("Kreuztabelle (CSV-Download)", "Analyse-Tab",
+                        herkunft$analyse, zentral_dir = log_dir)
+      data.table::fwrite(analyse_data()$kreuztab_n,
+                         file, sep = ";", dec = ",", bom = TRUE)
+    }
   )
 
   output$download_stats <- downloadHandler(
@@ -2515,8 +2580,12 @@ server <- function(input, output, session) {
       paste0("Statistik_", input$an_szenario, "_", input$an_modell, "_",
              input$an_zeitraum, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
     },
-    content = function(file) data.table::fwrite(analyse_data()$stats_df,
-                                                file, sep = ";", dec = ",", bom = TRUE)
+    content = function(file) {
+      schreibe_datenlog("Statistik (CSV-Download)", "Analyse-Tab",
+                        herkunft$analyse, zentral_dir = log_dir)
+      data.table::fwrite(analyse_data()$stats_df,
+                         file, sep = ";", dec = ",", bom = TRUE)
+    }
   )
   
   ## ---- 2.18 Vergleich-Tab / Differenz-Layer (Phase 5) ----
@@ -2567,6 +2636,10 @@ server <- function(input, output, session) {
 
     bae_col <- input$vgl_stufe
 
+    # Herkunft der gelesenen Dateien beider Klimalaeufe sammeln (Datenlog).
+    vgl_files    <- character(0)
+    vgl_fallback <- FALSE
+
     # Liest EINEN Klimalauf. BWI: eine vor-aggregierte CSV (klima_meta$file).
     # NR: je gewaehltem TV die passenden Region-Dateien finden (Schema wie
     # an_filtered_raw) - Baumart steckt im Dateinamen, TV kommt aus der Schleife.
@@ -2576,6 +2649,7 @@ server <- function(input, output, session) {
         meta <- klima_meta %>%
           filter(Szenario == szenario, Modell == modell, Zeitraum == zeitraum)
         validate(need(nrow(meta) == 1, "Kein eindeutiger BWI-Klimalauf gefunden."))
+        vgl_files <<- c(vgl_files, meta$file)
         df <- data.table::fread(meta$file) %>%
           rename_with(toupper) %>%
           filter(BAUMART %in% baumarten, TV %in% as.integer(tvs)) %>%
@@ -2619,6 +2693,8 @@ server <- function(input, output, session) {
             grepl(paste0("_", modell,   "_"), bn) &
             grepl(paste0("_", zeitraum, "_"), bn) &
             grepl(ba_pat, bn)])
+        vgl_files <<- c(vgl_files, match_files)
+        if (length(leaf_dirs) == 0) vgl_fallback <<- TRUE
         if (length(match_files) == 0) return(NULL)
         data.table::rbindlist(lapply(match_files, function(f) {
           dt <- data.table::fread(f, fill = TRUE)
@@ -2643,6 +2719,15 @@ server <- function(input, output, session) {
                       input$vgl_baumart, input$vgl_tv)
     df_b <- lese_lauf(input$vgl_sz_b, input$vgl_mod_b, input$vgl_zr_b,
                       input$vgl_baumart, input$vgl_tv)
+
+    herkunft$vergleich <- list(
+      inputs = list(Datenquelle = if (is_nr) input$vgl_nr_sel else "BWI",
+                    TV = input$vgl_tv, Stufe = input$vgl_stufe,
+                    Baumart = input$vgl_baumart,
+                    Lauf_A = paste(input$vgl_sz_a, input$vgl_mod_a, input$vgl_zr_a, sep = " / "),
+                    Lauf_B = paste(input$vgl_sz_b, input$vgl_mod_b, input$vgl_zr_b, sep = " / ")),
+      quellen  = unique(vgl_files),
+      fallback = vgl_fallback)
 
     # Join und Differenz
     diff_df <- inner_join(
@@ -2843,8 +2928,11 @@ server <- function(input, output, session) {
              gsub(" / ", "_", res$label_b), "_",
              format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
     },
-    content = function(file) data.table::fwrite(vgl_result()$df,
-                                                file, sep = ";", dec = ",", bom = TRUE)
+    content = function(file) {
+      schreibe_datenlog("Differenztabelle (CSV-Download)", "Vergleich-Tab",
+                        herkunft$vergleich, zentral_dir = log_dir)
+      data.table::fwrite(vgl_result()$df, file, sep = ";", dec = ",", bom = TRUE)
+    }
   )
 
   # Vergleichskarte als ggplot (fuer PNG-Download). Geometrie-Dispatch wie in
@@ -2904,6 +2992,8 @@ server <- function(input, output, session) {
              gsub(" / ", "_", res$label_b), ".png")
     },
     content = function(file) {
+      schreibe_datenlog("Vergleichskarte (PNG-Download)", "Vergleich-Tab",
+                        herkunft$vergleich, zentral_dir = log_dir)
       ggplot2::ggsave(file, plot = vgl_plot(),
                       width = 24, height = 24, units = "cm", dpi = 300, bg = "white")
     }
@@ -2921,7 +3011,12 @@ server <- function(input, output, session) {
     content = function(file) {
       sel <- selected_punkt()
       if (is.null(sel)) stop("Bitte zuerst einen Punkt anklicken.")
-      
+      schreibe_datenlog(
+        paste0("Standortblatt MASTER_ID ", as.character(sel$punkt$MASTER_ID)),
+        "Standort-Tab",
+        list(inputs = list(MASTER_ID = as.character(sel$punkt$MASTER_ID))),
+        zentral_dir = log_dir)
+
       d     <- sel$punkt
       boden <- sel$boden
       wm_df <- sel$wm
@@ -3260,6 +3355,13 @@ server <- function(input, output, session) {
     content = function(file) {
       df <- sa_data()
       req(!is.null(df) && nrow(df) > 0)
+      schreibe_datenlog(
+        paste0("Standortanalyse ", input$sa_ansicht, " (PNG-Download)"),
+        "Standortanalyse-Tab",
+        list(inputs = list(MASTER_ID = as.character(unique(df$MASTER_ID)[1]),
+                           Ansicht = input$sa_ansicht, Stufe = input$sa_stufe),
+             n = nrow(df)),
+        zentral_dir = log_dir)
       p <- switch(input$sa_ansicht,
                   heatmap         = heatmap_standort_ggplot(df, input$sa_stufe),
                   heatmap_zukunft = heatmap_bae_zukunft_function(
@@ -3287,6 +3389,12 @@ server <- function(input, output, session) {
     content = function(file) {
       df <- sa_data()
       req(!is.null(df) && nrow(df) > 0)
+      schreibe_datenlog(
+        "Standortanalyse (CSV-Download)", "Standortanalyse-Tab",
+        list(inputs = list(MASTER_ID = as.character(unique(df$MASTER_ID)[1]),
+                           Stufe = input$sa_stufe),
+             n = nrow(df)),
+        zentral_dir = log_dir)
       data.table::fwrite(df, file, sep = ";", bom = TRUE)
     }
   )

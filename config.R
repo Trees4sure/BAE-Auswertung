@@ -84,3 +84,58 @@ message("KS_IMG_DIR : ", if (dir.exists(KS_IMG_DIR))  KS_IMG_DIR  else paste0("(
 message("---")
 
 
+# ── 5. Datenverbindungs-Log ─────────────────────────────────
+#
+# Zweck: nachvollziehen, WOHER die Daten einer exportierten Grafik/Tabelle
+# stammen (Anlass 2026-07: falsche Filter-Zuordnung im Analyse-Tab).
+# Geschrieben wird NUR beim Klick auf einen Export-/Download-Button, dann aber
+# zweifach:
+#   1) zentrale Sammeldatei  -> <result_dir>/BAE_Auswertung/logs/datenverbindungen_<Datum>.log
+#   2) optionales Sidecar    -> <export_datei>.log direkt neben der abgelegten
+#      Datei (nur bei serverseitig geschriebenen Dateien; Browser-Downloads
+#      landen im Download-Ordner des Nutzers, den die App nicht kennt -> dort
+#      nur der zentrale Eintrag).
+#
+# herkunft: Liste aus $inputs (benannte Filterwerte), $quellen (Vektor der real
+# gelesenen Dateipfade), optional $fallback (rekursiver NR-Scan aktiv?) und $n
+# (Zeilen im Datensatz). Wird an den Ladestellen in app.R befuellt.
+schreibe_datenlog <- function(export_name, tab, herkunft = NULL,
+                              zentral_dir, sidecar_datei = NULL) {
+  inp <- if (!is.null(herkunft)) herkunft$inputs else NULL
+  q   <- if (!is.null(herkunft)) herkunft$quellen else character(0)
+  block <- c(
+    strrep("=", 72),
+    paste0("Zeit        : ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    paste0("Export      : ", export_name),
+    paste0("Tab/Quelle  : ", tab),
+    "Filter:",
+    if (length(inp))
+      paste0("    ", format(names(inp), width = 12), "= ",
+             vapply(inp, function(x) paste(x, collapse = ", "), character(1)))
+    else "    (keine erfasst)",
+    paste0("Gelesene Dateien (", length(q), "):"),
+    if (length(q)) paste0("    - ", q) else "    (keine erfasst)",
+    if (isTRUE(herkunft$fallback))
+      "    ! REKURSIVER FALLBACK aktiv - Datei-Zuordnung pruefen!" else NULL,
+    if (!is.null(herkunft$n)) paste0("Zeilen im Datensatz : ", herkunft$n) else NULL,
+    ""
+  )
+  txt <- paste0(paste(block, collapse = "\n"), "\n")
+
+  # 1) zentrale Sammeldatei (pro Tag eine)
+  tryCatch({
+    dir.create(zentral_dir, recursive = TRUE, showWarnings = FALSE)
+    cat(txt, append = TRUE,
+        file = file.path(zentral_dir,
+                         paste0("datenverbindungen_", format(Sys.Date(), "%Y%m%d"), ".log")))
+  }, error = function(e) message("Datenlog (zentral) fehlgeschlagen: ", conditionMessage(e)))
+
+  # 2) Sidecar neben der abgelegten Datei
+  if (!is.null(sidecar_datei) && dir.exists(dirname(sidecar_datei)))
+    tryCatch(cat(txt, file = paste0(sidecar_datei, ".log"), append = FALSE),
+             error = function(e) message("Datenlog (Sidecar) fehlgeschlagen: ", conditionMessage(e)))
+
+  invisible(txt)
+}
+
+
