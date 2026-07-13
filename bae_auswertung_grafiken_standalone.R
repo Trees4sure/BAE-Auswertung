@@ -394,10 +394,8 @@ bae_kurven_function <- function(data,
 #' @param facet_ncol     Spaltenzahl der Facetten (nur bei facet = TRUE). NULL =
 #'                       automatisch (~Wurzel). z. B. 1 = alle Gruppen untereinander.
 #' @param legend_pos     Legendenposition ("right", "bottom", "none", …).
-#' @param excel          TRUE = zusätzlich eine Excel-Datei mit den ROH-Auszählungen
-#'                       (je Zelle die Anzahl pro Kategorie) zum Nachvollziehen schreiben.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
-#' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs + optional Excel).
+#' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_modus_matrix_function <- function(data,
                                       master_id,
                                       stufen         = c("3st", "4st", "5st", "bin"),
@@ -411,7 +409,6 @@ bae_modus_matrix_function <- function(data,
                                       facet          = FALSE,    # TRUE: alle Gruppen in EINE facettierte Grafik
                                       facet_ncol     = NULL,     # Spaltenzahl der Facetten (NULL = auto)
                                       legend_pos     = "right",  # Legendenposition
-                                      excel          = TRUE,     # Roh-Auszählungen als Excel mitschreiben
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
@@ -448,8 +445,7 @@ bae_modus_matrix_function <- function(data,
 
   gruppen <- sort(unique(d0$Gruppe))   # alphabetisch: OBS… vor RCP…, chronologisch
 
-  plots        <- list()
-  excel_sheets <- list()   # je Stufe die Roh-Auszählungen (für den Excel-Export)
+  plots <- list()
   for (st in stufen) {
     d_st <- .bae_add_stufe(d0, st)
     if (is.null(d_st)) {
@@ -461,19 +457,6 @@ bae_modus_matrix_function <- function(data,
     kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
     kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
     dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
-
-    # ROH-Auszählung (identisch zur Kachel-Zählung, nur unaggregiert und mit
-    # allen Kategorien je Zelle) für den Excel-Export -> Zählungen nachvollziehbar.
-    # n_max = häufigste Anzahl in der Zelle, ist_haeufigste = diese Kategorie(n)
-    # wären die Kachelfarbe, tie = Gleichstand.
-    excel_sheets[[st]] <- d_st %>%
-      dplyr::mutate(Baumart = as.character(Baumart), TV_M = as.character(TV_M)) %>%
-      dplyr::count(Gruppe, TV_M, Baumart, Kategorie, name = "n") %>%
-      dplyr::group_by(Gruppe, TV_M, Baumart) %>%
-      dplyr::mutate(n_max = max(n), ist_haeufigste = n == n_max,
-                    tie = sum(n == n_max) > 1) %>%
-      dplyr::ungroup() %>%
-      dplyr::arrange(Gruppe, TV_M, Baumart, dplyr::desc(n))
 
     # --------------------------------------------------------------------
     #  facet = TRUE: ALLE Gruppen in EINE facettierte Grafik (wie die
@@ -670,23 +653,6 @@ bae_modus_matrix_function <- function(data,
       plots[[paste0(st, "_", grp_tag)]] <- p
     }
   }
-
-  # Roh-Auszählungen als Excel (eine Tabelle je Stufe) zum Nachvollziehen der
-  # Zählungen. Ohne writexl/openxlsx kein Export (kein CSV – nicht nachvollziehbar).
-  if (excel && length(excel_sheets)) {
-    xlsx_f <- file.path(mid_dir, paste0("ModusMatrix_Auszaehlung_", master_id,
-                                        "_", modelle_str, ".xlsx"))
-    if (requireNamespace("writexl", quietly = TRUE)) {
-      writexl::write_xlsx(excel_sheets, xlsx_f)
-      message("Gespeichert: ", xlsx_f)
-    } else if (requireNamespace("openxlsx", quietly = TRUE)) {
-      openxlsx::write.xlsx(excel_sheets, xlsx_f)
-      message("Gespeichert: ", xlsx_f)
-    } else {
-      message("Excel-Export übersprungen: bitte install.packages(\"writexl\").")
-    }
-  }
-
   invisible(plots)
 }
 
@@ -699,7 +665,7 @@ bae_modus_matrix_function <- function(data,
 #'
 #' @param data,master_id,stufen,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
 #'   wie bei bae_kurven_function().
-#' @param trennung,hinweis_row,facet,facet_ncol,legend_pos,excel wie bei
+#' @param trennung,hinweis_row,facet,facet_ncol,legend_pos wie bei
 #'   bae_modus_matrix_function().
 #' @return unsichtbar list(kurven = ..., matrix = ...) der ggplot-Objekte.
 bae_auswertung_grafiken <- function(data, master_id,
@@ -713,7 +679,6 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     facet          = FALSE,
                                     facet_ncol     = NULL,
                                     legend_pos     = "right",
-                                    excel          = TRUE,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   kurven <- bae_kurven_function(data, master_id, stufen = stufen,
@@ -725,8 +690,7 @@ bae_auswertung_grafiken <- function(data, master_id,
                                       szen_rename = szen_rename, szenarien = szenarien,
                                       hinweis_row = hinweis_row,
                                       facet = facet, facet_ncol = facet_ncol,
-                                      legend_pos = legend_pos, excel = excel,
-                                      out_dir = out_dir)
+                                      legend_pos = legend_pos, out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
 }
 
