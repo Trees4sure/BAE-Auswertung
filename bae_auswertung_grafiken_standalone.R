@@ -264,6 +264,34 @@ library(stringr)
   if (length(m)) paste(m, collapse = "-") else "NA"
 }
 
+# Referenz-Sortierung (feste Achsen für Vergleiche): liefert die TV×Methode- und
+# Baumart-Reihenfolge EINER Referenz-Stufe (gewichtete Summe der Stufe, schlecht
+# -> gut) als Level-Vektoren. So können mehrere Grafiken (z. B. binär + 4-stufig
+# nebeneinander) dieselbe Achsenaufteilung nutzen, statt jede für sich zu
+# sortieren. Liefert NULL, wenn die Stufe keine Daten hat.
+.bae_ref_levels <- function(data, master_id, stufe, hinweis_row = .bae_hinweis_row,
+                            rcp_zukunft_ab = 2021, obs_alle = TRUE,
+                            szen_rename = character(0),
+                            szenarien = c("OBS", "RCP45", "RCP85")) {
+  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
+  if (is.null(d0)) return(NULL)
+  if (!"Hinweis" %in% names(d0)) d0$Hinweis <- ""
+  d0 <- d0 %>%
+    dplyr::mutate(
+      Hinweis = dplyr::coalesce(as.character(Hinweis), ""),
+      Methode = dplyr::coalesce(unname(hinweis_row[Hinweis]), Hinweis),
+      TV_M    = ifelse(Methode == "", as.character(TV),
+                       paste0(as.character(TV), " (", Methode, ")")))
+  d_st <- .bae_add_stufe(d0, stufe)
+  if (is.null(d_st)) return(NULL)
+  gew <- d_st %>% dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
+  tv <- gew %>% dplyr::group_by(TV_M) %>%
+    dplyr::summarise(s = sum(w), .groups = "drop") %>% dplyr::arrange(s, TV_M)
+  ba <- gew %>% dplyr::group_by(Baumart) %>%
+    dplyr::summarise(s = sum(w), .groups = "drop") %>% dplyr::arrange(s, Baumart)
+  list(tv = as.character(tv$TV_M), ba = as.character(ba$Baumart))
+}
+
 # ----  2  SKIZZE 1 – Empfehlungs-Kurven ----
 
 #' Empfehlungs-Kurven je TV über die Baumarten (Skizze 1)
@@ -397,6 +425,10 @@ bae_kurven_function <- function(data,
 #' @param facet_ncol     Spaltenzahl der Facetten (nur bei facet = TRUE). NULL =
 #'                       automatisch (~Wurzel). z. B. 1 = alle Gruppen untereinander.
 #' @param legend_pos     Legendenposition ("right", "bottom", "none", …).
+#' @param order_ref      NULL = jede Grafik sortiert sich selbst (gewichtet). Sonst
+#'                       eine Referenz-Stufe (z. B. "4st"): deren gewichtete TV- und
+#'                       Baumart-Reihenfolge wird für ALLE Grafiken dieses Aufrufs
+#'                       fest übernommen -> Achsen vergleichbar.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_modus_matrix_function <- function(data,
@@ -412,6 +444,7 @@ bae_modus_matrix_function <- function(data,
                                       facet          = FALSE,    # TRUE: alle Gruppen in EINE facettierte Grafik
                                       facet_ncol     = NULL,     # Spaltenzahl der Facetten (NULL = auto)
                                       legend_pos     = "right",  # Legendenposition
+                                      order_ref      = NULL,     # Referenz-Stufe für feste Achsen (z. B. "4st")
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
@@ -445,6 +478,14 @@ bae_modus_matrix_function <- function(data,
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
+
+  # Feste Referenz-Sortierung (order_ref) einmal berechnen -> für alle Stufen/Gruppen
+  # dieselben Achsen. NULL = jede Grafik sortiert sich selbst (bisheriges Verhalten).
+  ref_lv <- if (!is.null(order_ref))
+    .bae_ref_levels(data, master_id, order_ref, hinweis_row,
+                    rcp_zukunft_ab, obs_alle, szen_rename, szenarien) else NULL
+  if (!is.null(order_ref) && is.null(ref_lv))
+    message("order_ref '", order_ref, "' ohne Daten – Sortierung fällt je Grafik selbst.")
 
   gruppen <- sort(unique(d0$Gruppe))   # alphabetisch: OBS… vor RCP…, chronologisch
 
@@ -488,6 +529,8 @@ bae_modus_matrix_function <- function(data,
 
       # GLOBAL gewichtet sortiert (gemeinsame Achsen über alle Facetten):
       # Summe der Stufe je Zeile (TV×Methode) bzw. Baumart über ALLE Gruppen.
+      # Mit order_ref: stattdessen die feste Referenz-Reihenfolge (present-Werte
+      # angehängt, damit nichts verloren geht).
       gew <- d_st %>% dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
       tv_ord <- gew %>% dplyr::group_by(TV_M) %>%
         dplyr::summarise(s = sum(w), .groups = "drop") %>%
@@ -495,11 +538,13 @@ bae_modus_matrix_function <- function(data,
       ba_ord <- gew %>% dplyr::group_by(Baumart) %>%
         dplyr::summarise(s = sum(w), .groups = "drop") %>%
         dplyr::arrange(s, Baumart)
+      tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, as.character(tv_ord$TV_M)) else as.character(tv_ord$TV_M)
+      ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
 
       kachel <- kachel %>%
         dplyr::mutate(
-          TV_M    = factor(as.character(TV_M),    levels = as.character(tv_ord$TV_M)),
-          Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)),
+          TV_M    = factor(as.character(TV_M),    levels = tv_lv),
+          Baumart = factor(as.character(Baumart), levels = ba_lv),
           Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
 
       # Zahl nur zeigen, wenn mind. eine Gruppe mehrere Klimaläufe zusammenfasst
@@ -593,11 +638,14 @@ bae_modus_matrix_function <- function(data,
       ba_ord <- gew %>% dplyr::group_by(Baumart) %>%
         dplyr::summarise(s = sum(w), .groups = "drop") %>%
         dplyr::arrange(s, Baumart)
+      # Mit order_ref: feste Referenz-Reihenfolge statt der je-Gruppe-Sortierung.
+      tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, as.character(tv_ord$TV_M)) else as.character(tv_ord$TV_M)
+      ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
 
       kachel <- kachel %>%
         dplyr::mutate(
-          TV_M    = factor(as.character(TV_M),    levels = as.character(tv_ord$TV_M)),
-          Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)))
+          TV_M    = factor(as.character(TV_M),    levels = tv_lv),
+          Baumart = factor(as.character(Baumart), levels = ba_lv))
 
       # Nur EIN Klimalauf in der Gruppe -> jede Kachel ist zwangsläufig "1"
       # (keine Aggregation, kein Gleichstand) -> Zahl weglassen, sie trägt nichts
@@ -668,7 +716,7 @@ bae_modus_matrix_function <- function(data,
 #'
 #' @param data,master_id,stufen,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
 #'   wie bei bae_kurven_function().
-#' @param trennung,hinweis_row,facet,facet_ncol,legend_pos wie bei
+#' @param trennung,hinweis_row,facet,facet_ncol,legend_pos,order_ref wie bei
 #'   bae_modus_matrix_function().
 #' @return unsichtbar list(kurven = ..., matrix = ...) der ggplot-Objekte.
 bae_auswertung_grafiken <- function(data, master_id,
@@ -682,6 +730,7 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     facet          = FALSE,
                                     facet_ncol     = NULL,
                                     legend_pos     = "right",
+                                    order_ref      = NULL,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   kurven <- bae_kurven_function(data, master_id, stufen = stufen,
@@ -693,7 +742,8 @@ bae_auswertung_grafiken <- function(data, master_id,
                                       szen_rename = szen_rename, szenarien = szenarien,
                                       hinweis_row = hinweis_row,
                                       facet = facet, facet_ncol = facet_ncol,
-                                      legend_pos = legend_pos, out_dir = out_dir)
+                                      legend_pos = legend_pos, order_ref = order_ref,
+                                      out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
 }
 
@@ -707,11 +757,16 @@ bae_auswertung_grafiken <- function(data, master_id,
 #' einzeln als PNG gespeichert (bleiben also erhalten).
 #'
 #' @param stufen_paar Länge-2-Vektor c(links, rechts); Default c("bin", "4st").
+#' @param order_ref   Referenz-Stufe für die GEMEINSAME Achsen-Sortierung beider
+#'                    Seiten (Default "4st" – feinste Skala, sauberster Gradient;
+#'                    "3st" = wie im 3st-Verfahrensvergleich). So liegen dieselbe
+#'                    TV-Zeile / Baumart-Spalte links wie rechts an gleicher Stelle.
 #' @param facet_ncol,legend_pos,trennung,rcp_zukunft_ab,obs_alle,szen_rename,
 #'   szenarien,hinweis_row,werte_anzeigen,out_dir wie bei bae_modus_matrix_function().
 #' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
 bae_modus_facet_paar <- function(data, master_id,
                                  stufen_paar    = c("bin", "4st"),
+                                 order_ref      = "4st",
                                  trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                  rcp_zukunft_ab = 2021,
                                  obs_alle       = TRUE,
@@ -729,14 +784,15 @@ bae_modus_facet_paar <- function(data, master_id,
     return(invisible(NULL))
   }
 
-  # Beide Seiten als facettierte Einzel-Modus-Matrix erzeugen. Nebeneffekt: sie
+  # Beide Seiten als facettierte Einzel-Modus-Matrix erzeugen. order_ref gibt für
+  # BEIDE dieselbe Achsen-Sortierung -> direkt vergleichbar. Nebeneffekt: sie
   # werden dabei AUCH einzeln als PNG gespeichert -> Einzelgrafiken bleiben.
   args <- list(data = data, master_id = master_id, trennung = trennung,
                rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                szen_rename = szen_rename, szenarien = szenarien,
                hinweis_row = hinweis_row, werte_anzeigen = werte_anzeigen,
                facet = TRUE, facet_ncol = facet_ncol, legend_pos = legend_pos,
-               out_dir = out_dir)
+               order_ref = order_ref, out_dir = out_dir)
   pl <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[1])))
   pr <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[2])))
 
@@ -829,11 +885,17 @@ bae_modus_facet_paar <- function(data, master_id,
 #                           szenarien = c("OBS", "RCP85"), trennung = "klimalauf",
 #                           facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
 #
-# # Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift (die beiden
-# # Einzel-Facets werden dabei auch separat gespeichert):
+# # Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift, GEMEINSAME
+# # Achsen-Sortierung nach 4st (order_ref) -> beide Seiten direkt vergleichbar
+# # (die beiden Einzel-Facets werden dabei auch separat gespeichert):
 # bae_modus_facet_paar(data, master_id = "NR_130_08_66519",
-#                      stufen_paar = c("bin", "4st"), szenarien = c("OBS", "RCP85"),
+#                      stufen_paar = c("bin", "4st"), order_ref = "4st",
+#                      szenarien = c("OBS", "RCP85"),
 #                      trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
+#
+# # Feste Achsen-Sortierung (nach 4st) auch für einzelne Matrizen erzwingen:
+# bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
+#                           stufen = c("bin", "4st"), order_ref = "4st")
 #
 # # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 # bae_modus_matrix_function(
