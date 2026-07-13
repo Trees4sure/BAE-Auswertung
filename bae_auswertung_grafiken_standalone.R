@@ -1,6 +1,5 @@
-# ============================================================================
-# bae_auswertung_grafiken_standalone.R
-# ----------------------------------------------------------------------------
+# ----  bae_auswertung_grafiken_standalone.R  ----
+#
 # Eigenständiges Skript (UNABHÄNGIG von der Shiny-App). Verdichtet die
 # BAE-Heatmap zu zwei übersichtlicheren Auswertungsgrafiken pro
 # Bewertungsstufe und MASTER_ID:
@@ -48,16 +47,13 @@
 # `Klimalauf` z. B. "OBS_DWD_1991-2020", "RCP45_MPICLM_2071-2100",
 #                   "RCP45-v3_MPICLM_2021-2050", "RCP85_MPICLM_2071-2100_v2".
 # Stufen-Mappings und Farbpalette sind mit dem Heatmap-Skript konsistent.
-# ============================================================================
 
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(stringr)
 
-# ============================================================================
-#  GEMEINSAME KONSTANTEN (konsistent mit heatmap_bae_zukunft_standalone.R)
-# ============================================================================
+# ----  1  GEMEINSAME KONSTANTEN (konsistent mit heatmap_bae_zukunft_standalone.R) ----
 
 # Farbpalette der Kategorien (Kachelfarben der Heatmap)
 .bae_palette <- c(
@@ -131,11 +127,13 @@ library(stringr)
   "WKE"           = ""
 )
 
-# ----------------------------------------------------------------------------
-#  Gemeinsame Aufbereitung: filtern auf MASTER_ID, Klimalauf zerlegen,
-#  RCP-Zukunft/OBS filtern. Liefert das aufbereitete data.frame `d`
-#  (ohne die stufenabhängige Kategorie/Stufe – die wird pro Stufe ergänzt).
-# ----------------------------------------------------------------------------
+#' Gemeinsame Aufbereitung (intern): auf MASTER_ID filtern, Klimalauf zerlegen,
+#' Szenarien- und RCP-Zukunfts-Filter anwenden. Liefert das aufbereitete
+#' data.frame `d` (ohne stufenabhängige Kategorie/Stufe – die ergänzt
+#' .bae_add_stufe() je Stufe) oder NULL, wenn nichts übrig bleibt.
+#'
+#' @param data,master_id,rcp_zukunft_ab,obs_alle,szen_rename,szenarien
+#'   wie bei den öffentlichen Funktionen.
 .bae_prep <- function(data, master_id, rcp_zukunft_ab = 2021,
                       obs_alle = TRUE, szen_rename = character(0),
                       szenarien = c("OBS", "RCP45", "RCP85")) {
@@ -238,9 +236,22 @@ library(stringr)
   if (length(m)) paste(m, collapse = "-") else "NA"
 }
 
-# ============================================================================
-#  SKIZZE 1 – Empfehlungs-Kurven
-# ============================================================================
+# ----  2  SKIZZE 1 – Empfehlungs-Kurven ----
+
+#' Empfehlungs-Kurven je TV über die Baumarten (Skizze 1)
+#'
+#' @param data          data.frame mit MASTER_ID, Baumart, TV, Klimalauf sowie
+#'                       BAE_3ST / BAE_4ST / BAE_5ST (wie im Heatmap-Skript).
+#' @param master_id     ID des Standorts, auf den gefiltert wird.
+#' @param stufen        Bewertungsstufen, je eine PNG: "3st","4st","5st","bin".
+#' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
+#' @param obs_alle       TRUE = OBS-Läufe unabhängig vom Zeitraum behalten.
+#' @param szen_rename    benannter Vektor c("<intern>" = "<Anzeige>") zum
+#'                       Umbenennen der Szenario-Labels (optional).
+#' @param szenarien      zu behaltende Basis-Szenarien (Default OBS+RCP45+RCP85);
+#'                       NULL = alle Szenarien.
+#' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
+#' @return unsichtbar eine Liste der ggplot-Objekte je Stufe (Nebeneffekt: PNGs).
 bae_kurven_function <- function(data,
                                 master_id,
                                 stufen         = c("3st", "4st", "5st", "bin"),
@@ -335,9 +346,29 @@ bae_kurven_function <- function(data,
   invisible(plots)
 }
 
-# ============================================================================
-#  SKIZZE 2 – Häufigste Empfehlung (ausgezählte, sortierte Matrix)
-# ============================================================================
+# ----  3  SKIZZE 2 – Häufigste Empfehlung (ausgezählte, sortierte Matrix) ----
+
+#' Häufigste Empfehlung als ausgezählte, gewichtet sortierte Matrix (Skizze 2)
+#'
+#' @param data          data.frame wie bei bae_kurven_function (zusätzlich
+#'                       optional Spalte Hinweis = Rechenmethode).
+#' @param master_id     ID des Standorts, auf den gefiltert wird.
+#' @param stufen        Bewertungsstufen: "3st","4st","5st","bin".
+#' @param trennung      Gruppierung der Matrizen: "klimalauf" (je Klimalauf, Default),
+#'                       "zeit" (Vergangenheit vs. Zukunft), "szenario", "keine".
+#' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
+#' @param obs_alle       TRUE = OBS-Läufe unabhängig vom Zeitraum behalten.
+#' @param szen_rename    benannter Vektor zum Umbenennen der Szenario-Labels.
+#' @param szenarien      zu behaltende Basis-Szenarien (Default OBS+RCP45+RCP85);
+#'                       NULL = alle.
+#' @param hinweis_row    Zuordnung Hinweis -> Zeilen-Label (leer = in Standardzeile
+#'                       "TVx" zusammenlegen).
+#' @param werte_anzeigen TRUE = Anzahl je Kachel beschriften (nur wenn eine Gruppe
+#'                       mehrere Klimaläufe zusammenfasst).
+#' @param facet          TRUE = alle Gruppen in EINE facettierte Grafik (facet_wrap,
+#'                       gemeinsame, global sortierte Achsen); FALSE = je Gruppe eine PNG.
+#' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
+#' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_modus_matrix_function <- function(data,
                                       master_id,
                                       stufen         = c("3st", "4st", "5st", "bin"),
@@ -590,9 +621,17 @@ bae_modus_matrix_function <- function(data,
   invisible(plots)
 }
 
-# ============================================================================
-#  Bequemer Wrapper: beide Grafiken erzeugen
-# ============================================================================
+# ----  4  Bequemer Wrapper: beide Grafiken erzeugen ----
+
+#' Beide Auswertungsgrafiken (Kurven + Modus-Matrix) nacheinander erzeugen
+#'
+#' Ruft bae_kurven_function() und bae_modus_matrix_function() mit denselben
+#' Argumenten auf. Parameter siehe dort.
+#'
+#' @param data,master_id,stufen,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
+#'   wie bei bae_kurven_function().
+#' @param trennung,hinweis_row,facet wie bei bae_modus_matrix_function().
+#' @return unsichtbar list(kurven = ..., matrix = ...) der ggplot-Objekte.
 bae_auswertung_grafiken <- function(data, master_id,
                                     stufen         = c("3st", "4st", "5st", "bin"),
                                     trennung       = c("klimalauf", "zeit", "szenario", "keine"),
@@ -616,9 +655,7 @@ bae_auswertung_grafiken <- function(data, master_id,
   invisible(list(kurven = kurven, matrix = matrix))
 }
 
-# ============================================================================
-# BEISPIEL-AUFRUF (auskommentiert)
-# ----------------------------------------------------------------------------
+# ----  5  BEISPIEL-AUFRUF (auskommentiert) ----
 # data <- data.table::fread("meine_bae_daten.csv")
 #
 # # Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default).
@@ -647,4 +684,3 @@ bae_auswertung_grafiken <- function(data, master_id,
 # bae_modus_matrix_function(
 #   data, master_id = "NR_130_08_66519", trennung = "keine",
 #   szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
-# ============================================================================

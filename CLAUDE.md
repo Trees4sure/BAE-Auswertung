@@ -25,6 +25,10 @@
   Schritt für Schritt nachvollziehen können. Wenig "alles ist miteinander
   verwoben".
 - Der Nutzer schreibt selbst eher wenig verschachtelt – daran orientieren.
+- **Abschnitts-Überschriften im RStudio-Stil.** KEINE mehrzeiligen `#===`-Kästen,
+  sondern einzeilig mit `----`-Markern, damit sie in der RStudio-Gliederung
+  (Inhaltsverzeichnis) auftauchen:
+  `# ----  ÜBERSCHRIFT (ggf. Zusatz) ----`
 
 ## Projekt-Notizen
 
