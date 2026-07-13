@@ -486,6 +486,8 @@ bae_modus_matrix_function <- function(data,
                     rcp_zukunft_ab, obs_alle, szen_rename, szenarien) else NULL
   if (!is.null(order_ref) && is.null(ref_lv))
     message("order_ref '", order_ref, "' ohne Daten – Sortierung fällt je Grafik selbst.")
+  # Dateinamen-Kürzel für die Referenz-Sortierung (nur wenn wirklich angewandt)
+  ord_tag <- if (!is.null(ref_lv)) paste0("_", order_ref, "ord") else ""
 
   gruppen <- sort(unique(d0$Gruppe))   # alphabetisch: OBS… vor RCP…, chronologisch
 
@@ -589,7 +591,7 @@ bae_modus_matrix_function <- function(data,
           plot.background  = ggplot2::element_rect(fill = "white", color = NA))
 
       f <- file.path(mid_dir, paste0("ModusMatrix_facet_", st, "_",
-                                     master_id, "_", modelle_str, ".png"))
+                                     master_id, "_", modelle_str, ord_tag, ".png"))
       ggplot2::ggsave(f, plot = p, device = "png",
                       width  = (500 + n_ba * 95) * fac_ncol + 200,
                       height = (400 + n_tv * 95) * fac_nrow + 200,
@@ -695,7 +697,7 @@ bae_modus_matrix_function <- function(data,
       n_tv <- length(levels(kachel$TV_M))
       grp_tag <- gsub("[^A-Za-z0-9]+", "-", grp)
       f <- file.path(mid_dir, paste0("ModusMatrix_", st, "_", grp_tag, "_",
-                                     master_id, "_", modelle_grp, ".png"))
+                                     master_id, "_", modelle_grp, ord_tag, ".png"))
       ggplot2::ggsave(f, plot = p, device = "png",
                       width  = 700 + n_ba * 95,
                       height = 500 + n_tv * 95,
@@ -846,8 +848,10 @@ bae_modus_facet_paar <- function(data, master_id,
 
   mid_dir <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
+  ord_tag <- if (!is.null(order_ref)) paste0("_", order_ref, "ord") else ""
   f <- file.path(mid_dir, paste0("ModusMatrix_facetpaar_", stufen_paar[1], "-",
-                                 stufen_paar[2], "_", master_id, "_", modelle_str, ".png"))
+                                 stufen_paar[2], "_", master_id, "_", modelle_str,
+                                 ord_tag, ".png"))
   ggplot2::ggsave(f, plot = comb, device = "png",
                   width = 2 * w1, height = h1 + 250, units = "px",
                   dpi = 150, limitsize = FALSE)
