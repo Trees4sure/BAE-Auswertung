@@ -238,36 +238,63 @@ d <- d %>%
 # Achse interpoliert Werte, die es nicht gibt (Baumarten sind ungeordnet, es gibt
 # nichts "zwischen" GBI und GDG) -> unlesbares Kurven-Wirrwarr. Stattdessen die
 # eigentliche Frage direkt: wie viele TVs empfehlen eine Baumart, und wie einig
-# sind sie sich?  Pro (Panel, Baumart) auszählen, wie viele TVs in jeder Kategorie
+# sind sie sich?  Pro (Gruppe, Baumart) auszählen, wie viele TVs in jeder Kategorie
 # landen, als GESTAPELTER ANTEILSBALKEN. Großer grüner Block = breit empfohlen;
 # gemischte Farben = TVs uneinig.
-ba_levels <- levels(droplevels(d$Baumart))
-kat_lv    <- c(ordn, "pBv", "Keine Datengrundlage")   # Fill-/Legenden-Reihenfolge
 
-# eine Kategorie je (Panel, Baumart, TV): häufigste (Modus) über die Hinweis-Methoden
+# GRUPPIERUNG (Facetten) über `trennung` – wie die Modus-Matrix (Abschnitt 0/14):
+#   "klimalauf" -> ein Panel je Klimalauf (Default)
+#   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe aggregiert
+#   "szenario"  -> je Szen_label ein Panel;   "keine" -> ein gemeinsames Panel
+d <- d %>%
+  mutate(Gruppe = switch(trennung,
+    "klimalauf" = as.character(Klimalauf),
+    "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+    "szenario"  = as.character(Szen_label),
+    "keine"     = "alle"))
+gruppen <- sort(unique(d$Gruppe))
+# ansehen:  gruppen ; table(d$Gruppe)
+
+# Baumarten GEWICHTET sortieren (wie die Modus-Matrix): Summe der Stufe je Baumart
+# = Nennungen × Empfehlungsstufe (sehr empfohlen zählt am meisten; pBv / Keine
+# Datengrundlage = 0), GLOBAL über alle Gruppen. Aufsteigend -> schwächster
+# Konsens links, bestempfohlene Baumart rechts. Gilt für Balken UND Kurve.
+ba_ord <- d %>%
+  group_by(Baumart) %>%
+  summarise(s = sum(coalesce(as.numeric(Stufe), 0)), .groups = "drop") %>%
+  arrange(s, Baumart)
+ba_levels <- as.character(ba_ord$Baumart)              # links = schwach … rechts = empfohlen
+kat_lv    <- c(ordn, "pBv", "Keine Datengrundlage")    # Fill-/Legenden-Reihenfolge
+# ansehen:  ba_ord
+
+# eine Kategorie je (Gruppe, Baumart, TV): häufigste (Modus) über die Hinweis-
+# Methoden (und, falls trennung aggregiert, über die Klimaläufe der Gruppe)
 tv_kat <- d %>%
-  count(Szen_label, Zeitraum, Baumart, TV, Kategorie, name = "n") %>%
-  group_by(Szen_label, Zeitraum, Baumart, TV) %>%
+  count(Gruppe, Baumart, TV, Kategorie, name = "n") %>%
+  group_by(Gruppe, Baumart, TV) %>%
   slice_max(n, n = 1, with_ties = FALSE) %>%
   ungroup()
 # ansehen:  tv_kat
 
-# je (Panel, Baumart) die TVs pro Kategorie auszählen
+# je (Gruppe, Baumart) die TVs pro Kategorie auszählen
 konsens <- tv_kat %>%
-  count(Szen_label, Zeitraum, Baumart, Kategorie, name = "n_tv") %>%
-  mutate(Kategorie = factor(Kategorie, levels = kat_lv))
+  count(Gruppe, Baumart, Kategorie, name = "n_tv") %>%
+  mutate(Kategorie = factor(Kategorie, levels = kat_lv),
+         Baumart   = factor(as.character(Baumart), levels = ba_levels),   # empfohlene rechts
+         Gruppe    = factor(as.character(Gruppe),  levels = gruppen))
 # ansehen:  konsens
 
 p_balken <-
   ggplot(konsens, aes(x = Baumart, y = n_tv, fill = Kategorie)) +
   geom_col(position = "fill", width = 0.9) +
-  facet_grid(Szen_label ~ Zeitraum) +
+  facet_wrap(~ Gruppe) +
   scale_fill_manual(values = custom_palette, limits = kat_lv, drop = FALSE) +
   scale_y_continuous(labels = function(v) paste0(round(v * 100), "%")) +
   labs(title    = paste0("BAE – Konsens der TVs je Baumart – ", master_id),
-       subtitle = paste0(sub("st$", "", stufe),
-                         "-stufig  |  Anteil der TVs je Empfehlung  |  Modell: ", modelle_str),
-       x = NULL, y = "Anteil der TVs", fill = "Empfehlung") +
+       subtitle = paste0(sub("st$", "", stufe), "-stufig  |  je ", trennung,
+                         "  |  Anteil der TVs je Empfehlung  |  empfohlene Baumarten rechts →  |  Modell: ",
+                         modelle_str),
+       x = "Baumart  (bestempfohlene →)", y = "Anteil der TVs", fill = "Empfehlung") +
   theme_minimal(base_size = 11) +
   theme(strip.text       = element_text(face = "bold", size = 9),
         strip.background = element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
@@ -283,21 +310,24 @@ p_balken                                   # im Plot-Fenster ansehen
 
 # ----  13b  SKIZZE 1b – KONSENS-KURVE (Median-Stufe + Spannband der TVs) ----
 # Ehrliche Variante der alten Kurven: KEIN Spline, gerade Segmente. Statt 12
-# verschlungener TV-Linien pro (Panel, Baumart) EINE Konsens-Linie (Median der
+# verschlungener TV-Linien pro (Gruppe, Baumart) EINE Konsens-Linie (Median der
 # TV-Stufen) + graues Band (min..max über die TVs). Schmales Band = TVs einig,
 # breites Band = uneinig. Graue Punkte = die einzelnen TV-Werte (Streuung).
+# Gleiche Gruppierung (trennung) und gleiche Baumart-Sortierung wie der Balken.
 
-# ein Stufen-Wert je (Panel, TV, Baumart): Mittel über die Hinweis-Methoden
+# ein Stufen-Wert je (Gruppe, TV, Baumart): Mittel über Hinweis-Methoden (und
+# Klimaläufe der Gruppe)
 tv_val <- d %>%
-  group_by(Szen_label, Zeitraum, TV, Baumart) %>%
+  group_by(Gruppe, TV, Baumart) %>%
   summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
   filter(!is.nan(y)) %>%
-  mutate(x = as.integer(factor(Baumart, levels = ba_levels)))
+  mutate(x      = as.integer(factor(Baumart, levels = ba_levels)),
+         Gruppe = factor(as.character(Gruppe), levels = gruppen))
 # ansehen:  tv_val
 
-# je (Panel, Baumart): Median + Spannweite über die TVs
+# je (Gruppe, Baumart): Median + Spannweite ("Konfidenzintervall" der TVs)
 konsens_band <- tv_val %>%
-  group_by(Szen_label, Zeitraum, Baumart, x) %>%
+  group_by(Gruppe, Baumart, x) %>%
   summarise(y_med = median(y), y_min = min(y), y_max = max(y), .groups = "drop")
 # ansehen:  konsens_band
 
@@ -308,15 +338,15 @@ p_konsens <-
   geom_point(data = tv_val, aes(x = x, y = y), color = "grey45", size = 0.8, alpha = 0.5) +
   geom_line(data = konsens_band, aes(x = x, y = y_med), color = "#1A9850", linewidth = 1) +
   geom_point(data = konsens_band, aes(x = x, y = y_med), color = "#1A9850", size = 1.6) +
-  facet_grid(Szen_label ~ Zeitraum) +
+  facet_wrap(~ Gruppe) +
   scale_x_continuous(breaks = seq_along(ba_levels), labels = ba_levels) +
   scale_y_continuous(breaks = seq_along(ordn), labels = ordn,
                      limits = c(1, length(ordn)), expand = expansion(mult = 0.05)) +
   labs(title    = paste0("BAE – Konsens-Kurve der TVs – ", master_id),
-       subtitle = paste0(sub("st$", "", stufe),
-                         "-stufig  |  Linie = Median, Band = Spannweite über die TVs  |  Modell: ",
+       subtitle = paste0(sub("st$", "", stufe), "-stufig  |  je ", trennung,
+                         "  |  Linie = Median, Band = Spannweite der TVs  |  empfohlene Baumarten rechts →  |  Modell: ",
                          modelle_str),
-       x = NULL, y = "Empfehlung") +
+       x = "Baumart  (bestempfohlene →)", y = "Empfehlung") +
   theme_minimal(base_size = 11) +
   theme(strip.text        = element_text(face = "bold", size = 9),
         strip.background   = element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),

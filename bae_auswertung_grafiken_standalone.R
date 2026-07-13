@@ -314,6 +314,8 @@ library(stringr)
 #'                       BAE_3ST / BAE_4ST / BAE_5ST (wie im Heatmap-Skript).
 #' @param master_id     ID des Standorts, auf den gefiltert wird.
 #' @param stufen        Bewertungsstufen, je Stufe zwei PNGs: "3st","4st","5st","2st".
+#' @param trennung      Facetten-Gruppierung: "klimalauf" (je Klimalauf, Default),
+#'                       "zeit" (Vergangenheit vs. Zukunft), "szenario", "keine".
 #' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
 #' @param obs_alle       TRUE = OBS-Läufe unabhängig vom Zeitraum behalten.
 #' @param szen_rename    benannter Vektor c("<intern>" = "<Anzeige>") zum
@@ -325,23 +327,35 @@ library(stringr)
 bae_konsens_function <- function(data,
                                  master_id,
                                  stufen         = c("3st", "4st", "5st", "2st"),
+                                 trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                  rcp_zukunft_ab = 2021,
                                  obs_alle       = TRUE,
                                  szen_rename    = character(0),
                                  szenarien      = c("OBS", "RCP45", "RCP85"),
                                  out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
+  trennung <- match.arg(trennung)
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   if (is.null(d0)) return(invisible(NULL))
+
+  # Facetten-Gruppe wie die Modus-Matrix: klimalauf (Default) / zeit / szenario / keine
+  d0 <- d0 %>%
+    dplyr::mutate(Gruppe = switch(trennung,
+      "klimalauf" = as.character(Klimalauf),
+      "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+      "szenario"  = as.character(Szen_label),
+      "keine"     = "alle"))
+  gruppen <- sort(unique(d0$Gruppe))
 
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
 
-  n_spalten <- length(levels(droplevels(d0$Zeitraum)))
-  n_zeilen  <- length(levels(droplevels(d0$Szen_label)))
-  breite    <- 1200 + n_spalten * 850
-  hoehe     <-  650 + n_zeilen  * 480
+  n_grp    <- length(gruppen)
+  fac_ncol <- ceiling(sqrt(n_grp))
+  fac_nrow <- ceiling(n_grp / fac_ncol)
+  breite   <- 500 + fac_ncol * 900
+  hoehe    <- 400 + fac_nrow * 650
 
   strip_theme <- ggplot2::theme(
     strip.text       = ggplot2::element_text(face = "bold", size = 9),
@@ -359,29 +373,40 @@ bae_konsens_function <- function(data,
 
     ordn   <- .bae_kat_order[[st]]
     kat_lv <- c(ordn, "pBv", "Keine Datengrundlage")
-    ba_lv  <- levels(droplevels(d_st$Baumart))
 
-    # ---- 1a Konsens-Balken: je (Panel, Baumart) Anteil der TVs je Kategorie ----
-    # eine Kategorie je (Panel, Baumart, TV): häufigste (Modus) über die Hinweis-Methoden
+    # Baumarten GEWICHTET sortieren (Summe der Stufe = Nennungen × Empfehlungsstufe,
+    # global über alle Gruppen): schwächster Konsens links, bestempfohlene rechts.
+    ba_ord <- d_st %>%
+      dplyr::group_by(Baumart) %>%
+      dplyr::summarise(s = sum(dplyr::coalesce(as.numeric(Stufe), 0)), .groups = "drop") %>%
+      dplyr::arrange(s, Baumart)
+    ba_lv <- as.character(ba_ord$Baumart)
+
+    # ---- 1a Konsens-Balken: je (Gruppe, Baumart) Anteil der TVs je Kategorie ----
+    # eine Kategorie je (Gruppe, Baumart, TV): Modus über Hinweis-Methoden (und
+    # Klimaläufe der Gruppe, falls trennung aggregiert)
     tv_kat <- d_st %>%
-      dplyr::count(Szen_label, Zeitraum, Baumart, TV, Kategorie, name = "n") %>%
-      dplyr::group_by(Szen_label, Zeitraum, Baumart, TV) %>%
+      dplyr::count(Gruppe, Baumart, TV, Kategorie, name = "n") %>%
+      dplyr::group_by(Gruppe, Baumart, TV) %>%
       dplyr::slice_max(n, n = 1, with_ties = FALSE) %>%
       dplyr::ungroup()
     konsens <- tv_kat %>%
-      dplyr::count(Szen_label, Zeitraum, Baumart, Kategorie, name = "n_tv") %>%
-      dplyr::mutate(Kategorie = factor(Kategorie, levels = kat_lv))
+      dplyr::count(Gruppe, Baumart, Kategorie, name = "n_tv") %>%
+      dplyr::mutate(Kategorie = factor(Kategorie, levels = kat_lv),
+                    Baumart   = factor(as.character(Baumart), levels = ba_lv),
+                    Gruppe    = factor(as.character(Gruppe),  levels = gruppen))
 
     p_bal <- ggplot2::ggplot(konsens, ggplot2::aes(x = Baumart, y = n_tv, fill = Kategorie)) +
       ggplot2::geom_col(position = "fill", width = 0.9) +
-      ggplot2::facet_grid(Szen_label ~ Zeitraum) +
+      ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
       ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
       ggplot2::scale_y_continuous(labels = function(v) paste0(round(v * 100), "%")) +
       ggplot2::labs(
         title    = paste0("BAE – Konsens der TVs je Baumart – ", master_id),
-        subtitle = paste0(sub("st$", "", st),
-                          "-stufig  |  Anteil der TVs je Empfehlung  |  Modell: ", modelle_str),
-        x = NULL, y = "Anteil der TVs", fill = "Empfehlung") +
+        subtitle = paste0(sub("st$", "", st), "-stufig  |  je ", trennung,
+                          "  |  Anteil der TVs je Empfehlung  |  empfohlene Baumarten rechts →  |  Modell: ",
+                          modelle_str),
+        x = "Baumart  (bestempfohlene →)", y = "Anteil der TVs", fill = "Empfehlung") +
       ggplot2::theme_minimal(base_size = 11) + strip_theme +
       ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
                      legend.position = "bottom")
@@ -393,15 +418,16 @@ bae_konsens_function <- function(data,
     message("Gespeichert: ", f_bal)
     plots[[paste0(st, "_balken")]] <- p_bal
 
-    # ---- 1b Konsens-Kurve: Median-Stufe + Spannband über die TVs ----
-    # ein Stufen-Wert je (Panel, TV, Baumart): Mittel über die Hinweis-Methoden
+    # ---- 1b Konsens-Kurve: Median-Stufe + Spannband ("Konfidenzintervall" der TVs) ----
+    # ein Stufen-Wert je (Gruppe, TV, Baumart): Mittel über Hinweis-Methoden/Klimaläufe
     tv_val <- d_st %>%
-      dplyr::group_by(Szen_label, Zeitraum, TV, Baumart) %>%
+      dplyr::group_by(Gruppe, TV, Baumart) %>%
       dplyr::summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
       dplyr::filter(!is.nan(y)) %>%
-      dplyr::mutate(x = as.integer(factor(Baumart, levels = ba_lv)))
+      dplyr::mutate(x      = as.integer(factor(Baumart, levels = ba_lv)),
+                    Gruppe = factor(as.character(Gruppe), levels = gruppen))
     konsens_band <- tv_val %>%
-      dplyr::group_by(Szen_label, Zeitraum, Baumart, x) %>%
+      dplyr::group_by(Gruppe, Baumart, x) %>%
       dplyr::summarise(y_med = stats::median(y), y_min = min(y), y_max = max(y),
                        .groups = "drop")
 
@@ -415,17 +441,17 @@ bae_konsens_function <- function(data,
                          color = "#1A9850", linewidth = 1) +
       ggplot2::geom_point(data = konsens_band, ggplot2::aes(x = x, y = y_med),
                           color = "#1A9850", size = 1.6) +
-      ggplot2::facet_grid(Szen_label ~ Zeitraum) +
+      ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
       ggplot2::scale_x_continuous(breaks = seq_along(ba_lv), labels = ba_lv) +
       ggplot2::scale_y_continuous(
         breaks = seq_along(ordn), labels = ordn,
         limits = c(1, length(ordn)), expand = ggplot2::expansion(mult = 0.05)) +
       ggplot2::labs(
         title    = paste0("BAE – Konsens-Kurve der TVs – ", master_id),
-        subtitle = paste0(sub("st$", "", st),
-                          "-stufig  |  Linie = Median, Band = Spannweite über die TVs  |  Modell: ",
+        subtitle = paste0(sub("st$", "", st), "-stufig  |  je ", trennung,
+                          "  |  Linie = Median, Band = Spannweite der TVs  |  empfohlene Baumarten rechts →  |  Modell: ",
                           modelle_str),
-        x = NULL, y = "Empfehlung") +
+        x = "Baumart  (bestempfohlene →)", y = "Empfehlung") +
       ggplot2::theme_minimal(base_size = 11) + strip_theme +
       ggplot2::theme(
         panel.border       = ggplot2::element_rect(color = "grey80", fill = NA, linewidth = 0.5),
@@ -776,7 +802,7 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     order_ref      = NULL,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
-  konsens <- bae_konsens_function(data, master_id, stufen = stufen,
+  konsens <- bae_konsens_function(data, master_id, stufen = stufen, trennung = trennung,
                                   rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                                   szen_rename = szen_rename, szenarien = szenarien,
                                   out_dir = out_dir)
