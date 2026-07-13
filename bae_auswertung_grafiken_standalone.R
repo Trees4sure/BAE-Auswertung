@@ -807,8 +807,8 @@ bae_modus_facet_paar <- function(data, master_id,
   }
   
   # kurze Seiten-Titel statt der langen Einzel-Titel; gemeinsame Überschrift oben
-  lab_l <- if (identical(stufen_paar[1], "2st")) "binär" else paste0(sub("st$", "", stufen_paar[1]), "-stufig")
-  lab_r <- if (identical(stufen_paar[2], "2st")) "binär" else paste0(sub("st$", "", stufen_paar[2]), "-stufig")
+  lab_l <- paste0(sub("st$", "", stufen_paar[1]), "-stufig")
+  lab_r <- paste0(sub("st$", "", stufen_paar[2]), "-stufig")
   
   gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL)
   gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL)

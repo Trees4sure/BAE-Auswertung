@@ -522,7 +522,7 @@ for (st in stufen_paar) {
            Baumart = factor(as.character(Baumart), levels = union(ref$ba, unique(as.character(Baumart)))),
            Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
   
-  lab_st <- if (st == "2st") "binär" else paste0(sub("st$", "", st), "-stufig")
+  lab_st <- paste0(sub("st$", "", st), "-stufig")
   facet_plots[[st]] <-
     ggplot(kachel_st, aes(x = Baumart, y = TV_M)) +
     geom_tile(aes(fill = Kategorie), color = "white", linewidth = 0.6) +
@@ -558,7 +558,8 @@ p_paar <- (facet_plots[[stufen_paar[1]]] + facet_plots[[stufen_paar[2]]]) +
 p_paar <- p_paar +
   plot_annotation(
     title    = paste0("BAE – häufigste Empfehlung – ", master_id),
-    subtitle = paste0("links: binär  |  rechts: 4-stufig  |  Modell: ", modelle_str),
+    subtitle = paste0("links: ", sub("st$", "", stufen_paar[1]), "-stufig  |  rechts: ",
+                      sub("st$", "", stufen_paar[2]), "-stufig  |  Modell: ", modelle_str),
     theme = theme(plot.title      = element_text(size = 24, face = "bold"),
                   plot.subtitle   = element_text(size = 16),
                   plot.background = element_rect(fill = "white", color = NA)))
