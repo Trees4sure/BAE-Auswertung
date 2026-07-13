@@ -70,7 +70,7 @@ library(stringr)
 )
 
 # Code -> Kategorie je Stufigkeit (Code 1 = beste Bewertung)
-# "bin" = binär aus der 3-stufigen Spalte (BAE_3ST – bei 5st fehlen vielerorts
+# "2st" = binär aus der 3-stufigen Spalte (BAE_3ST – bei 5st fehlen vielerorts
 # die Daten): NUR der schlechteste Code 3 = "nicht empfohlen", die übrigen
 # gültigen Codes (1-2) = "empfohlen". pBv / leer / NA fallen (wie bei den
 # anderen Stufen) auf pBv bzw. Keine Datengrundlage.
@@ -80,10 +80,10 @@ library(stringr)
             "4" = "nicht empfohlen"),
   "5st" = c("1" = "sehr empfohlen", "2" = "empfohlen", "3" = "mäßig empfohlen",
             "4" = "wenig empfohlen", "5" = "nicht empfohlen"),
-  "bin" = c("1" = "empfohlen", "2" = "empfohlen", "3" = "nicht empfohlen")
+  "2st" = c("1" = "empfohlen", "2" = "empfohlen", "3" = "nicht empfohlen")
 )
 .bae_col <- c("3st" = "BAE_3ST", "4st" = "BAE_4ST", "5st" = "BAE_5ST",
-              "bin" = "BAE_3ST")
+              "2st" = "BAE_3ST")
 
 # Kategorien je Stufe von "schlecht" (Stufe 1, unten/rot) nach "gut"
 # (Stufe n, oben/grün). Index in diesem Vektor = numerische Empfehlungsstufe
@@ -94,7 +94,7 @@ library(stringr)
   "4st" = c("nicht empfohlen", "mäßig empfohlen", "empfohlen", "sehr empfohlen"),
   "5st" = c("nicht empfohlen", "wenig empfohlen", "mäßig empfohlen",
             "empfohlen", "sehr empfohlen"),
-  "bin" = c("nicht empfohlen", "empfohlen")
+  "2st" = c("nicht empfohlen", "empfohlen")
 )
 
 # Farben für die (bis zu 12) TV-Linien in Skizze 1
@@ -158,13 +158,13 @@ library(stringr)
 .bae_prep <- function(data, master_id, rcp_zukunft_ab = 2021,
                       obs_alle = TRUE, szen_rename = character(0),
                       szenarien = c("OBS", "RCP45", "RCP85")) {
-
+  
   d <- data %>% dplyr::filter(as.character(MASTER_ID) == as.character(master_id))
   if (nrow(d) == 0) {
     message("Keine Daten für MASTER_ID: ", master_id)
     return(NULL)
   }
-
+  
   # Szenario / Modell / Zeitraum / Variante aus Klimalauf ableiten
   d <- d %>%
     dplyr::mutate(
@@ -174,27 +174,27 @@ library(stringr)
       Szenario  = stringr::str_remove(stringr::str_extract(Klimalauf, "^[^_]+"),
                                       "[-_]?[vV][0-9]+$"),
       Modell    = stringr::str_remove(
-                    stringr::str_remove(Klimalauf, "^[^_]+_"),
-                    "_?\\d{4}-\\d{4}.*$"),
+        stringr::str_remove(Klimalauf, "^[^_]+_"),
+        "_?\\d{4}-\\d{4}.*$"),
       Szen_label = ifelse(is.na(Variante), Szenario,
                           paste0(Szenario, "_", Variante)),
       Startjahr  = suppressWarnings(as.integer(stringr::str_sub(Zeitraum, 1, 4)))
     )
-
+  
   # Zeilen-Labels optional umbenennen  c("<intern>" = "<Anzeige>")
   if (length(szen_rename) > 0) {
     idx <- match(d$Szen_label, names(szen_rename))
     treffer <- !is.na(idx)
     d$Szen_label[treffer] <- unname(szen_rename[idx[treffer]])
   }
-
+  
   ohne_zeit <- is.na(d$Zeitraum)
   if (any(ohne_zeit)) {
     message("Hinweis: ", sum(ohne_zeit), " Zeile(n) ohne erkennbaren Zeitraum ",
             "werden ignoriert.")
     d <- d[!ohne_zeit, , drop = FALSE]
   }
-
+  
   # Szenarien-Auswahl: nur die gewünschten Szenarien behalten (auf der BASIS
   # Szenario, d. h. RCP45 schließt Varianten wie RCP45-v3 mit ein). Default =
   # OBS (der Beobachtungslauf 1991-2020) + RCP45 + RCP85. szenarien = NULL
@@ -207,7 +207,7 @@ library(stringr)
       return(NULL)
     }
   }
-
+  
   # RCP: nur Zukunft; OBS: optional alles
   is_rcp   <- grepl("^RCP", d$Szenario, ignore.case = TRUE)
   keep_rcp <- !is.na(d$Startjahr) & d$Startjahr >= rcp_zukunft_ab
@@ -221,14 +221,14 @@ library(stringr)
     message("Nach Zukunfts-/Zeitraum-Filter keine Daten mehr für: ", master_id)
     return(NULL)
   }
-
+  
   # Baumart auf die Anzeige-Kürzel umbenennen (nicht gelistete bleiben unverändert)
   ba  <- as.character(d$Baumart)
   idx <- match(ba, names(.bae_baumart_labels))
   treffer <- !is.na(idx)
   ba[treffer] <- unname(.bae_baumart_labels[idx[treffer]])
   d$Baumart <- ba
-
+  
   # Faktor-Ordnungen (global)
   d <- d %>%
     dplyr::mutate(
@@ -299,7 +299,7 @@ library(stringr)
 #' @param data          data.frame mit MASTER_ID, Baumart, TV, Klimalauf sowie
 #'                       BAE_3ST / BAE_4ST / BAE_5ST (wie im Heatmap-Skript).
 #' @param master_id     ID des Standorts, auf den gefiltert wird.
-#' @param stufen        Bewertungsstufen, je eine PNG: "3st","4st","5st","bin".
+#' @param stufen        Bewertungsstufen, je eine PNG: "3st","4st","5st","2st".
 #' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
 #' @param obs_alle       TRUE = OBS-Läufe unabhängig vom Zeitraum behalten.
 #' @param szen_rename    benannter Vektor c("<intern>" = "<Anzeige>") zum
@@ -310,23 +310,23 @@ library(stringr)
 #' @return unsichtbar eine Liste der ggplot-Objekte je Stufe (Nebeneffekt: PNGs).
 bae_kurven_function <- function(data,
                                 master_id,
-                                stufen         = c("3st", "4st", "5st", "bin"),
+                                stufen         = c("3st", "4st", "5st", "2st"),
                                 rcp_zukunft_ab = 2021,
                                 obs_alle       = TRUE,
                                 szen_rename    = character(0),
                                 szenarien      = c("OBS", "RCP45", "RCP85"),
                                 out_dir        = "04_results/BAE_Auswertung/auswertung") {
-
+  
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   if (is.null(d0)) return(invisible(NULL))
-
+  
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
-
+  
   n_spalten <- length(levels(droplevels(d0$Zeitraum)))
   n_zeilen  <- length(levels(droplevels(d0$Szen_label)))
-
+  
   plots <- list()
   for (st in stufen) {
     d_st <- .bae_add_stufe(d0, st)
@@ -334,12 +334,12 @@ bae_kurven_function <- function(data,
       message("Spalte für Stufe '", st, "' nicht vorhanden – übersprungen.")
       next
     }
-
+    
     ordn    <- .bae_kat_order[[st]]
     ba_lv   <- levels(droplevels(d_st$Baumart))
     tv_lv   <- levels(droplevels(d_st$TV))
     tv_cols <- setNames(.bae_tv_colors[seq_along(tv_lv)], tv_lv)
-
+    
     # 1) ein Wert je (Panel, TV, Baumart): Mittel der Stufe über die Hinweis-
     #    Varianten (sonst mehrere y an einer x-Position -> vertikale Zacken).
     kurv <- d_st %>%
@@ -347,7 +347,7 @@ bae_kurven_function <- function(data,
       dplyr::summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
       dplyr::filter(!is.nan(y)) %>%
       dplyr::mutate(x = as.integer(factor(Baumart, levels = ba_lv)))
-
+    
     # 2) glatte Spline-Kurve je (Panel, TV) durch diese Punkte, auf [1,n]
     #    geklammert, damit sie nicht über die Kategorien hinausschwingt.
     kurv_smooth <- kurv %>%
@@ -358,7 +358,7 @@ bae_kurven_function <- function(data,
         data.frame(x = s$x, y = pmin(pmax(s$y, 1), length(ordn)))
       }) %>%
       dplyr::ungroup()
-
+    
     p <- ggplot2::ggplot() +
       ggplot2::geom_line(data = kurv_smooth,
                          ggplot2::aes(x = x, y = y, colour = TV, group = TV),
@@ -388,7 +388,7 @@ bae_kurven_function <- function(data,
         panel.grid.major.x = ggplot2::element_line(color = "grey92"),
         legend.position = "bottom",
         plot.background = ggplot2::element_rect(fill = "white", color = NA))
-
+    
     f <- file.path(mid_dir, paste0("Kurven_", st, "_", master_id, "_",
                                    modelle_str, ".png"))
     ggplot2::ggsave(f, plot = p, device = "png",
@@ -408,7 +408,7 @@ bae_kurven_function <- function(data,
 #' @param data          data.frame wie bei bae_kurven_function (zusätzlich
 #'                       optional Spalte Hinweis = Rechenmethode).
 #' @param master_id     ID des Standorts, auf den gefiltert wird.
-#' @param stufen        Bewertungsstufen: "3st","4st","5st","bin".
+#' @param stufen        Bewertungsstufen: "3st","4st","5st","2st".
 #' @param trennung      Gruppierung der Matrizen: "klimalauf" (je Klimalauf, Default),
 #'                       "zeit" (Vergangenheit vs. Zukunft), "szenario", "keine".
 #' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
@@ -433,7 +433,7 @@ bae_kurven_function <- function(data,
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_modus_matrix_function <- function(data,
                                       master_id,
-                                      stufen         = c("3st", "4st", "5st", "bin"),
+                                      stufen         = c("3st", "4st", "5st", "2st"),
                                       trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                       rcp_zukunft_ab = 2021,
                                       obs_alle       = TRUE,
@@ -446,7 +446,7 @@ bae_modus_matrix_function <- function(data,
                                       legend_pos     = "right",  # Legendenposition
                                       order_ref      = NULL,     # Referenz-Stufe für feste Achsen (z. B. "4st")
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
-
+  
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
   #   "klimalauf" -> UNAGGREGIERT, je Klimalauf eine Matrix (wie die Heatmap-
   #                  Panels). Pro Zelle 1 Methode -> Zahl ist hier meist 1. [Default]
@@ -456,10 +456,10 @@ bae_modus_matrix_function <- function(data,
   # Die Zahl je Kachel wird erst > 1, wenn eine Gruppe mehrere Klimaläufe zählt
   # (z. B. trennung = "zeit"/"keine"): dann = in wie vielen die Kategorie vorkam.
   trennung <- match.arg(trennung)
-
+  
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   if (is.null(d0)) return(invisible(NULL))
-
+  
   # Methode (Spalte Hinweis) -> eigene Zeile "TVx (Label)". AltBA/BAE20/WKE etc.
   # mit leerem Label werden in die Standardzeile "TVx" zusammengelegt.
   if (!"Hinweis" %in% names(d0)) d0$Hinweis <- ""
@@ -470,15 +470,15 @@ bae_modus_matrix_function <- function(data,
       TV_M    = ifelse(Methode == "", as.character(TV),
                        paste0(as.character(TV), " (", Methode, ")")),
       Gruppe  = switch(trennung,
-        "klimalauf" = as.character(Klimalauf),
-        "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
-        "szenario"  = as.character(Szen_label),
-        "keine"     = "alle"))
-
+                       "klimalauf" = as.character(Klimalauf),
+                       "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+                       "szenario"  = as.character(Szen_label),
+                       "keine"     = "alle"))
+  
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
-
+  
   # Feste Referenz-Sortierung (order_ref) einmal berechnen -> für alle Stufen/Gruppen
   # dieselben Achsen. NULL = jede Grafik sortiert sich selbst (bisheriges Verhalten).
   ref_lv <- if (!is.null(order_ref))
@@ -488,9 +488,9 @@ bae_modus_matrix_function <- function(data,
     message("order_ref '", order_ref, "' ohne Daten – Sortierung fällt je Grafik selbst.")
   # Dateinamen-Kürzel für die Referenz-Sortierung (nur wenn wirklich angewandt)
   ord_tag <- if (!is.null(ref_lv)) paste0("_", order_ref, "ord") else ""
-
+  
   gruppen <- sort(unique(d0$Gruppe))   # alphabetisch: OBS… vor RCP…, chronologisch
-
+  
   plots <- list()
   for (st in stufen) {
     d_st <- .bae_add_stufe(d0, st)
@@ -498,12 +498,12 @@ bae_modus_matrix_function <- function(data,
       message("Spalte für Stufe '", st, "' nicht vorhanden – übersprungen.")
       next
     }
-
+    
     ordn     <- .bae_kat_order[[st]]                        # schlecht -> gut
     kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
     kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
     dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
-
+    
     # --------------------------------------------------------------------
     #  facet = TRUE: ALLE Gruppen in EINE facettierte Grafik (wie die
     #  Kurvengrafik, nur facet_wrap statt einzelner PNGs). Achsen sind
@@ -523,12 +523,12 @@ bae_modus_matrix_function <- function(data,
           Kategorie = factor(Kategorie, levels = kat_lv),
           label     = ifelse(tie, paste0(n, "*"), as.character(n)),
           txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
-
+      
       if (nrow(kachel) == 0) {
         message("Stufe '", st, "': keine Einträge – übersprungen.")
         next
       }
-
+      
       # GLOBAL gewichtet sortiert (gemeinsame Achsen über alle Facetten):
       # Summe der Stufe je Zeile (TV×Methode) bzw. Baumart über ALLE Gruppen.
       # Mit order_ref: stattdessen die feste Referenz-Reihenfolge (present-Werte
@@ -542,31 +542,31 @@ bae_modus_matrix_function <- function(data,
         dplyr::arrange(s, Baumart)
       tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, as.character(tv_ord$TV_M)) else as.character(tv_ord$TV_M)
       ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
-
+      
       kachel <- kachel %>%
         dplyr::mutate(
           TV_M    = factor(as.character(TV_M),    levels = tv_lv),
           Baumart = factor(as.character(Baumart), levels = ba_lv),
           Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
-
+      
       # Zahl nur zeigen, wenn mind. eine Gruppe mehrere Klimaläufe zusammenfasst
       # (bei trennung = "klimalauf" hat jede Gruppe genau 1 Lauf -> alles 1 -> weg).
       laeufe_je_grp <- d_st %>% dplyr::distinct(Gruppe, Klimalauf) %>%
         dplyr::count(Gruppe)
       zahl_zeigen   <- werte_anzeigen && any(laeufe_je_grp$n > 1)
-
+      
       n_ba     <- length(levels(kachel$Baumart))
       n_tv     <- length(levels(kachel$TV_M))
       n_grp    <- length(gruppen)
       fac_ncol <- if (!is.null(facet_ncol)) facet_ncol else ceiling(sqrt(n_grp))
       fac_nrow <- ceiling(n_grp / fac_ncol)
-
+      
       p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
         ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
         ggplot2::geom_tile(data = dplyr::filter(kachel, tie),
                            fill = NA, color = "grey15", linewidth = 1.1) +
         { if (zahl_zeigen)
-            ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
+          ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
         ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
@@ -589,7 +589,7 @@ bae_modus_matrix_function <- function(data,
           panel.grid       = ggplot2::element_blank(),
           legend.position  = legend_pos,
           plot.background  = ggplot2::element_rect(fill = "white", color = NA))
-
+      
       f <- file.path(mid_dir, paste0("ModusMatrix_facet_", st, "_",
                                      master_id, "_", modelle_str, ord_tag, ".png"))
       ggplot2::ggsave(f, plot = p, device = "png",
@@ -600,20 +600,20 @@ bae_modus_matrix_function <- function(data,
       plots[[paste0(st, "_facet")]] <- p
       next
     }
-
+    
     for (grp in gruppen) {
       # Auszählen (KEIN Score): je Zelle (Zeile TV×Methode  ×  Baumart) je
       # Kategorie die Anzahl über alle Einträge (bei mehreren Klimaläufen je Gruppe).
       zaehl <- d_st %>%
         dplyr::filter(Gruppe == grp) %>%
         dplyr::count(TV_M, Baumart, Kategorie, name = "n")
-
+      
       if (nrow(zaehl) == 0) {
         message("Stufe '", st, "', Gruppe '", grp,
                 "': keine Einträge – übersprungen.")
         next
       }
-
+      
       # Kachel = häufigste Kategorie (Modus). Bei Gleichstand die BESSERE
       # (kleinster kat_pref) + Markierung tie (Sternchen/Rahmen).
       kachel <- zaehl %>%
@@ -626,7 +626,7 @@ bae_modus_matrix_function <- function(data,
           Kategorie = factor(Kategorie, levels = kat_lv),
           label     = ifelse(tie, paste0(n, "*"), as.character(n)),
           txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
-
+      
       # Sortierung GEWICHTET (dunkelgrün zählt am meisten): Summe der Stufe je
       # Zeile (TV×Methode) bzw. Baumart. Stufe = sehr empfohlen (max) … nicht
       # empfohlen (1), grau/pBv (keine Stufe) = 0. Aufsteigend -> beste (höchste
@@ -643,38 +643,38 @@ bae_modus_matrix_function <- function(data,
       # Mit order_ref: feste Referenz-Reihenfolge statt der je-Gruppe-Sortierung.
       tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, as.character(tv_ord$TV_M)) else as.character(tv_ord$TV_M)
       ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
-
+      
       kachel <- kachel %>%
         dplyr::mutate(
           TV_M    = factor(as.character(TV_M),    levels = tv_lv),
           Baumart = factor(as.character(Baumart), levels = ba_lv))
-
+      
       # Nur EIN Klimalauf in der Gruppe -> jede Kachel ist zwangsläufig "1"
       # (keine Aggregation, kein Gleichstand) -> Zahl weglassen, sie trägt nichts
       # bei. Ab 2 Klimaläufen ist die Anzahl echte Information und bleibt.
       n_laeufe <- dplyr::n_distinct(gew$Klimalauf)
       zahl_zeigen <- werte_anzeigen && n_laeufe > 1
-
+      
       # Modell + enthaltene Szenarien/Zeiträume NUR aus dieser Gruppe (nicht global –
       # sonst steht z. B. bei "Zukunft" fälschlich das OBS-Modell DWD mit dabei).
       modelle_grp <- .bae_modell_str(gew)
       # Szenarien der Gruppe: Referenz (OBS) zuerst, dann RCP; OBS als "Referenz".
       sz          <- gew %>% dplyr::distinct(Szen_label, ist_rcp) %>%
-                       dplyr::arrange(ist_rcp, Szen_label)
+        dplyr::arrange(ist_rcp, Szen_label)
       szen_grp    <- paste(sub("^OBS", "Referenz", as.character(sz$Szen_label)), collapse = "/")
       zeit_grp    <- paste(sort(unique(as.character(gew$Zeitraum))),   collapse = ", ")
       grp_info    <- switch(trennung,
-        "zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
-        "keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
-        "szenario"  = paste0(" (", zeit_grp, ")"),
-        "klimalauf" = "")
-
+                            "zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+                            "keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+                            "szenario"  = paste0(" (", zeit_grp, ")"),
+                            "klimalauf" = "")
+      
       p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
         ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
         ggplot2::geom_tile(data = dplyr::filter(kachel, tie),
                            fill = NA, color = "grey15", linewidth = 1.1) +
         { if (zahl_zeigen)
-            ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
+          ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
         ggplot2::labs(
@@ -692,7 +692,7 @@ bae_modus_matrix_function <- function(data,
           panel.grid      = ggplot2::element_blank(),
           legend.position = legend_pos,
           plot.background = ggplot2::element_rect(fill = "white", color = NA))
-
+      
       n_ba <- length(levels(kachel$Baumart))
       n_tv <- length(levels(kachel$TV_M))
       grp_tag <- gsub("[^A-Za-z0-9]+", "-", grp)
@@ -722,7 +722,7 @@ bae_modus_matrix_function <- function(data,
 #'   bae_modus_matrix_function().
 #' @return unsichtbar list(kurven = ..., matrix = ...) der ggplot-Objekte.
 bae_auswertung_grafiken <- function(data, master_id,
-                                    stufen         = c("3st", "4st", "5st", "bin"),
+                                    stufen         = c("3st", "4st", "5st", "2st"),
                                     trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                     rcp_zukunft_ab = 2021,
                                     obs_alle       = TRUE,
@@ -758,9 +758,9 @@ bae_auswertung_grafiken <- function(data, master_id,
 #' Überschrift zusammen. Die beiden Einzelgrafiken werden dabei wie gewohnt AUCH
 #' einzeln als PNG gespeichert (bleiben also erhalten).
 #'
-#' @param stufen_paar Länge-2-Vektor c(links, rechts); Default c("bin", "4st").
+#' @param stufen_paar Länge-2-Vektor c(links, rechts); Default c("2st", "4st").
 #' @param order_ref   Referenz-Stufe für die GEMEINSAME Achsen-Sortierung beider
-#'                    Seiten (Default "bin" – robusteste Abdeckung, da manche
+#'                    Seiten (Default "2st" – robusteste Abdeckung, da manche
 #'                    Standorte 3st/4st gar nicht haben; "4st"/"3st" ebenfalls
 #'                    möglich). So liegen dieselbe TV-Zeile / Baumart-Spalte links
 #'                    wie rechts an gleicher Stelle.
@@ -768,8 +768,8 @@ bae_auswertung_grafiken <- function(data, master_id,
 #'   szenarien,hinweis_row,werte_anzeigen,out_dir wie bei bae_modus_matrix_function().
 #' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
 bae_modus_facet_paar <- function(data, master_id,
-                                 stufen_paar    = c("bin", "4st"),
-                                 order_ref      = "bin",
+                                 stufen_paar    = c("2st", "4st"),
+                                 order_ref      = "2st",
                                  trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                  rcp_zukunft_ab = 2021,
                                  obs_alle       = TRUE,
@@ -786,7 +786,7 @@ bae_modus_facet_paar <- function(data, master_id,
     message("Paket 'patchwork' fehlt: install.packages(\"patchwork\").")
     return(invisible(NULL))
   }
-
+  
   # Beide Seiten als facettierte Einzel-Modus-Matrix erzeugen. order_ref gibt für
   # BEIDE dieselbe Achsen-Sortierung -> direkt vergleichbar. Nebeneffekt: sie
   # werden dabei AUCH einzeln als PNG gespeichert -> Einzelgrafiken bleiben.
@@ -798,24 +798,24 @@ bae_modus_facet_paar <- function(data, master_id,
                order_ref = order_ref, out_dir = out_dir)
   pl <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[1])))
   pr <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[2])))
-
+  
   gl <- pl[[paste0(stufen_paar[1], "_facet")]]
   gr <- pr[[paste0(stufen_paar[2], "_facet")]]
   if (is.null(gl) || is.null(gr)) {
     message("Facet-Paar: mindestens eine Seite ohne Daten – übersprungen.")
     return(invisible(NULL))
   }
-
+  
   # kurze Seiten-Titel statt der langen Einzel-Titel; gemeinsame Überschrift oben
-  lab_l <- if (identical(stufen_paar[1], "bin")) "binär" else paste0(stufen_paar[1], "-stufig")
-  lab_r <- if (identical(stufen_paar[2], "bin")) "binär" else paste0(stufen_paar[2], "-stufig")
-
+  lab_l <- if (identical(stufen_paar[1], "2st")) "binär" else paste0(stufen_paar[1], "-stufig")
+  lab_r <- if (identical(stufen_paar[2], "2st")) "binär" else paste0(stufen_paar[2], "-stufig")
+  
   gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL)
   gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL)
-
+  
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   modelle_str <- if (is.null(d0)) "NA" else .bae_modell_str(d0)
-
+  
   # Größere Schrift für die große Kombigrafik: Streifen (Gruppen), Seiten-Titel
   # (binär/4-stufig), Achsen und Überschrift – sonst auf Seitengröße zu klein.
   groesser <- ggplot2::theme(
@@ -826,7 +826,7 @@ bae_modus_facet_paar <- function(data, master_id,
     axis.text.x  = ggplot2::element_text(size = 25, face = "bold", angle = 45, hjust = 1),
     legend.text  = ggplot2::element_text(size = 20),
     legend.title = ggplot2::element_text(size = 25))
-
+  
   # Legende in 2 Zeilen umbrechen, sonst laeuft die 6-teilige 4st-Legende
   # (nicht empfohlen / maessig / empfohlen / sehr / pBv / Keine Datengrundlage)
   # bei der grossen Schrift ueber den rechten Rand hinaus.
@@ -841,7 +841,7 @@ bae_modus_facet_paar <- function(data, master_id,
         plot.title      = ggplot2::element_text(size = 24, face = "bold"),
         plot.subtitle   = ggplot2::element_text(size = 16),
         plot.background = ggplot2::element_rect(fill = "white", color = NA)))
-
+  
   # Größe aus dem linken Plot ableiten (beide Seiten teilen dieselben Achsen)
   n_ba  <- nlevels(droplevels(gl$data$Baumart))
   n_tv  <- nlevels(droplevels(gl$data$TV_M))
@@ -850,7 +850,7 @@ bae_modus_facet_paar <- function(data, master_id,
   fr    <- ceiling(n_grp / fc)
   w1    <- (500 + n_ba * 95) * fc + 200
   h1    <- (400 + n_tv * 95) * fr + 200
-
+  
   mid_dir <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
   ord_tag <- if (!is.null(order_ref)) paste0("_", order_ref, "ord") else ""
@@ -866,48 +866,62 @@ bae_modus_facet_paar <- function(data, master_id,
 
 # ----  6  BEISPIEL-AUFRUF (auskommentiert) ----
 data <- heatmap_data_filter %>% filter(Klimalauf != "OBS_DWD_1961-1990")
+heatmap_data_filter$MASTER_ID %>% unique
+
+master_id.choose <- "NR_130_08_6189" # "NR_130_08_66519"
 #
 # Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default).
 # Szenarien-Default = OBS (Beobachtung 1991-2020) + RCP45 + RCP85, RCP ab 2021:
-bae_auswertung_grafiken(data, master_id = "NR_130_08_66519")
+bae_auswertung_grafiken(data, master_id = master_id.choose)
 
 # Alle Szenarien behalten (kein Szenarien-Filter):
-bae_auswertung_grafiken(data, master_id = "NR_130_08_66519", szenarien = NULL)
+bae_auswertung_grafiken(data, master_id = master_id.choose, szenarien = NULL)
 
 # Nur die Kurven (Skizze 1), nur 4-stufig:
-bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
+bae_kurven_function(data, master_id = master_id.choose, stufen = "4st")
+bae_kurven_function(data, master_id = master_id.choose, stufen = "2st")
 
 # Nur die binäre Stufe (aus 3st: Code 3 = nicht empfohlen, sonst empfohlen):
-bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "bin")
+bae_modus_matrix_function(data, master_id = master_id.choose, stufen = "2st")
 
 # Modus-Matrix (Skizze 2) über Klimaläufe gezählt, Vergangenheit vs. Zukunft:
-bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
+bae_modus_matrix_function(data, master_id = master_id.choose,
                           trennung = "zeit")
 
 # Modus-Matrix als EINE facettierte Grafik (alle Gruppen nebeneinander,
 # wie die Kurvengrafik) statt einzelner PNGs:
-bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
+bae_modus_matrix_function(data, master_id = master_id.choose,
                           trennung = "zeit", facet = TRUE)
 
 # Facet 1-spaltig, 3 Zeilen (Referenz oben, dann RCP85 2021-2050 & 2071-2100),
 # Legende unten – nur OBS + RCP85, je Klimalauf ein Panel:
-bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "4st",
+bae_modus_matrix_function(data, master_id = master_id.choose, stufen = "4st",
                           szenarien = c("OBS", "RCP85"), trennung = "klimalauf",
                           facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
 
 # Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift, GEMEINSAME
 # Achsen-Sortierung nach binär (order_ref, robusteste Abdeckung) -> beide Seiten
 # direkt vergleichbar (die beiden Einzel-Facets werden dabei auch separat gespeichert):
-bae_modus_facet_paar(data, master_id = "NR_130_08_66519",
-                     stufen_paar = c("bin", "4st"), order_ref = "bin",
+bae_modus_facet_paar(data, master_id = master_id.choose,
+                     stufen_paar = c("2st", "4st"), order_ref = "2st",
+                     szenarien = c("OBS", "RCP85"),
+                     trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
+
+bae_modus_facet_paar(data, master_id = master_id.choose,
+                     stufen_paar = c("2st", "4st"), order_ref = "3st",
+                     szenarien = c("OBS", "RCP85"),
+                     trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
+
+bae_modus_facet_paar(data, master_id = master_id.choose,
+                     stufen_paar = c("2st", "4st"), order_ref = "4st",
                      szenarien = c("OBS", "RCP85"),
                      trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
 
 # Feste Achsen-Sortierung (nach binär) auch für einzelne Matrizen erzwingen:
-bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
-                          stufen = c("bin", "4st"), order_ref = "bin")
+bae_modus_matrix_function(data, master_id = master_id.choose,
+                          stufen = c("2st", "4st"), order_ref = "2st")
 
 # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 bae_modus_matrix_function(
-  data, master_id = "NR_130_08_66519", trennung = "keine",
+  data, master_id = master_id.choose, trennung = "keine",
   szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
