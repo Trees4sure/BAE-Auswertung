@@ -130,7 +130,8 @@ library(stringr)
 #  (ohne die stufenabhängige Kategorie/Stufe – die wird pro Stufe ergänzt).
 # ----------------------------------------------------------------------------
 .bae_prep <- function(data, master_id, rcp_zukunft_ab = 2021,
-                      obs_alle = TRUE, szen_rename = character(0)) {
+                      obs_alle = TRUE, szen_rename = character(0),
+                      szenarien = c("OBS", "RCP45", "RCP85")) {
 
   d <- data %>% dplyr::filter(as.character(MASTER_ID) == as.character(master_id))
   if (nrow(d) == 0) {
@@ -166,6 +167,19 @@ library(stringr)
     message("Hinweis: ", sum(ohne_zeit), " Zeile(n) ohne erkennbaren Zeitraum ",
             "werden ignoriert.")
     d <- d[!ohne_zeit, , drop = FALSE]
+  }
+
+  # Szenarien-Auswahl: nur die gewünschten Szenarien behalten (auf der BASIS
+  # Szenario, d. h. RCP45 schließt Varianten wie RCP45-v3 mit ein). Default =
+  # OBS (der Beobachtungslauf 1991-2020) + RCP45 + RCP85. szenarien = NULL
+  # behält alle Szenarien.
+  if (!is.null(szenarien)) {
+    d <- d[d$Szenario %in% szenarien, , drop = FALSE]
+    if (nrow(d) == 0) {
+      message("Nach Szenarien-Filter (", paste(szenarien, collapse = ", "),
+              ") keine Daten mehr für: ", master_id)
+      return(NULL)
+    }
   }
 
   # RCP: nur Zukunft; OBS: optional alles
@@ -226,9 +240,10 @@ bae_kurven_function <- function(data,
                                 rcp_zukunft_ab = 2021,
                                 obs_alle       = TRUE,
                                 szen_rename    = character(0),
+                                szenarien      = c("OBS", "RCP45", "RCP85"),
                                 out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
-  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename)
+  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   if (is.null(d0)) return(invisible(NULL))
 
   modelle_str <- .bae_modell_str(d0)
@@ -323,6 +338,7 @@ bae_modus_matrix_function <- function(data,
                                       rcp_zukunft_ab = 2021,
                                       obs_alle       = TRUE,
                                       szen_rename    = character(0),
+                                      szenarien      = c("OBS", "RCP45", "RCP85"),
                                       hinweis_row    = .bae_hinweis_row,
                                       werte_anzeigen = TRUE,     # Anzahl je Zelle beschriften
                                       facet          = FALSE,    # TRUE: alle Gruppen in EINE facettierte Grafik
@@ -338,7 +354,7 @@ bae_modus_matrix_function <- function(data,
   # (z. B. trennung = "zeit"/"keine"): dann = in wie vielen die Kategorie vorkam.
   trennung <- match.arg(trennung)
 
-  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename)
+  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   if (is.null(d0)) return(invisible(NULL))
 
   # Methode (Spalte Hinweis) -> eigene Zeile "TVx (Label)". AltBA/BAE20/WKE etc.
@@ -576,16 +592,19 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     rcp_zukunft_ab = 2021,
                                     obs_alle       = TRUE,
                                     szen_rename    = character(0),
+                                    szenarien      = c("OBS", "RCP45", "RCP85"),
                                     hinweis_row    = .bae_hinweis_row,
                                     facet          = FALSE,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   kurven <- bae_kurven_function(data, master_id, stufen = stufen,
                                 rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
-                                szen_rename = szen_rename, out_dir = out_dir)
+                                szen_rename = szen_rename, szenarien = szenarien,
+                                out_dir = out_dir)
   matrix <- bae_modus_matrix_function(data, master_id, stufen = stufen, trennung = trennung,
                                       rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
-                                      szen_rename = szen_rename, hinweis_row = hinweis_row,
+                                      szen_rename = szen_rename, szenarien = szenarien,
+                                      hinweis_row = hinweis_row,
                                       facet = facet, out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
 }
@@ -595,8 +614,12 @@ bae_auswertung_grafiken <- function(data, master_id,
 # ----------------------------------------------------------------------------
 # data <- data.table::fread("meine_bae_daten.csv")
 #
-# # Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default):
+# # Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default).
+# # Szenarien-Default = OBS (Beobachtung 1991-2020) + RCP45 + RCP85, RCP ab 2021:
 # bae_auswertung_grafiken(data, master_id = "NR_130_08_66519")
+#
+# # Alle Szenarien behalten (kein Szenarien-Filter):
+# bae_auswertung_grafiken(data, master_id = "NR_130_08_66519", szenarien = NULL)
 #
 # # Nur die Kurven (Skizze 1), nur 4-stufig:
 # bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
