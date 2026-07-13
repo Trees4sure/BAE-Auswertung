@@ -41,6 +41,9 @@
 #      Datei: ModusMatrix_<st>_<grp>_<MID>_<Modell>.png
 #
 #   bae_auswertung_grafiken() ruft beide nacheinander auf.
+#   bae_modus_facet_paar() legt zwei facettierte Modus-Matrizen (z. B. binär
+#   links, 4-stufig rechts) unter EINER Überschrift nebeneinander; die beiden
+#   Einzel-Facets werden dabei auch separat gespeichert.
 #
 # Datengrundlage/Spalten identisch zu heatmap_bae_zukunft_standalone.R:
 #   MASTER_ID, Baumart, TV, Klimalauf, BAE_3ST, BAE_4ST, BAE_5ST
@@ -694,7 +697,94 @@ bae_auswertung_grafiken <- function(data, master_id,
   invisible(list(kurven = kurven, matrix = matrix))
 }
 
-# ----  5  BEISPIEL-AUFRUF (auskommentiert) ----
+# ----  5  Facet-Paar: zwei Stufen nebeneinander (z. B. binär + 4-stufig) ----
+
+#' Zwei facettierte Modus-Matrizen nebeneinander in EINE Grafik
+#'
+#' Erzeugt die facettierte Modus-Matrix für zwei Stufen (links/rechts, Default
+#' binär + 4-stufig) und legt sie mit patchwork unter einer GEMEINSAMEN
+#' Überschrift zusammen. Die beiden Einzelgrafiken werden dabei wie gewohnt AUCH
+#' einzeln als PNG gespeichert (bleiben also erhalten).
+#'
+#' @param stufen_paar Länge-2-Vektor c(links, rechts); Default c("bin", "4st").
+#' @param facet_ncol,legend_pos,trennung,rcp_zukunft_ab,obs_alle,szen_rename,
+#'   szenarien,hinweis_row,werte_anzeigen,out_dir wie bei bae_modus_matrix_function().
+#' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
+bae_modus_facet_paar <- function(data, master_id,
+                                 stufen_paar    = c("bin", "4st"),
+                                 trennung       = c("klimalauf", "zeit", "szenario", "keine"),
+                                 rcp_zukunft_ab = 2021,
+                                 obs_alle       = TRUE,
+                                 szen_rename    = character(0),
+                                 szenarien      = c("OBS", "RCP45", "RCP85"),
+                                 hinweis_row    = .bae_hinweis_row,
+                                 werte_anzeigen = TRUE,
+                                 facet_ncol     = 1,
+                                 legend_pos     = "bottom",
+                                 out_dir        = "04_results/BAE_Auswertung/auswertung") {
+  trennung <- match.arg(trennung)
+  stopifnot(length(stufen_paar) == 2)
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    message("Paket 'patchwork' fehlt: install.packages(\"patchwork\").")
+    return(invisible(NULL))
+  }
+
+  # Beide Seiten als facettierte Einzel-Modus-Matrix erzeugen. Nebeneffekt: sie
+  # werden dabei AUCH einzeln als PNG gespeichert -> Einzelgrafiken bleiben.
+  args <- list(data = data, master_id = master_id, trennung = trennung,
+               rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
+               szen_rename = szen_rename, szenarien = szenarien,
+               hinweis_row = hinweis_row, werte_anzeigen = werte_anzeigen,
+               facet = TRUE, facet_ncol = facet_ncol, legend_pos = legend_pos,
+               out_dir = out_dir)
+  pl <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[1])))
+  pr <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[2])))
+
+  gl <- pl[[paste0(stufen_paar[1], "_facet")]]
+  gr <- pr[[paste0(stufen_paar[2], "_facet")]]
+  if (is.null(gl) || is.null(gr)) {
+    message("Facet-Paar: mindestens eine Seite ohne Daten – übersprungen.")
+    return(invisible(NULL))
+  }
+
+  # kurze Seiten-Titel statt der langen Einzel-Titel; gemeinsame Überschrift oben
+  lab_l <- if (identical(stufen_paar[1], "bin")) "binär" else paste0(stufen_paar[1], "-stufig")
+  lab_r <- if (identical(stufen_paar[2], "bin")) "binär" else paste0(stufen_paar[2], "-stufig")
+  gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL)
+  gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL)
+
+  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
+  modelle_str <- if (is.null(d0)) "NA" else .bae_modell_str(d0)
+
+  comb <- patchwork::wrap_plots(gl, gr, ncol = 2) +
+    patchwork::plot_annotation(
+      title    = paste0("BAE – häufigste Empfehlung – ", master_id),
+      subtitle = paste0("links: ", lab_l, "  |  rechts: ", lab_r,
+                        "  |  Modell: ", modelle_str),
+      theme = ggplot2::theme(
+        plot.background = ggplot2::element_rect(fill = "white", color = NA)))
+
+  # Größe aus dem linken Plot ableiten (beide Seiten teilen dieselben Achsen)
+  n_ba  <- nlevels(droplevels(gl$data$Baumart))
+  n_tv  <- nlevels(droplevels(gl$data$TV_M))
+  n_grp <- nlevels(droplevels(gl$data$Gruppe))
+  fc    <- if (!is.null(facet_ncol)) facet_ncol else ceiling(sqrt(n_grp))
+  fr    <- ceiling(n_grp / fc)
+  w1    <- (500 + n_ba * 95) * fc + 200
+  h1    <- (400 + n_tv * 95) * fr + 200
+
+  mid_dir <- file.path(out_dir, as.character(master_id))
+  dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
+  f <- file.path(mid_dir, paste0("ModusMatrix_facetpaar_", stufen_paar[1], "-",
+                                 stufen_paar[2], "_", master_id, "_", modelle_str, ".png"))
+  ggplot2::ggsave(f, plot = comb, device = "png",
+                  width = 2 * w1, height = h1 + 150, units = "px",
+                  dpi = 150, limitsize = FALSE)
+  message("Gespeichert: ", f)
+  invisible(comb)
+}
+
+# ----  6  BEISPIEL-AUFRUF (auskommentiert) ----
 # data <- data.table::fread("meine_bae_daten.csv")
 #
 # # Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default).
@@ -724,6 +814,12 @@ bae_auswertung_grafiken <- function(data, master_id,
 # bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "4st",
 #                           szenarien = c("OBS", "RCP85"), trennung = "klimalauf",
 #                           facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
+#
+# # Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift (die beiden
+# # Einzel-Facets werden dabei auch separat gespeichert):
+# bae_modus_facet_paar(data, master_id = "NR_130_08_66519",
+#                      stufen_paar = c("bin", "4st"), szenarien = c("OBS", "RCP85"),
+#                      trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
 #
 # # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 # bae_modus_matrix_function(
