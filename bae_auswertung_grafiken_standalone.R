@@ -525,7 +525,7 @@ bae_modus_matrix_function <- function(data,
                               "  |  Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"
                             else ""),
           x = "Baumart  (beste Empfehlungen →)",
-          y = "TV × Methode  (beste oben ↑)",
+          y = "TV × Methode  (meiste Empfehlungen oben ↑)",
           fill = "häufigste Kategorie") +
         ggplot2::coord_equal() +
         ggplot2::theme_minimal(base_size = 11) +
@@ -629,7 +629,7 @@ bae_modus_matrix_function <- function(data,
                               "  |  Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"
                             else ""),
           x = "Baumart  (beste Empfehlungen →)",
-          y = "TV × Methode  (beste oben ↑)",
+          y = "TV × Methode  (meiste Empfehlungen oben ↑)",
           fill = "häufigste Kategorie") +
         ggplot2::coord_equal() +
         ggplot2::theme_minimal(base_size = 11) +
