@@ -1,31 +1,43 @@
-# ============================================================================
-# bae_auswertung_grafiken_beispiel.R
-# ----------------------------------------------------------------------------
+# ----  bae_auswertung_grafiken_beispiel.R  ----
+#
 # FLACHER SCHRITT-FÜR-SCHRITT-DURCHLAUF für EINE Beispiel-Datei / MASTER_ID.
 #
 # Kein Funktions-Wrapper: jeden Block der Reihe nach markieren und ausführen,
-# dann das Zwischenergebnis ansehen (z. B. head(d), View(d), table(...)).
+# dann das Zwischenergebnis ansehen (head(d), View(d), table(...), count(...)).
 # Dieses Skript zeigt GENAU dasselbe, was die Funktionen in
 # bae_auswertung_grafiken_standalone.R intern tun – nur offen hingeschrieben.
+# Jede Funktion von dort ist hier ein eigener, benannter Abschnitt:
 #
-# Erzeugt:
-#   Skizze 1  – Empfehlungs-Kurven je TV (pro Szenario × Zeitraum)
-#   Skizze 2  – Modus-Matrix, unaggregiert je Klimalauf (ausgezählt + sortiert)
-# ============================================================================
+#   .bae_prep()                 -> Abschnitte 4–10  (filtern, zerlegen, filtern, ordnen)
+#   .bae_add_stufe()/.map_val() -> Abschnitt 12     (Kategorie + Stufe je Stufigkeit)
+#   bae_kurven_function()       -> Abschnitt 13     (Skizze 1)
+#   bae_modus_matrix_function() -> Abschnitte 14/15 (je Gruppe / facettiert)
+#   .bae_ref_levels()           -> Abschnitt 16     (feste Achsen-Sortierung)
+#   bae_modus_facet_paar()      -> Abschnitt 17     (zwei Stufen nebeneinander)
+#   bae_auswertung_grafiken()   -> einfach 13 + 14 nacheinander
+# ----------------------------------------------------------------------------
 
+
+# ----  1  PAKETE ----
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(stringr)
+# patchwork erst in Abschnitt 17 (Facet-Paar) nötig.
 
 
-# ============================================================================
-# 0.  PARAMETER  – hier anpassen
-# ============================================================================
+# ----  0  PARAMETER  (hier anpassen) ----
 datei          <- "meine_bae_daten.csv"   # <- deine CSV-Datei
 master_id      <- "NR_130_08_66519"        # <- ein Beispiel-Standort
-stufe          <- "4st"                    # "3st" | "4st" | "5st"
+stufe          <- "4st"                    # "3st" | "4st" | "5st" | "bin"
 rcp_zukunft_ab <- 2021                     # RCP: nur Zeiträume ab diesem Jahr
+obs_alle       <- TRUE                     # TRUE = OBS-Läufe unabhängig vom Zeitraum behalten
+szenarien      <- c("OBS", "RCP45", "RCP85")  # Basis-Szenarien behalten; NULL = alle
+szen_rename    <- character(0)             # z. B. c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real")
+trennung       <- "klimalauf"              # "klimalauf" | "zeit" | "szenario" | "keine"
+werte_anzeigen <- TRUE                     # Anzahl je Kachel beschriften (nur wenn Gruppe > 1 Lauf)
+legend_pos     <- "right"                  # Legendenposition ("right","bottom","none",…)
+
 # Hinweis (= Rechenmethode) -> Zeilen-Label in der Matrix. Jede echte Methode
 # wird eine eigene Zeile "TVx (Label)" (TV6 hat z. B. KHorg/KHff/KM = 3 Zeilen);
 # ein leeres Label ("") legt in die Standardzeile "TVx" zusammen. AltBA/BAE20/WKE
@@ -43,9 +55,7 @@ hinweis_row <- c(
 )
 
 
-# ============================================================================
-# 1.  DATEN LADEN
-# ============================================================================
+# ----  2  DEMO-DATEN  (durch echte CSV ersetzen) ----
 # --- Variante A: echte Datei -----------------------------------------------
 # data <- data.table::fread(datei)
 
@@ -71,18 +81,13 @@ data$BAE_4ST <- ifelse(is.na(.num), data$BAE_5ST, as.character(pmin(.num, 4)))
 data$BAE_3ST <- ifelse(is.na(.num), data$BAE_5ST, as.character(pmin(ceiling(.num/2), 3)))
 
 # ansehen:
-#   head(data)
-#   str(data)
-#   table(data$Klimalauf)
-#   table(data$BAE_4ST)
-#   # mehrere Zeilen je Zelle (wie in echt durch Hinweis-Varianten):
+#   head(data) ; str(data)
+#   table(data$Klimalauf) ; table(data$BAE_4ST)
 #   data %>% filter(Baumart=="Bah", TV==6, Klimalauf=="OBS_DWD_1961-1990")
 
 
-# ============================================================================
-# 2.  FARBEN + STUFEN-MAPPINGS  (identisch zur Heatmap)
-# ============================================================================
-# Kachelfarben der Empfehlungs-Kategorien
+# ----  3  KONSTANTEN: Farben, Stufen-Mappings, TV-Farben, Baumart-Kürzel ----
+# Kachelfarben der Empfehlungs-Kategorien (identisch zur Heatmap)
 custom_palette <- c(
   "sehr empfohlen"        = "#1A9850",
   "empfohlen"             = "#A6D96A",
@@ -94,61 +99,49 @@ custom_palette <- c(
 )
 
 # Code (in BAE_xST) -> Kategorie. Achtung: Code 1 = BESTE Bewertung.
+# "bin" = binär aus BAE_3ST: NUR Code 3 = "nicht empfohlen", 1-2 = "empfohlen".
 maps <- list(
   "3st" = c("1" = "sehr empfohlen", "2" = "mäßig empfohlen", "3" = "nicht empfohlen"),
   "4st" = c("1" = "sehr empfohlen", "2" = "empfohlen", "3" = "mäßig empfohlen",
             "4" = "nicht empfohlen"),
   "5st" = c("1" = "sehr empfohlen", "2" = "empfohlen", "3" = "mäßig empfohlen",
-            "4" = "wenig empfohlen", "5" = "nicht empfohlen")
+            "4" = "wenig empfohlen", "5" = "nicht empfohlen"),
+  "bin" = c("1" = "empfohlen", "2" = "empfohlen", "3" = "nicht empfohlen")
 )
 
 # Kategorien von SCHLECHT (unten/1) nach GUT (oben/n). Position = Zahlenwert
-# der Empfehlungsstufe UND Gewicht für den Score.
+# der Empfehlungsstufe UND Gewicht für die Sortierung.
 kat_order <- list(
   "3st" = c("nicht empfohlen", "mäßig empfohlen", "sehr empfohlen"),
   "4st" = c("nicht empfohlen", "mäßig empfohlen", "empfohlen", "sehr empfohlen"),
   "5st" = c("nicht empfohlen", "wenig empfohlen", "mäßig empfohlen",
-            "empfohlen", "sehr empfohlen")
+            "empfohlen", "sehr empfohlen"),
+  "bin" = c("nicht empfohlen", "empfohlen")
 )
 
-# welche Spalte gehört zur gewählten Stufe?
-bae_col <- c("3st" = "BAE_3ST", "4st" = "BAE_4ST", "5st" = "BAE_5ST")[[stufe]]
+# welche Spalte gehört zur gewählten Stufe? (bin nutzt die 3-stufige Spalte)
+bae_col_map <- c("3st" = "BAE_3ST", "4st" = "BAE_4ST", "5st" = "BAE_5ST",
+                 "bin" = "BAE_3ST")
 
-mapping <- maps[[stufe]]        # Code -> Kategorie für die gewählte Stufe
-ordn    <- kat_order[[stufe]]   # Kategorie-Reihenfolge für die gewählte Stufe
+# Farben für die (bis zu 12) TV-Linien in Skizze 1
+tv_colors <- c(
+  "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02",
+  "#A6761D", "#666666", "#1F78B4", "#B2182B", "#33A02C", "#6A3D9A")
 
-# ansehen:
-#   bae_col ; mapping ; ordn
-
-
-# ============================================================================
-# 3.  AUF MASTER_ID FILTERN
-# ============================================================================
-d <- data %>% filter(as.character(MASTER_ID) == master_id)
-
-# ansehen:  nrow(d) ; head(d)
-#   table(d$Hinweis, d$TV)   # zeigt, welche Methode je TV vorkommt
+# Baumart-Anzeigenamen (Kürzel wie in der Grafik). Nicht gelistete bleiben unverändert.
+baumart_labels <- c(
+  "Fi"  = "GFI", "Ta"  = "WTA", "Bah" = "BAH", "La"  = "ELA",
+  "Dgl" = "GDG", "Rei" = "REI", "Tei" = "TEI", "Bu"  = "RBU",
+  "Hbu" = "HBU", "Ki"  = "GKI", "Bi"  = "GBI", "Sei" = "SEI")
 
 
-# ============================================================================
-# 3b. METHODE -> EIGENE ZEILE  (Spalte Hinweis)
-# ============================================================================
-# Jede echte Rechenmethode wird eine eigene Zeile: TV6 (KHorg) / TV6 (KHff) /
-# TV6 (KM). AltBA/BAE20/WKE betreffen nur einzelne Baumarten -> leeres Label ->
-# in die Standardzeile "TVx" zusammengelegt (füllen dort ihre Baumart-Spalten).
-# Nicht gelistete Hinweise dienen sich selbst als Label.
-if (!"Hinweis" %in% names(d)) d$Hinweis <- ""
-d <- d %>%
-  mutate(Hinweis = coalesce(as.character(Hinweis), ""),
-         Methode = coalesce(unname(hinweis_row[Hinweis]), Hinweis),
-         TV_M    = ifelse(Methode == "", paste0("TV", TV),
-                          paste0("TV", TV, " (", Methode, ")")))
-# ansehen:  table(d$TV_M)   # welche Zeilen (TV × Methode) entstehen
+# ----  4  AUF MASTER_ID FILTERN ----
+d <- data %>% filter(as.character(MASTER_ID) == as.character(master_id))
+stopifnot(nrow(d) > 0)   # sonst: keine Daten für diese MASTER_ID
+# ansehen:  nrow(d) ; head(d) ; table(d$Hinweis, d$TV)
 
 
-# ============================================================================
-# 4.  KLIMALAUF ZERLEGEN  (Szenario / Modell / Zeitraum / Variante)
-# ============================================================================
+# ----  5  KLIMALAUF ZERLEGEN  (Szenario / Modell / Zeitraum / Variante) ----
 # Beispiel "RCP45-v3_MPICLM_2021-2050":
 #   Zeitraum = "2021-2050", Variante = "v3", Szenario = "RCP45",
 #   Modell = "MPICLM", Szen_label = "RCP45_v3"
@@ -163,22 +156,56 @@ d <- d %>%
     Startjahr  = suppressWarnings(as.integer(str_sub(Zeitraum, 1, 4)))
   )
 
+# Zeilen ohne erkennbaren Zeitraum verwerfen (sonst kein Startjahr).
+d <- d %>% filter(!is.na(Zeitraum))
 # ansehen:
 #   d %>% distinct(Klimalauf, Szenario, Modell, Zeitraum, Variante, Szen_label)
 
 
-# ============================================================================
-# 5.  RCP NUR ZUKUNFT (OBS bleibt komplett)
-# ============================================================================
-d <- d %>%
-  filter(!grepl("^RCP", Szenario, ignore.case = TRUE) | Startjahr >= rcp_zukunft_ab)
+# ----  6  SZENARIO-LABELS UMBENENNEN  (optional, szen_rename) ----
+# benannter Vektor c("<intern>" = "<Anzeige>"); leer = nichts umbenennen.
+if (length(szen_rename) > 0) {
+  idx     <- match(d$Szen_label, names(szen_rename))
+  treffer <- !is.na(idx)
+  d$Szen_label[treffer] <- unname(szen_rename[idx[treffer]])
+}
+# ansehen:  table(d$Szen_label)
 
+
+# ----  7  SZENARIEN-FILTER  (Basis-Szenario, OBS/RCP45/RCP85) ----
+# Auf der BASIS Szenario filtern -> RCP45 schließt RCP45-v3 mit ein.
+# szenarien = NULL behält alle.
+if (!is.null(szenarien)) {
+  d <- d %>% filter(Szenario %in% szenarien)
+  stopifnot(nrow(d) > 0)
+}
+# ansehen:  table(d$Szenario)
+
+
+# ----  8  RCP NUR ZUKUNFT  (OBS optional komplett) ----
+# RCP: nur Läufe ab rcp_zukunft_ab. OBS: bei obs_alle = TRUE komplett behalten,
+# sonst ebenfalls erst ab rcp_zukunft_ab.
+d <- d %>%
+  filter(!grepl("^RCP", Szenario, ignore.case = TRUE) |
+         (!is.na(Startjahr) & Startjahr >= rcp_zukunft_ab))
+if (!obs_alle) {
+  d <- d %>%
+    filter(!grepl("^OBS", Szenario, ignore.case = TRUE) |
+           (!is.na(Startjahr) & Startjahr >= rcp_zukunft_ab))
+}
+stopifnot(nrow(d) > 0)
 # ansehen:  table(d$Szen_label, d$Zeitraum)
 
 
-# ============================================================================
-# 6.  FAKTOREN ORDNEN  (feste Reihenfolge der Achsen)
-# ============================================================================
+# ----  9  BAUMART -> ANZEIGE-KÜRZEL ----
+# c("<intern>" = "<Anzeige>"); nicht gelistete Baumarten behalten ihren Namen.
+d <- d %>%
+  mutate(Baumart = coalesce(unname(baumart_labels[as.character(Baumart)]),
+                            as.character(Baumart)))
+# ansehen:  sort(unique(d$Baumart))
+
+
+# ----  10  FAKTOREN ORDNEN  (feste Reihenfolge der Achsen) ----
 d <- d %>%
   mutate(
     Szen_label = factor(Szen_label, levels = sort(unique(Szen_label))),
@@ -189,16 +216,39 @@ d <- d %>%
   )
 
 
-# ============================================================================
-# 7.  WERT (Einteilung als Skala) + KATEGORIE/STUFE FÜR DIE GEWÄHLTE STUFIGKEIT
-# ============================================================================
+# ----  11  METHODE -> EIGENE ZEILE  (Spalte Hinweis -> TV_M) ----
+# Jede echte Rechenmethode wird eine eigene Zeile: TV6 (KHorg) / TV6 (KHff) /
+# TV6 (KM). AltBA/BAE20/WKE betreffen nur einzelne Baumarten -> leeres Label ->
+# in die Standardzeile "TVx" zusammengelegt. Nicht gelistete Hinweise dienen
+# sich selbst als Label.
+if (!"Hinweis" %in% names(d)) d$Hinweis <- ""
+d <- d %>%
+  mutate(
+    Hinweis = coalesce(as.character(Hinweis), ""),
+    Methode = coalesce(unname(hinweis_row[Hinweis]), Hinweis),
+    TV_M    = ifelse(Methode == "", as.character(TV),
+                     paste0(as.character(TV), " (", Methode, ")")))
+
+# Modell-Kürzel (für Dateinamen/Untertitel): alle Modelle mit "-" verbunden.
+modelle_str <- {
+  m <- sort(unique(as.character(d$Modell)))
+  m <- m[!is.na(m) & nzchar(m)]
+  if (length(m)) paste(m, collapse = "-") else "NA"
+}
+# ansehen:  table(d$TV_M) ; modelle_str
+
+
+# ----  12  STUFE WÄHLEN: Wert + Kategorie + Stufe ----
+# Diesen Block je Stufigkeit erneut laufen lassen (stufe <- "bin"/"3st"/…).
 # code       -> Kategorie (Text): sehr empfohlen … pBv / Keine Datengrundlage.
-#              -> für Skizze 2 (Auszählung/Modus) UND die Kurven-Farben.
-# Kategorie  -> Stufe (Zahl, INVERTIERT): match() gibt Position in `ordn`,
-#              nicht empfohlen = 1 … sehr empfohlen = n. Das ist NUR für die
-#              Kurven (Skizze 1), damit "sehr empfohlen" oben liegt.
-# Wert       = die Einteilung DIREKT wie in BAE_xST (1 = beste … n = schlechteste)
-#              bleibt nur zum Ansehen; Skizze 2 zählt jetzt Kategorien, kein Score.
+# Kategorie  -> Stufe (Zahl): match() gibt Position in `ordn`, nicht empfohlen = 1
+#              … sehr empfohlen = n. Für die Kurven-y-Achse UND die Gewichtung.
+# Wert       = Einteilung DIREKT wie in BAE_xST (1 = beste … n = schlechteste),
+#              pBv/leer/nicht-numerisch -> NA. Nur zum Ansehen.
+bae_col <- bae_col_map[[stufe]]
+mapping <- maps[[stufe]]
+ordn    <- kat_order[[stufe]]
+
 d <- d %>%
   mutate(
     code      = as.character(.data[[bae_col]]),
@@ -207,32 +257,23 @@ d <- d %>%
       code %in% names(mapping) ~ unname(mapping[code]),
       code == "pBv"            ~ "pBv",
       TRUE                     ~ "Keine Datengrundlage"),
-    Stufe     = match(Kategorie, ordn)
+    Stufe     = match(Kategorie, ordn)                # invertiert: hoch = gut
   )
-
 # ansehen:
-#   d %>% count(code, Wert, Kategorie, Stufe)   # Code -> Wert/Text/Stufe
+#   d %>% count(code, Wert, Kategorie, Stufe)
 #   table(d$Kategorie, useNA = "ifany")
 
 
-# ============================================================================
-# 8.  SKIZZE 1  – EMPFEHLUNGS-KURVEN je TV (glatt)
-# ============================================================================
+# ----  13  SKIZZE 1 – EMPFEHLUNGS-KURVEN je TV (glatt) ----
 # Idee: pro Panel (Szenario × Zeitraum) für jede TV eine glatte Kurve über die
-# Baumarten. y = Stufe (unten "nicht empfohlen", oben "sehr empfohlen").
-# Wo sich die Kurven decken, sind sich die TVs einig.
-# WICHTIG: Da es je (TV, Baumart) mehrere Hinweis-Zeilen gibt, erst EINEN Wert
-# je Zelle bilden (Mittel), sonst zappeln die Linien senkrecht.
-
-# Farben für die TV-Linien
+# Baumarten. y = Stufe (unten "nicht empfohlen", oben "sehr empfohlen"). Wo sich
+# die Kurven decken, sind sich die TVs einig.
 ba_levels <- levels(droplevels(d$Baumart))
 tv_levels <- levels(droplevels(d$TV))
-tv_farben <- setNames(
-  c("#1B9E77","#D95F02","#7570B3","#E7298A","#66A61E","#E6AB02",
-    "#A6761D","#666666","#1F78B4","#B2182B","#33A02C","#6A3D9A")[seq_along(tv_levels)],
-  tv_levels)
+tv_farben <- setNames(tv_colors[seq_along(tv_levels)], tv_levels)
 
-# 8a. ein Wert je (Panel, TV, Baumart): Mittel der Stufe über Hinweis-Varianten
+# 13a. ein Wert je (Panel, TV, Baumart): Mittel der Stufe über die Hinweis-
+#      Varianten (sonst mehrere y an einer x-Position -> vertikale Zacken).
 kurv <- d %>%
   group_by(Szen_label, Zeitraum, TV, Baumart) %>%
   summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
@@ -240,18 +281,18 @@ kurv <- d %>%
   mutate(x = as.integer(factor(Baumart, levels = ba_levels)))
 # ansehen:  kurv
 
-# 8b. glatte Spline-Kurve je (Panel, TV) durch diese Punkte (auf [1,n] geklammert)
+# 13b. glatte Spline-Kurve je (Panel, TV) durch diese Punkte (auf [1,n] geklammert)
 kurv_smooth <- kurv %>%
   group_by(Szen_label, Zeitraum, TV) %>%
   filter(n() >= 2) %>%
   group_modify(~ {
-    s <- stats::spline(.x$x, .x$y, n = 200)           # glatte Interpolation
+    s <- stats::spline(.x$x, .x$y, n = 200)
     data.frame(x = s$x, y = pmin(pmax(s$y, 1), length(ordn)))
   }) %>%
   ungroup()
 # ansehen:  kurv_smooth
 
-# 8c. EIN durchgehender ggplot-Aufruf – Linie (glatt) + Punkte (echte Werte):
+# 13c. EIN durchgehender ggplot-Aufruf – Linie (glatt) + Punkte (echte Werte):
 p_kurven <-
   ggplot() +
   geom_line(data = kurv_smooth, aes(x = x, y = y, colour = TV, group = TV),
@@ -259,53 +300,63 @@ p_kurven <-
   geom_point(data = kurv, aes(x = x, y = y, colour = TV), size = 1.4, alpha = 0.9) +
   facet_grid(Szen_label ~ Zeitraum) +
   scale_x_continuous(breaks = seq_along(ba_levels), labels = ba_levels) +
-  scale_y_continuous(breaks = seq_along(ordn), labels = ordn, limits = c(1, length(ordn))) +
-  scale_colour_manual(values = tv_farben) +
-  labs(title = paste0("BAE-Empfehlungskurven – ", master_id),
-       subtitle = paste0(stufe, "-stufig  |  Überlappung der Kurven = Einigkeit der TVs"),
+  scale_y_continuous(breaks = seq_along(ordn), labels = ordn,
+                     limits = c(1, length(ordn)), expand = expansion(mult = 0.05)) +
+  scale_colour_manual(values = tv_farben, drop = FALSE) +
+  labs(title    = paste0("BAE-Empfehlungskurven – ", master_id),
+       subtitle = paste0(stufe, "-stufig  |  Modell: ", modelle_str),
        x = NULL, y = "Empfehlung", colour = "TV") +
   theme_minimal(base_size = 11) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
-        strip.text  = element_text(face = "bold", size = 9),
-        panel.grid.minor = element_blank(),
-        legend.position = "bottom",
-        plot.background = element_rect(fill = "white", color = NA))
+  theme(strip.text        = element_text(face = "bold", size = 9),
+        strip.background   = element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
+        panel.border       = element_rect(color = "grey80", fill = NA, linewidth = 0.5),
+        axis.text.x        = element_text(angle = 45, hjust = 1, size = 8),
+        panel.grid.minor   = element_blank(),
+        panel.grid.major.x = element_line(color = "grey92"),
+        legend.position    = "bottom",
+        plot.background    = element_rect(fill = "white", color = NA))
 
 p_kurven                                   # im Plot-Fenster ansehen
-# ggsave("Kurven_beispiel.png", p_kurven, width = 34, height = 22, units = "cm", dpi = 150)
+# ggsave(paste0("Kurven_", stufe, "_", master_id, "_", modelle_str, ".png"),
+#        p_kurven, width = 34, height = 22, units = "cm", dpi = 150)
 
 
-# ============================================================================
-# 9.  SKIZZE 2  – HÄUFIGSTE EMPFEHLUNG (AUSGEZÄHLT), UNAGGREGIERT JE KLIMALAUF
-# ============================================================================
-# Genau wie die Heatmap: NICHT über Klimaläufe aggregieren, sondern je Klimalauf
-# eine eigene Matrix. KEIN Score – es wird nur AUSGEZÄHLT. Zeilen sind TV × Methode
-# (aus Abschnitt 3b): TV6 (KHorg)/TV6 (KHff)/TV6 (KM) sind eigene Rechnungen,
-# AltBA/BAE20/WKE sind in "TVx" zusammengelegt. Je Zelle werden die Kategorien
-# gezählt. Die Kachel zeigt die HÄUFIGSTE Kategorie (Modus):
-#   Farbe = häufigste Kategorie (custom_palette; pBv/Keine Datengrundlage = grau)
-#   Zahl  = ABSOLUTE Anzahl (je Klimalauf meist 1; > 1 erst über mehrere Klimaläufe)
-#   Gleichstand: die BESSERE Kategorie wird gezeigt und mit "*" + Rahmen markiert.
-# Sortierung je Klimalauf GEWICHTET (dunkelgrün zählt am meisten, Summe der Stufe):
-# beste Zeile oben, beste Baumart rechts.
-
+# ----  14  SKIZZE 2 – HÄUFIGSTE EMPFEHLUNG je Gruppe (trennung) ----
+# Genau wie die Heatmap: NICHT global aggregieren, sondern je GRUPPE eine Matrix.
+# KEIN Score – es wird nur AUSGEZÄHLT. Zeilen sind TV × Methode (Abschnitt 11).
+# Die Gruppe kommt aus `trennung`:
+#   "klimalauf" -> je Klimalauf eine Matrix (unaggregiert wie die Heatmap). [Default]
+#   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe gezählt
+#   "szenario"  -> je Szen_label eine Matrix (über die Zeiträume gezählt)
+#   "keine"     -> eine gemeinsame Matrix über alles
 kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
 kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
 dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
 
-# ansehen: welche Klimaläufe gibt es?  ->  sort(unique(as.character(d$Klimalauf)))
-# Zum Durchklicken EINEN Klimalauf setzen und die Zeilen im Rumpf einzeln laufen
-# lassen, z. B.:  kl <- "RCP85_MPICLM_2071-2100"
-for (kl in sort(unique(as.character(d$Klimalauf)))) {
+d <- d %>%
+  mutate(Gruppe = switch(trennung,
+    "klimalauf" = as.character(Klimalauf),
+    "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+    "szenario"  = as.character(Szen_label),
+    "keine"     = "alle"))
 
-  # 9a. nur dieser Klimalauf; je Zelle (Zeile TV×Methode × Baumart) AUSZÄHLEN
+# alphabetisch: OBS… vor RCP…, Zeiträume chronologisch
+gruppen <- sort(unique(d$Gruppe))
+# ansehen:  gruppen ; table(d$Gruppe)
+
+# Zum Durchklicken EINE Gruppe setzen und den Rumpf einzeln laufen lassen,
+# z. B.:  grp <- gruppen[1]
+for (grp in gruppen) {
+
+  # 14a. nur diese Gruppe; je Zelle (Zeile TV×Methode × Baumart) AUSZÄHLEN
   zaehl <- d %>%
-    filter(Klimalauf == kl) %>%
+    filter(Gruppe == grp) %>%
     count(TV_M, Baumart, Kategorie, name = "n")
-  # ansehen:  zaehl   (Anzahl je TV_M × Baumart × Kategorie)
+  if (nrow(zaehl) == 0) next
+  # ansehen:  zaehl
 
-  # 9b. Kachel = häufigste Kategorie (Modus). Gleichstand -> bessere (kleinster
-  #     kat_pref) + Markierung tie.
+  # 14b. Kachel = häufigste Kategorie (Modus). Gleichstand -> bessere (kleinster
+  #      kat_pref) + Markierung tie.
   kachel <- zaehl %>%
     group_by(TV_M, Baumart) %>%
     mutate(tie = sum(n == max(n)) > 1) %>%
@@ -317,41 +368,232 @@ for (kl in sort(unique(as.character(d$Klimalauf)))) {
            txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
   # ansehen:  kachel
 
-  # 9c. Sortierung GEWICHTET (dunkelgrün zählt am meisten): Summe der Stufe je
-  #     Zeile (TV×Methode)/Baumart (sehr empfohlen = max … nicht empfohlen = 1;
-  #     pBv/leer = 0). Aufsteigend -> beste (höchste Summe) als letzter
-  #     Faktor-Level, damit bei y = oben und bei x = rechts.
-  gew     <- d %>% filter(Klimalauf == kl) %>% mutate(w = coalesce(as.numeric(Stufe), 0))
-  tv_rang <- gew %>% group_by(TV_M)    %>% summarise(s = sum(w)) %>% arrange(s)
-  ba_rang <- gew %>% group_by(Baumart) %>% summarise(s = sum(w)) %>% arrange(s)
-  # ansehen:  tv_rang ; ba_rang    (oben/rechts = höchste Summe = beste)
+  # 14c. Sortierung GEWICHTET (dunkelgrün zählt am meisten): Summe der Stufe je
+  #      Zeile (TV×Methode)/Baumart (sehr empfohlen = max … nicht empfohlen = 1;
+  #      pBv/leer = 0). Aufsteigend -> beste (höchste Summe) als letzter Faktor-
+  #      Level -> beste Zeile oben (y), beste Baumart rechts (x).
+  gew     <- d %>% filter(Gruppe == grp) %>% mutate(w = coalesce(as.numeric(Stufe), 0))
+  tv_rang <- gew %>% group_by(TV_M)    %>% summarise(s = sum(w), .groups = "drop") %>% arrange(s, TV_M)
+  ba_rang <- gew %>% group_by(Baumart) %>% summarise(s = sum(w), .groups = "drop") %>% arrange(s, Baumart)
+  # ansehen:  tv_rang ; ba_rang
 
   kachel <- kachel %>%
     mutate(TV_M    = factor(as.character(TV_M),    levels = as.character(tv_rang$TV_M)),
            Baumart = factor(as.character(Baumart), levels = as.character(ba_rang$Baumart)))
 
-  # 9d. EIN durchgehender ggplot-Aufruf
+  # 14d. Zahl nur zeigen, wenn die Gruppe MEHRERE Klimaläufe zusammenfasst
+  #      (bei trennung = "klimalauf" ist alles zwangsläufig 1 -> weglassen).
+  n_laeufe    <- n_distinct(gew$Klimalauf)
+  zahl_zeigen <- werte_anzeigen && n_laeufe > 1
+
+  # Modell + Szenarien/Zeiträume NUR aus dieser Gruppe (nicht global).
+  modelle_grp <- {
+    mm <- sort(unique(as.character(gew$Modell))); mm <- mm[!is.na(mm) & nzchar(mm)]
+    if (length(mm)) paste(mm, collapse = "-") else "NA" }
+  sz       <- gew %>% distinct(Szen_label, ist_rcp) %>% arrange(ist_rcp, Szen_label)
+  szen_grp <- paste(sub("^OBS", "Referenz", as.character(sz$Szen_label)), collapse = "/")
+  zeit_grp <- paste(sort(unique(as.character(gew$Zeitraum))), collapse = ", ")
+  grp_info <- switch(trennung,
+    "zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+    "keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+    "szenario"  = paste0(" (", zeit_grp, ")"),
+    "klimalauf" = "")
+
+  # 14e. EIN durchgehender ggplot-Aufruf
   p_matrix <-
     ggplot(kachel, aes(x = Baumart, y = TV_M)) +
     geom_tile(aes(fill = Kategorie), color = "white", linewidth = 0.6) +
     geom_tile(data = filter(kachel, tie), fill = NA, color = "grey15", linewidth = 1.1) +
-    geom_text(aes(label = label, colour = txt_col), size = 3) +
+    {if (zahl_zeigen) geom_text(aes(label = label, colour = txt_col), size = 3)} +
     scale_fill_manual(values = custom_palette, limits = kat_lv, drop = FALSE) +
     scale_colour_identity() +
     coord_equal() +
-    labs(title = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
-         subtitle = paste0(stufe, "-stufig  |  ", kl,
-                           "  |  gewichtet sortiert: beste Zeile oben, beste Baumart rechts  |  ",
-                           "Zahl = Anzahl; * / Rahmen = Gleichstand"),
+    labs(title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
+         subtitle = paste0(stufe, "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
          x = "Baumart  (beste Empfehlungen →)",
-         y = "TV × Methode  (beste oben ↑)", fill = "häufigste Kategorie") +
+         y = "TV × Methode  (meiste Empfehlungen oben ↑)",
+         fill = "häufigste Kategorie") +
     theme_minimal(base_size = 11) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", size = 9),
-          axis.text.y = element_text(face = "bold", size = 9),
-          panel.grid  = element_blank(),
+    theme(axis.text.x     = element_text(angle = 45, hjust = 1, face = "bold", size = 9),
+          axis.text.y     = element_text(face = "bold", size = 9),
+          panel.grid      = element_blank(),
+          legend.position = legend_pos,
           plot.background = element_rect(fill = "white", color = NA))
 
   print(p_matrix)                          # im Plot-Fenster ansehen
-  # ggsave(paste0("ModusMatrix_", gsub("[^A-Za-z0-9]+","-",kl), "_beispiel.png"),
+  # grp_tag <- gsub("[^A-Za-z0-9]+", "-", grp)
+  # ggsave(paste0("ModusMatrix_", stufe, "_", grp_tag, "_", master_id, "_", modelle_grp, ".png"),
   #        p_matrix, width = 22, height = 16, units = "cm", dpi = 150)
 }
+
+
+# ----  15  SKIZZE 2 FACETTIERT  (alle Gruppen in EINER Grafik) ----
+# Wie die Kurvengrafik: ALLE Gruppen als facet_wrap in EINE PNG statt einzelner
+# Dateien. Achsen sind gemeinsam -> GLOBAL (über alle Gruppen) gewichtet sortiert.
+
+# 15a. Auszählen wie oben, aber Gruppe bleibt erhalten -> Modus je (Gruppe, Zelle).
+kachel_f <- d %>%
+  count(Gruppe, TV_M, Baumart, Kategorie, name = "n") %>%
+  group_by(Gruppe, TV_M, Baumart) %>%
+  mutate(tie = sum(n == max(n)) > 1) %>%
+  filter(n == max(n)) %>%
+  slice_min(match(Kategorie, kat_pref), n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(Kategorie = factor(Kategorie, levels = kat_lv),
+         label     = ifelse(tie, paste0(n, "*"), as.character(n)),
+         txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
+
+# 15b. GLOBAL gewichtet sortiert (gemeinsame Achsen über alle Facetten).
+gew_f  <- d %>% mutate(w = coalesce(as.numeric(Stufe), 0))
+tv_ord <- gew_f %>% group_by(TV_M)    %>% summarise(s = sum(w), .groups = "drop") %>% arrange(s, TV_M)
+ba_ord <- gew_f %>% group_by(Baumart) %>% summarise(s = sum(w), .groups = "drop") %>% arrange(s, Baumart)
+
+kachel_f <- kachel_f %>%
+  mutate(TV_M    = factor(as.character(TV_M),    levels = as.character(tv_ord$TV_M)),
+         Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)),
+         Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
+
+# 15c. Zahl nur zeigen, wenn mind. eine Gruppe mehrere Klimaläufe zusammenfasst.
+laeufe_je_grp <- d %>% distinct(Gruppe, Klimalauf) %>% count(Gruppe)
+zahl_zeigen_f <- werte_anzeigen && any(laeufe_je_grp$n > 1)
+facet_ncol    <- ceiling(sqrt(length(gruppen)))   # z. B. 1 = alle untereinander
+
+# 15d. EIN durchgehender ggplot-Aufruf
+p_facet <-
+  ggplot(kachel_f, aes(x = Baumart, y = TV_M)) +
+  geom_tile(aes(fill = Kategorie), color = "white", linewidth = 0.6) +
+  geom_tile(data = filter(kachel_f, tie), fill = NA, color = "grey15", linewidth = 1.1) +
+  {if (zahl_zeigen_f) geom_text(aes(label = label, colour = txt_col), size = 3)} +
+  facet_wrap(~ Gruppe, ncol = facet_ncol) +
+  scale_fill_manual(values = custom_palette, limits = kat_lv, drop = FALSE) +
+  scale_colour_identity() +
+  coord_equal() +
+  labs(title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
+       subtitle = paste0(stufe, "-stufig  |  facettiert je Gruppe (", trennung,
+                         ")  |  Modell: ", modelle_str),
+       x = "Baumart  (beste Empfehlungen →)",
+       y = "TV × Methode  (meiste Empfehlungen oben ↑)",
+       fill = "häufigste Kategorie") +
+  theme_minimal(base_size = 11) +
+  theme(strip.text       = element_text(face = "bold", size = 9),
+        strip.background = element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
+        axis.text.x      = element_text(angle = 45, hjust = 1, face = "bold", size = 9),
+        axis.text.y      = element_text(face = "bold", size = 9),
+        panel.grid       = element_blank(),
+        legend.position  = legend_pos,
+        plot.background  = element_rect(fill = "white", color = NA))
+
+p_facet
+# ggsave(paste0("ModusMatrix_facet_", stufe, "_", master_id, "_", modelle_str, ".png"),
+#        p_facet, width = 30, height = 24, units = "cm", dpi = 150)
+
+
+# ----  16  FESTE ACHSEN-SORTIERUNG  (order_ref) ----
+# Sollen mehrere Grafiken DIESELBE Achsenaufteilung nutzen (z. B. binär links,
+# 4-stufig rechts an gleicher Stelle), berechnet man die TV×Methode- und
+# Baumart-Reihenfolge EINMAL aus einer Referenz-Stufe und übernimmt sie überall.
+# (In den Abschnitten 14/15 dann statt der je-Grafik-Sortierung
+#  levels = union(ref$tv, <eigene>) bzw. union(ref$ba, <eigene>) setzen.)
+order_ref <- "bin"                           # Referenz-Stufe (robusteste Abdeckung)
+ref_col   <- bae_col_map[[order_ref]]
+ref_ordn  <- kat_order[[order_ref]]
+
+d_ref <- d %>%
+  mutate(
+    Kategorie_ref = { rc <- as.character(.data[[ref_col]])
+      case_when(rc %in% names(maps[[order_ref]]) ~ unname(maps[[order_ref]][rc]),
+                rc == "pBv"                      ~ "pBv",
+                TRUE                             ~ "Keine Datengrundlage") },
+    Stufe_ref = match(Kategorie_ref, ref_ordn),
+    w         = coalesce(as.numeric(Stufe_ref), 0))
+
+ref <- list(
+  tv = d_ref %>% group_by(TV_M)    %>% summarise(s = sum(w), .groups = "drop") %>%
+         arrange(s, TV_M) %>% pull(TV_M) %>% as.character(),
+  ba = d_ref %>% group_by(Baumart) %>% summarise(s = sum(w), .groups = "drop") %>%
+         arrange(s, Baumart) %>% pull(Baumart) %>% as.character())
+# ansehen:  ref$tv ; ref$ba
+
+
+# ----  17  FACET-PAAR  (binär + 4-stufig nebeneinander, patchwork) ----
+# Zwei facettierte Modus-Matrizen unter EINER Überschrift, mit der GEMEINSAMEN
+# Referenz-Sortierung aus Abschnitt 16 (order_ref) -> beide Seiten direkt
+# vergleichbar. Schleife über die zwei Stufen (jede baut ihre eigene Facet-Grafik).
+library(patchwork)
+stufen_paar    <- c("bin", "4st")
+facet_ncol_paar <- 1                          # Gruppen untereinander
+
+facet_plots <- list()
+for (st in stufen_paar) {
+  ordn_st <- kat_order[[st]]
+  kat_lv_st   <- c(ordn_st, "pBv", "Keine Datengrundlage")
+  kat_pref_st <- c(rev(ordn_st), "pBv", "Keine Datengrundlage")
+
+  # Kategorie + Stufe für DIESE Stufigkeit (Abschnitt 12 je st)
+  d_st <- d %>%
+    mutate(
+      code_st = as.character(.data[[ bae_col_map[[st]] ]]),
+      Kategorie = case_when(
+        code_st %in% names(maps[[st]]) ~ unname(maps[[st]][code_st]),
+        code_st == "pBv"               ~ "pBv",
+        TRUE                           ~ "Keine Datengrundlage"),
+      Stufe = match(Kategorie, ordn_st))
+
+  # Modus je (Gruppe, Zelle) wie Abschnitt 15a
+  kachel_st <- d_st %>%
+    count(Gruppe, TV_M, Baumart, Kategorie, name = "n") %>%
+    group_by(Gruppe, TV_M, Baumart) %>%
+    mutate(tie = sum(n == max(n)) > 1) %>%
+    filter(n == max(n)) %>%
+    slice_min(match(Kategorie, kat_pref_st), n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(Kategorie = factor(Kategorie, levels = kat_lv_st),
+           # feste Referenz-Achsen (Abschnitt 16); union hängt evtl. Fehlende an
+           TV_M    = factor(as.character(TV_M),    levels = union(ref$tv, unique(as.character(TV_M)))),
+           Baumart = factor(as.character(Baumart), levels = union(ref$ba, unique(as.character(Baumart)))),
+           Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
+
+  lab_st <- if (st == "bin") "binär" else paste0(st, "-stufig")
+  facet_plots[[st]] <-
+    ggplot(kachel_st, aes(x = Baumart, y = TV_M)) +
+    geom_tile(aes(fill = Kategorie), color = "white", linewidth = 0.6) +
+    geom_tile(data = filter(kachel_st, tie), fill = NA, color = "grey15", linewidth = 1.1) +
+    facet_wrap(~ Gruppe, ncol = facet_ncol_paar) +
+    scale_fill_manual(values = custom_palette, limits = kat_lv_st, drop = FALSE) +
+    coord_equal() +
+    labs(title = lab_st, x = "Baumart  (beste →)", y = "TV × Methode  (beste oben ↑)",
+         fill = "häufigste Kategorie") +
+    theme_minimal(base_size = 11) +
+    theme(strip.text       = element_text(face = "bold", size = 9),
+          strip.background = element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
+          axis.text.x      = element_text(angle = 45, hjust = 1, face = "bold", size = 9),
+          axis.text.y      = element_text(face = "bold", size = 9),
+          panel.grid       = element_blank(),
+          plot.background  = element_rect(fill = "white", color = NA))
+}
+
+# Größere Schrift für die große Kombigrafik + Legende in 2 Zeilen umbrechen,
+# sonst läuft die 6-teilige 4st-Legende über den rechten Rand hinaus.
+groesser <- theme(
+  plot.title   = element_text(size = 25, face = "bold"),
+  strip.text   = element_text(size = 25, face = "bold"),
+  axis.title   = element_text(size = 25),
+  axis.text.y  = element_text(size = 25, face = "bold"),
+  axis.text.x  = element_text(size = 25, face = "bold", angle = 45, hjust = 1),
+  legend.text  = element_text(size = 20),
+  legend.title = element_text(size = 25))
+
+p_paar <- (facet_plots[[stufen_paar[1]]] + facet_plots[[stufen_paar[2]]]) +
+  plot_layout(ncol = 2) & groesser &
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE))
+p_paar <- p_paar +
+  plot_annotation(
+    title    = paste0("BAE – häufigste Empfehlung – ", master_id),
+    subtitle = paste0("links: binär  |  rechts: 4-stufig  |  Modell: ", modelle_str),
+    theme = theme(plot.title      = element_text(size = 24, face = "bold"),
+                  plot.subtitle   = element_text(size = 16),
+                  plot.background = element_rect(fill = "white", color = NA)))
+
+p_paar
+# ggsave(paste0("ModusMatrix_facetpaar_bin-4st_", master_id, "_", modelle_str, ".png"),
+#        p_paar, width = 60, height = 40, units = "cm", dpi = 150)
