@@ -34,7 +34,7 @@ rcp_zukunft_ab <- 2021                     # RCP: nur Zeiträume ab diesem Jahr
 obs_alle       <- TRUE                     # TRUE = OBS-Läufe unabhängig vom Zeitraum behalten
 szenarien      <- c("OBS", "RCP45", "RCP85")  # Basis-Szenarien behalten; NULL = alle
 szen_rename    <- character(0)             # z. B. c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real")
-trennung       <- "klimalauf"              # "klimalauf" | "zeit" | "szenario" | "keine"
+trennung       <- "Klimalauf"              # "Klimalauf" | "Zeit" | "Szenario" | "Keine"
 werte_anzeigen <- TRUE                     # Anzahl je Kachel beschriften (nur wenn Gruppe > 1 Lauf)
 legend_pos     <- "right"                  # Legendenposition ("right","bottom","none",…)
 
@@ -243,15 +243,15 @@ d <- d %>%
 # gemischte Farben = TVs uneinig.
 
 # GRUPPIERUNG (Facetten) über `trennung` – wie die Modus-Matrix (Abschnitt 0/14):
-#   "klimalauf" -> ein Panel je Klimalauf (Default)
-#   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe aggregiert
-#   "szenario"  -> je Szen_label ein Panel;   "keine" -> ein gemeinsames Panel
+#   "Klimalauf" -> ein Panel je Klimalauf (Default)
+#   "Zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe aggregiert
+#   "Szenario"  -> je Szen_label ein Panel;   "Keine" -> ein gemeinsames Panel
 d <- d %>%
   mutate(Gruppe = switch(trennung,
-    "klimalauf" = as.character(Klimalauf),
-    "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
-    "szenario"  = as.character(Szen_label),
-    "keine"     = "alle"))
+    "Klimalauf" = as.character(Klimalauf),
+    "Zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+    "Szenario"  = as.character(Szen_label),
+    "Keine"     = "alle"))
 gruppen <- sort(unique(d$Gruppe))
 # ansehen:  gruppen ; table(d$Gruppe)
 
@@ -365,20 +365,20 @@ p_konsens                                  # im Plot-Fenster ansehen
 # Genau wie die Heatmap: NICHT global aggregieren, sondern je GRUPPE eine Matrix.
 # KEIN Score – es wird nur AUSGEZÄHLT. Zeilen sind TV × Methode (Abschnitt 11).
 # Die Gruppe kommt aus `trennung`:
-#   "klimalauf" -> je Klimalauf eine Matrix (unaggregiert wie die Heatmap). [Default]
-#   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe gezählt
-#   "szenario"  -> je Szen_label eine Matrix (über die Zeiträume gezählt)
-#   "keine"     -> eine gemeinsame Matrix über alles
+#   "Klimalauf" -> je Klimalauf eine Matrix (unaggregiert wie die Heatmap). [Default]
+#   "Zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe gezählt
+#   "Szenario"  -> je Szen_label eine Matrix (über die Zeiträume gezählt)
+#   "Keine"     -> eine gemeinsame Matrix über alles
 kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
 kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
 dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
 
 d <- d %>%
   mutate(Gruppe = switch(trennung,
-                         "klimalauf" = as.character(Klimalauf),
-                         "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
-                         "szenario"  = as.character(Szen_label),
-                         "keine"     = "alle"))
+                         "Klimalauf" = as.character(Klimalauf),
+                         "Zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+                         "Szenario"  = as.character(Szen_label),
+                         "Keine"     = "alle"))
 
 # alphabetisch: OBS… vor RCP…, Zeiträume chronologisch
 gruppen <- sort(unique(d$Gruppe))
@@ -422,7 +422,7 @@ for (grp in gruppen) {
            Baumart = factor(as.character(Baumart), levels = as.character(ba_rang$Baumart)))
   
   # 14d. Zahl nur zeigen, wenn die Gruppe MEHRERE Klimaläufe zusammenfasst
-  #      (bei trennung = "klimalauf" ist alles zwangsläufig 1 -> weglassen).
+  #      (bei trennung = "Klimalauf" ist alles zwangsläufig 1 -> weglassen).
   n_laeufe    <- n_distinct(gew$Klimalauf)
   zahl_zeigen <- werte_anzeigen && n_laeufe > 1
   
@@ -434,10 +434,10 @@ for (grp in gruppen) {
   szen_grp <- paste(sub("^OBS", "Referenz", as.character(sz$Szen_label)), collapse = "/")
   zeit_grp <- paste(sort(unique(as.character(gew$Zeitraum))), collapse = ", ")
   grp_info <- switch(trennung,
-                     "zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
-                     "keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
-                     "szenario"  = paste0(" (", zeit_grp, ")"),
-                     "klimalauf" = "")
+                     "Zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+                     "Keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+                     "Szenario"  = paste0(" (", zeit_grp, ")"),
+                     "Klimalauf" = "")
   
   # 14e. EIN durchgehender ggplot-Aufruf
   p_matrix <-

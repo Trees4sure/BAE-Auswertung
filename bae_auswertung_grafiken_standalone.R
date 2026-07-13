@@ -29,7 +29,7 @@
 #                  wird die Zahl NICHT gedruckt – sie trägt dort keine Info.
 #        * Gleichstand: die BESSERE Kategorie wird gezeigt und mit "*" am Wert
 #                       sowie einem Rahmen um die Kachel markiert.
-#      Standard (trennung = "klimalauf"): eine Matrix je Klimalauf, unaggregiert
+#      Standard (trennung = "Klimalauf"): eine Matrix je Klimalauf, unaggregiert
 #      wie die Heatmap. Alternativ über Zeit/Szenario zählbar.
 #      facet = TRUE legt ALLE Gruppen in EINE facettierte Grafik (facet_wrap,
 #      wie die Kurvengrafik) statt einzelner PNGs; die Achsen sind dann gemeinsam
@@ -314,8 +314,8 @@ library(stringr)
 #'                       BAE_3ST / BAE_4ST / BAE_5ST (wie im Heatmap-Skript).
 #' @param master_id     ID des Standorts, auf den gefiltert wird.
 #' @param stufen        Bewertungsstufen, je Stufe zwei PNGs: "3st","4st","5st","2st".
-#' @param trennung      Facetten-Gruppierung: "klimalauf" (je Klimalauf, Default),
-#'                       "zeit" (Vergangenheit vs. Zukunft), "szenario", "keine".
+#' @param trennung      Facetten-Gruppierung: "Klimalauf" (je Klimalauf, Default),
+#'                       "Zeit" (Vergangenheit vs. Zukunft), "Szenario", "Keine".
 #' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
 #' @param obs_alle       TRUE = OBS-Läufe unabhängig vom Zeitraum behalten.
 #' @param szen_rename    benannter Vektor c("<intern>" = "<Anzeige>") zum
@@ -327,7 +327,7 @@ library(stringr)
 bae_konsens_function <- function(data,
                                  master_id,
                                  stufen         = c("3st", "4st", "5st", "2st"),
-                                 trennung       = c("klimalauf", "zeit", "szenario", "keine"),
+                                 trennung       = c("Klimalauf", "Zeit", "Szenario", "Keine"),
                                  rcp_zukunft_ab = 2021,
                                  obs_alle       = TRUE,
                                  szen_rename    = character(0),
@@ -341,10 +341,10 @@ bae_konsens_function <- function(data,
   # Facetten-Gruppe wie die Modus-Matrix: klimalauf (Default) / zeit / szenario / keine
   d0 <- d0 %>%
     dplyr::mutate(Gruppe = switch(trennung,
-      "klimalauf" = as.character(Klimalauf),
-      "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
-      "szenario"  = as.character(Szen_label),
-      "keine"     = "alle"))
+      "Klimalauf" = as.character(Klimalauf),
+      "Zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+      "Szenario"  = as.character(Szen_label),
+      "Keine"     = "alle"))
   gruppen <- sort(unique(d0$Gruppe))
 
   modelle_str <- .bae_modell_str(d0)
@@ -476,8 +476,8 @@ bae_konsens_function <- function(data,
 #'                       optional Spalte Hinweis = Rechenmethode).
 #' @param master_id     ID des Standorts, auf den gefiltert wird.
 #' @param stufen        Bewertungsstufen: "3st","4st","5st","2st".
-#' @param trennung      Gruppierung der Matrizen: "klimalauf" (je Klimalauf, Default),
-#'                       "zeit" (Vergangenheit vs. Zukunft), "szenario", "keine".
+#' @param trennung      Gruppierung der Matrizen: "Klimalauf" (je Klimalauf, Default),
+#'                       "Zeit" (Vergangenheit vs. Zukunft), "Szenario", "Keine".
 #' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
 #' @param obs_alle       TRUE = OBS-Läufe unabhängig vom Zeitraum behalten.
 #' @param szen_rename    benannter Vektor zum Umbenennen der Szenario-Labels.
@@ -501,7 +501,7 @@ bae_konsens_function <- function(data,
 bae_modus_matrix_function <- function(data,
                                       master_id,
                                       stufen         = c("3st", "4st", "5st", "2st"),
-                                      trennung       = c("klimalauf", "zeit", "szenario", "keine"),
+                                      trennung       = c("Klimalauf", "Zeit", "Szenario", "Keine"),
                                       rcp_zukunft_ab = 2021,
                                       obs_alle       = TRUE,
                                       szen_rename    = character(0),
@@ -515,13 +515,13 @@ bae_modus_matrix_function <- function(data,
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
   
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
-  #   "klimalauf" -> UNAGGREGIERT, je Klimalauf eine Matrix (wie die Heatmap-
+  #   "Klimalauf" -> UNAGGREGIERT, je Klimalauf eine Matrix (wie die Heatmap-
   #                  Panels). Pro Zelle 1 Methode -> Zahl ist hier meist 1. [Default]
-  #   "zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe gezählt
-  #   "szenario"  -> je Szen_label eine Matrix (gezählt über die Zeiträume)
-  #   "keine"     -> eine gemeinsame Matrix über alles
+  #   "Zeit"      -> Vergangenheit (OBS) vs. Zukunft (RCP), über Klimaläufe gezählt
+  #   "Szenario"  -> je Szen_label eine Matrix (gezählt über die Zeiträume)
+  #   "Keine"     -> eine gemeinsame Matrix über alles
   # Die Zahl je Kachel wird erst > 1, wenn eine Gruppe mehrere Klimaläufe zählt
-  # (z. B. trennung = "zeit"/"keine"): dann = in wie vielen die Kategorie vorkam.
+  # (z. B. trennung = "Zeit"/"Keine"): dann = in wie vielen die Kategorie vorkam.
   trennung <- match.arg(trennung)
   
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
@@ -537,10 +537,10 @@ bae_modus_matrix_function <- function(data,
       TV_M    = ifelse(Methode == "", as.character(TV),
                        paste0(as.character(TV), " (", Methode, ")")),
       Gruppe  = switch(trennung,
-                       "klimalauf" = as.character(Klimalauf),
-                       "zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
-                       "szenario"  = as.character(Szen_label),
-                       "keine"     = "alle"))
+                       "Klimalauf" = as.character(Klimalauf),
+                       "Zeit"      = ifelse(ist_rcp, "Zukunft", "Vergangenheit"),
+                       "Szenario"  = as.character(Szen_label),
+                       "Keine"     = "alle"))
   
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
@@ -617,7 +617,7 @@ bae_modus_matrix_function <- function(data,
           Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
       
       # Zahl nur zeigen, wenn mind. eine Gruppe mehrere Klimaläufe zusammenfasst
-      # (bei trennung = "klimalauf" hat jede Gruppe genau 1 Lauf -> alles 1 -> weg).
+      # (bei trennung = "Klimalauf" hat jede Gruppe genau 1 Lauf -> alles 1 -> weg).
       laeufe_je_grp <- d_st %>% dplyr::distinct(Gruppe, Klimalauf) %>%
         dplyr::count(Gruppe)
       zahl_zeigen   <- werte_anzeigen && any(laeufe_je_grp$n > 1)
@@ -731,10 +731,10 @@ bae_modus_matrix_function <- function(data,
       szen_grp    <- paste(sub("^OBS", "Referenz", as.character(sz$Szen_label)), collapse = "/")
       zeit_grp    <- paste(sort(unique(as.character(gew$Zeitraum))),   collapse = ", ")
       grp_info    <- switch(trennung,
-                            "zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
-                            "keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
-                            "szenario"  = paste0(" (", zeit_grp, ")"),
-                            "klimalauf" = "")
+                            "Zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+                            "Keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+                            "Szenario"  = paste0(" (", zeit_grp, ")"),
+                            "Klimalauf" = "")
       
       p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
         ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
@@ -790,7 +790,7 @@ bae_modus_matrix_function <- function(data,
 #' @return unsichtbar list(konsens = ..., matrix = ...) der ggplot-Objekte.
 bae_auswertung_grafiken <- function(data, master_id,
                                     stufen         = c("3st", "4st", "5st", "2st"),
-                                    trennung       = c("klimalauf", "zeit", "szenario", "keine"),
+                                    trennung       = c("Klimalauf", "Zeit", "Szenario", "Keine"),
                                     rcp_zukunft_ab = 2021,
                                     obs_alle       = TRUE,
                                     szen_rename    = character(0),
@@ -837,7 +837,7 @@ bae_auswertung_grafiken <- function(data, master_id,
 bae_modus_facet_paar <- function(data, master_id,
                                  stufen_paar    = c("2st", "4st"),
                                  order_ref      = "2st",
-                                 trennung       = c("klimalauf", "zeit", "szenario", "keine"),
+                                 trennung       = c("Klimalauf", "Zeit", "Szenario", "Keine"),
                                  rcp_zukunft_ab = 2021,
                                  obs_alle       = TRUE,
                                  szen_rename    = character(0),
@@ -953,17 +953,17 @@ bae_modus_matrix_function(data, master_id = master_id.choose, stufen = "2st")
 
 # Modus-Matrix (Skizze 2) über Klimaläufe gezählt, Vergangenheit vs. Zukunft:
 bae_modus_matrix_function(data, master_id = master_id.choose,
-                          trennung = "zeit")
+                          trennung = "Zeit")
 
 # Modus-Matrix als EINE facettierte Grafik (alle Gruppen nebeneinander,
 # wie die Kurvengrafik) statt einzelner PNGs:
 bae_modus_matrix_function(data, master_id = master_id.choose,
-                          trennung = "zeit", facet = TRUE)
+                          trennung = "Zeit", facet = TRUE)
 
 # Facet 1-spaltig, 3 Zeilen (Referenz oben, dann RCP85 2021-2050 & 2071-2100),
 # Legende unten – nur OBS + RCP85, je Klimalauf ein Panel:
 bae_modus_matrix_function(data, master_id = master_id.choose, stufen = "4st",
-                          szenarien = c("OBS", "RCP85"), trennung = "klimalauf",
+                          szenarien = c("OBS", "RCP85"), trennung = "Klimalauf",
                           facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
 
 # Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift, GEMEINSAME
@@ -972,17 +972,17 @@ bae_modus_matrix_function(data, master_id = master_id.choose, stufen = "4st",
 bae_modus_facet_paar(data, master_id = master_id.choose,
                      stufen_paar = c("2st", "4st"), order_ref = "2st",
                      szenarien = c("OBS", "RCP85"),
-                     trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
+                     trennung = "Klimalauf", facet_ncol = 1, legend_pos = "bottom")
 
 bae_modus_facet_paar(data, master_id = master_id.choose,
                      stufen_paar = c("2st", "4st"), order_ref = "3st",
                      szenarien = c("OBS", "RCP85"),
-                     trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
+                     trennung = "Klimalauf", facet_ncol = 1, legend_pos = "bottom")
 
 bae_modus_facet_paar(data, master_id = master_id.choose,
                      stufen_paar = c("2st", "4st"), order_ref = "4st",
                      szenarien = c("OBS", "RCP85"),
-                     trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
+                     trennung = "Klimalauf", facet_ncol = 1, legend_pos = "bottom")
 
 # Feste Achsen-Sortierung (nach binär) auch für einzelne Matrizen erzwingen:
 bae_modus_matrix_function(data, master_id = master_id.choose,
@@ -990,5 +990,5 @@ bae_modus_matrix_function(data, master_id = master_id.choose,
 
 # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 bae_modus_matrix_function(
-  data, master_id = master_id.choose, trennung = "keine",
+  data, master_id = master_id.choose, trennung = "Keine",
   szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
