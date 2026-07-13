@@ -273,7 +273,7 @@ p_kurven <-
                      limits = c(1, length(ordn)), expand = expansion(mult = 0.05)) +
   scale_colour_manual(values = tv_farben, drop = FALSE) +
   labs(title    = paste0("BAE-Empfehlungskurven – ", master_id),
-       subtitle = paste0(stufe, "-stufig  |  Modell: ", modelle_str),
+       subtitle = paste0(sub("st$", "", stufe), "-stufig  |  Modell: ", modelle_str),
        x = NULL, y = "Empfehlung", colour = "TV") +
   theme_minimal(base_size = 11) +
   theme(strip.text        = element_text(face = "bold", size = 9),
@@ -378,7 +378,7 @@ for (grp in gruppen) {
     scale_colour_identity() +
     coord_equal() +
     labs(title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
-         subtitle = paste0(stufe, "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
+         subtitle = paste0(sub("st$", "", stufe), "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
          x = "Baumart  (beste Empfehlungen →)",
          y = "TV × Methode  (meiste Empfehlungen oben ↑)",
          fill = "häufigste Kategorie") +
@@ -438,7 +438,7 @@ p_facet <-
   scale_colour_identity() +
   coord_equal() +
   labs(title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
-       subtitle = paste0(stufe, "-stufig  |  facettiert je Gruppe (", trennung,
+       subtitle = paste0(sub("st$", "", stufe), "-stufig  |  facettiert je Gruppe (", trennung,
                          ")  |  Modell: ", modelle_str),
        x = "Baumart  (beste Empfehlungen →)",
        y = "TV × Methode  (meiste Empfehlungen oben ↑)",
@@ -522,7 +522,7 @@ for (st in stufen_paar) {
            Baumart = factor(as.character(Baumart), levels = union(ref$ba, unique(as.character(Baumart)))),
            Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
   
-  lab_st <- if (st == "2st") "binär" else paste0(st, "-stufig")
+  lab_st <- if (st == "2st") "binär" else paste0(sub("st$", "", st), "-stufig")
   facet_plots[[st]] <-
     ggplot(kachel_st, aes(x = Baumart, y = TV_M)) +
     geom_tile(aes(fill = Kategorie), color = "white", linewidth = 0.6) +

@@ -374,7 +374,7 @@ bae_kurven_function <- function(data,
       ggplot2::scale_colour_manual(values = tv_cols, drop = FALSE) +
       ggplot2::labs(
         title    = paste0("BAE-Empfehlungskurven – ", master_id),
-        subtitle = paste0(st, "-stufig  |  Modell: ", modelle_str),
+        subtitle = paste0(sub("st$", "", st), "-stufig  |  Modell: ", modelle_str),
         x = NULL, y = "Empfehlung", colour = "TV") +
       ggplot2::theme_minimal(base_size = 11) +
       ggplot2::theme(
@@ -572,7 +572,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::scale_colour_identity() +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
-          subtitle = paste0(st, "-stufig  |  facettiert je Gruppe (", trennung,
+          subtitle = paste0(sub("st$", "", st), "-stufig  |  facettiert je Gruppe (", trennung,
                             ")  |  Modell: ", modelle_str),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV × Methode  (meiste Empfehlungen oben ↑)",
@@ -679,7 +679,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::scale_colour_identity() +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
-          subtitle = paste0(st, "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
+          subtitle = paste0(sub("st$", "", st), "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV × Methode  (meiste Empfehlungen oben ↑)",
           fill = "häufigste Kategorie") +
@@ -807,8 +807,8 @@ bae_modus_facet_paar <- function(data, master_id,
   }
   
   # kurze Seiten-Titel statt der langen Einzel-Titel; gemeinsame Überschrift oben
-  lab_l <- if (identical(stufen_paar[1], "2st")) "binär" else paste0(stufen_paar[1], "-stufig")
-  lab_r <- if (identical(stufen_paar[2], "2st")) "binär" else paste0(stufen_paar[2], "-stufig")
+  lab_l <- if (identical(stufen_paar[1], "2st")) "binär" else paste0(sub("st$", "", stufen_paar[1]), "-stufig")
+  lab_r <- if (identical(stufen_paar[2], "2st")) "binär" else paste0(sub("st$", "", stufen_paar[2]), "-stufig")
   
   gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL)
   gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL)
