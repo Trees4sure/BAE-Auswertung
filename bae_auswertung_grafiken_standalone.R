@@ -809,8 +809,22 @@ bae_modus_facet_paar <- function(data, master_id,
   # kurze Seiten-Titel statt der langen Einzel-Titel; gemeinsame Überschrift oben
   lab_l <- if (identical(stufen_paar[1], "bin")) "binär" else paste0(stufen_paar[1], "-stufig")
   lab_r <- if (identical(stufen_paar[2], "bin")) "binär" else paste0(stufen_paar[2], "-stufig")
-  gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL)
-  gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL)
+
+  # Gemeinsame Legende: BEIDEN Seiten dieselbe Fill-Skala geben (volle
+  # Kategorienmenge beider Stufen, feste Reihenfolge schlecht -> gut). Dann
+  # sammelt patchwork sie unten zu EINER Legende -> nichts laeuft ueber den Rand,
+  # und die 4st-Kategorien (maessig/sehr) stehen mit in der einen Legende.
+  kanon    <- c("nicht empfohlen", "wenig empfohlen", "mäßig empfohlen",
+                "empfohlen", "sehr empfohlen", "pBv", "Keine Datengrundlage")
+  lv_beide <- union(c(.bae_kat_order[[stufen_paar[1]]], "pBv", "Keine Datengrundlage"),
+                    c(.bae_kat_order[[stufen_paar[2]]], "pBv", "Keine Datengrundlage"))
+  shared_lv <- kanon[kanon %in% lv_beide]
+  gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL) +
+    ggplot2::scale_fill_manual(values = .bae_palette, limits = shared_lv,
+                               drop = FALSE, name = "häufigste Kategorie")
+  gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL) +
+    ggplot2::scale_fill_manual(values = .bae_palette, limits = shared_lv,
+                               drop = FALSE, name = "häufigste Kategorie")
 
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   modelle_str <- if (is.null(d0)) "NA" else .bae_modell_str(d0)
@@ -826,11 +840,11 @@ bae_modus_facet_paar <- function(data, master_id,
     legend.text  = ggplot2::element_text(size = 20),
     legend.title = ggplot2::element_text(size = 25))
 
-  # Legende in 2 Zeilen umbrechen, sonst laeuft die 6-teilige 4st-Legende
-  # (nicht empfohlen / maessig / empfohlen / sehr / pBv / Keine Datengrundlage)
-  # bei der grossen Schrift ueber den rechten Rand hinaus.
-  comb <- patchwork::wrap_plots(gl, gr, ncol = 2) & groesser &
-    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE))
+  # guides = "collect": beide (nun identischen) Legenden zu EINER zusammenfassen,
+  # unten zentriert unter der Gesamtgrafik. Eine Zeile ueber die volle Breite.
+  comb <- patchwork::wrap_plots(gl, gr, ncol = 2, guides = "collect") & groesser &
+    ggplot2::theme(legend.position = "bottom") &
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1))
   comb <- comb +
     patchwork::plot_annotation(
       title    = paste0("BAE – häufigste Empfehlung – ", master_id),
