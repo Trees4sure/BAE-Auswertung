@@ -756,12 +756,26 @@ bae_modus_facet_paar <- function(data, master_id,
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   modelle_str <- if (is.null(d0)) "NA" else .bae_modell_str(d0)
 
-  comb <- patchwork::wrap_plots(gl, gr, ncol = 2) +
+  # Größere Schrift für die große Kombigrafik: Streifen (Gruppen), Seiten-Titel
+  # (binär/4-stufig), Achsen und Überschrift – sonst auf Seitengröße zu klein.
+  groesser <- ggplot2::theme(
+    plot.title   = ggplot2::element_text(size = 20, face = "bold"),
+    strip.text   = ggplot2::element_text(size = 15, face = "bold"),
+    axis.title   = ggplot2::element_text(size = 15),
+    axis.text.y  = ggplot2::element_text(size = 13, face = "bold"),
+    axis.text.x  = ggplot2::element_text(size = 13, face = "bold", angle = 45, hjust = 1),
+    legend.text  = ggplot2::element_text(size = 13),
+    legend.title = ggplot2::element_text(size = 14))
+
+  comb <- patchwork::wrap_plots(gl, gr, ncol = 2) & groesser
+  comb <- comb +
     patchwork::plot_annotation(
       title    = paste0("BAE – häufigste Empfehlung – ", master_id),
       subtitle = paste0("links: ", lab_l, "  |  rechts: ", lab_r,
                         "  |  Modell: ", modelle_str),
       theme = ggplot2::theme(
+        plot.title      = ggplot2::element_text(size = 24, face = "bold"),
+        plot.subtitle   = ggplot2::element_text(size = 16),
         plot.background = ggplot2::element_rect(fill = "white", color = NA)))
 
   # Größe aus dem linken Plot ableiten (beide Seiten teilen dieselben Achsen)
@@ -778,7 +792,7 @@ bae_modus_facet_paar <- function(data, master_id,
   f <- file.path(mid_dir, paste0("ModusMatrix_facetpaar_", stufen_paar[1], "-",
                                  stufen_paar[2], "_", master_id, "_", modelle_str, ".png"))
   ggplot2::ggsave(f, plot = comb, device = "png",
-                  width = 2 * w1, height = h1 + 150, units = "px",
+                  width = 2 * w1, height = h1 + 250, units = "px",
                   dpi = 150, limitsize = FALSE)
   message("Gespeichert: ", f)
   invisible(comb)
