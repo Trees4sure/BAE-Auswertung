@@ -127,6 +127,24 @@ library(stringr)
   "WKE"           = ""
 )
 
+# Baumart-Anzeigenamen (Kürzel wie in der Grafik gewünscht) c("<intern>" =
+# "<Anzeige>"). Wird in .bae_prep() auf die Baumart angewandt; nicht gelistete
+# Baumarten behalten ihren Originalnamen.
+.bae_baumart_labels <- c(
+  "Fi"  = "GFI",
+  "Ta"  = "WTA",
+  "Bah" = "BAH",
+  "La"  = "ELA",
+  "Dgl" = "GDG",
+  "Rei" = "REI",
+  "Tei" = "TEI",
+  "Bu"  = "RBU",
+  "Hbu" = "HBU",
+  "Ki"  = "GKI",
+  "Bi"  = "GBI",
+  "Sei" = "SEI"
+)
+
 #' Gemeinsame Aufbereitung (intern): auf MASTER_ID filtern, Klimalauf zerlegen,
 #' Szenarien- und RCP-Zukunfts-Filter anwenden. Liefert das aufbereitete
 #' data.frame `d` (ohne stufenabhängige Kategorie/Stufe – die ergänzt
@@ -200,6 +218,13 @@ library(stringr)
     message("Nach Zukunfts-/Zeitraum-Filter keine Daten mehr für: ", master_id)
     return(NULL)
   }
+
+  # Baumart auf die Anzeige-Kürzel umbenennen (nicht gelistete bleiben unverändert)
+  ba  <- as.character(d$Baumart)
+  idx <- match(ba, names(.bae_baumart_labels))
+  treffer <- !is.na(idx)
+  ba[treffer] <- unname(.bae_baumart_labels[idx[treffer]])
+  d$Baumart <- ba
 
   # Faktor-Ordnungen (global)
   d <- d %>%
