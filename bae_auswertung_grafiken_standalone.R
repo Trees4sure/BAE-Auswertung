@@ -672,7 +672,7 @@ bae_modus_matrix_function <- function(data,
   }
 
   # Roh-Auszählungen als Excel (eine Tabelle je Stufe) zum Nachvollziehen der
-  # Zählungen. Fällt auf CSV zurück, falls weder writexl noch openxlsx da sind.
+  # Zählungen. Ohne writexl/openxlsx kein Export (kein CSV – nicht nachvollziehbar).
   if (excel && length(excel_sheets)) {
     xlsx_f <- file.path(mid_dir, paste0("ModusMatrix_Auszaehlung_", master_id,
                                         "_", modelle_str, ".xlsx"))
@@ -683,13 +683,7 @@ bae_modus_matrix_function <- function(data,
       openxlsx::write.xlsx(excel_sheets, xlsx_f)
       message("Gespeichert: ", xlsx_f)
     } else {
-      for (st_i in names(excel_sheets)) {
-        csv_f <- file.path(mid_dir, paste0("ModusMatrix_Auszaehlung_", st_i, "_",
-                                           master_id, "_", modelle_str, ".csv"))
-        utils::write.csv(excel_sheets[[st_i]], csv_f, row.names = FALSE,
-                         fileEncoding = "UTF-8")
-        message("writexl/openxlsx fehlen -> CSV gespeichert: ", csv_f)
-      }
+      message("Excel-Export übersprungen: bitte install.packages(\"writexl\").")
     }
   }
 
