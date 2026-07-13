@@ -30,6 +30,10 @@
 #                       sowie einem Rahmen um die Kachel markiert.
 #      Standard (trennung = "klimalauf"): eine Matrix je Klimalauf, unaggregiert
 #      wie die Heatmap. Alternativ über Zeit/Szenario zählbar.
+#      facet = TRUE legt ALLE Gruppen in EINE facettierte Grafik (facet_wrap,
+#      wie die Kurvengrafik) statt einzelner PNGs; die Achsen sind dann gemeinsam
+#      und GLOBAL (über alle Gruppen) gewichtet sortiert. facet = FALSE (Default)
+#      = wie bisher: je Gruppe eine eigene, eigen sortierte PNG.
 #      Sortierung GEWICHTET (dunkelgrün zählt am meisten) über die Summe der
 #      Empfehlungsstufe (sehr empfohlen = max … nicht empfohlen = 1; pBv / Keine
 #      Datengrundlage = 0):
@@ -321,6 +325,7 @@ bae_modus_matrix_function <- function(data,
                                       szen_rename    = character(0),
                                       hinweis_row    = .bae_hinweis_row,
                                       werte_anzeigen = TRUE,     # Anzahl je Zelle beschriften
+                                      facet          = FALSE,    # TRUE: alle Gruppen in EINE facettierte Grafik
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
@@ -369,6 +374,103 @@ bae_modus_matrix_function <- function(data,
     kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
     kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
     dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
+
+    # --------------------------------------------------------------------
+    #  facet = TRUE: ALLE Gruppen in EINE facettierte Grafik (wie die
+    #  Kurvengrafik, nur facet_wrap statt einzelner PNGs). Achsen sind
+    #  gemeinsam -> GLOBAL gewichtet sortiert (nicht je Panel eigen). Eine
+    #  PNG je Stufe; die per-Gruppe-Schleife unten wird übersprungen.
+    # --------------------------------------------------------------------
+    if (facet) {
+      # Auszählen wie unten, aber Gruppe bleibt erhalten: Modus je (Gruppe, Zelle).
+      kachel <- d_st %>%
+        dplyr::count(Gruppe, TV_M, Baumart, Kategorie, name = "n") %>%
+        dplyr::group_by(Gruppe, TV_M, Baumart) %>%
+        dplyr::mutate(tie = sum(n == max(n)) > 1) %>%
+        dplyr::filter(n == max(n)) %>%
+        dplyr::slice_min(match(Kategorie, kat_pref), n = 1, with_ties = FALSE) %>%
+        dplyr::ungroup() %>%
+        dplyr::mutate(
+          Kategorie = factor(Kategorie, levels = kat_lv),
+          label     = ifelse(tie, paste0(n, "*"), as.character(n)),
+          txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
+
+      if (nrow(kachel) == 0) {
+        message("Stufe '", st, "': keine Einträge – übersprungen.")
+        next
+      }
+
+      # GLOBAL gewichtet sortiert (gemeinsame Achsen über alle Facetten):
+      # Summe der Stufe je Zeile (TV×Methode) bzw. Baumart über ALLE Gruppen.
+      gew <- d_st %>% dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
+      tv_ord <- gew %>% dplyr::group_by(TV_M) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, TV_M)
+      ba_ord <- gew %>% dplyr::group_by(Baumart) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, Baumart)
+
+      kachel <- kachel %>%
+        dplyr::mutate(
+          TV_M    = factor(as.character(TV_M),    levels = as.character(tv_ord$TV_M)),
+          Baumart = factor(as.character(Baumart), levels = as.character(ba_ord$Baumart)),
+          Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
+
+      # Zahl nur zeigen, wenn mind. eine Gruppe mehrere Klimaläufe zusammenfasst
+      # (bei trennung = "klimalauf" hat jede Gruppe genau 1 Lauf -> alles 1 -> weg).
+      laeufe_je_grp <- d_st %>% dplyr::distinct(Gruppe, Klimalauf) %>%
+        dplyr::count(Gruppe)
+      zahl_zeigen   <- werte_anzeigen && any(laeufe_je_grp$n > 1)
+
+      n_ba     <- length(levels(kachel$Baumart))
+      n_tv     <- length(levels(kachel$TV_M))
+      n_grp    <- length(gruppen)
+      fac_ncol <- ceiling(sqrt(n_grp))
+      fac_nrow <- ceiling(n_grp / fac_ncol)
+
+      p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
+        ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
+        ggplot2::geom_tile(data = dplyr::filter(kachel, tie),
+                           fill = NA, color = "grey15", linewidth = 1.1) +
+        { if (zahl_zeigen)
+            ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
+        ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
+        ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
+        ggplot2::scale_colour_identity() +
+        ggplot2::labs(
+          title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
+          subtitle = paste0(st, "-stufig  |  facettiert je Gruppe (", trennung,
+                            ")  |  Modell: ", modelle_str,
+                            "  |  global gewichtet sortiert: beste Zeile oben, beste Baumart rechts",
+                            if (zahl_zeigen)
+                              "  |  Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"
+                            else ""),
+          x = "Baumart  (beste Empfehlungen →)",
+          y = "TV × Methode  (beste oben ↑)",
+          fill = "häufigste Kategorie") +
+        ggplot2::coord_equal() +
+        ggplot2::theme_minimal(base_size = 11) +
+        ggplot2::theme(
+          strip.text       = ggplot2::element_text(face = "bold", size = 9),
+          strip.background = ggplot2::element_rect(fill = "grey95", color = "grey70",
+                                                   linewidth = 0.6),
+          axis.text.x      = ggplot2::element_text(angle = 45, hjust = 1,
+                                                   face = "bold", size = 9),
+          axis.text.y      = ggplot2::element_text(face = "bold", size = 9),
+          panel.grid       = ggplot2::element_blank(),
+          legend.position  = "right",
+          plot.background  = ggplot2::element_rect(fill = "white", color = NA))
+
+      f <- file.path(mid_dir, paste0("ModusMatrix_facet_", st, "_",
+                                     master_id, "_", modelle_str, ".png"))
+      ggplot2::ggsave(f, plot = p, device = "png",
+                      width  = (500 + n_ba * 95) * fac_ncol + 200,
+                      height = (400 + n_tv * 95) * fac_nrow + 200,
+                      units = "px", dpi = 150, limitsize = FALSE)
+      message("Gespeichert: ", f)
+      plots[[paste0(st, "_facet")]] <- p
+      next
+    }
 
     for (grp in gruppen) {
       # Auszählen (KEIN Score): je Zelle (Zeile TV×Methode  ×  Baumart) je
@@ -475,6 +577,7 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     obs_alle       = TRUE,
                                     szen_rename    = character(0),
                                     hinweis_row    = .bae_hinweis_row,
+                                    facet          = FALSE,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   kurven <- bae_kurven_function(data, master_id, stufen = stufen,
@@ -483,7 +586,7 @@ bae_auswertung_grafiken <- function(data, master_id,
   matrix <- bae_modus_matrix_function(data, master_id, stufen = stufen, trennung = trennung,
                                       rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                                       szen_rename = szen_rename, hinweis_row = hinweis_row,
-                                      out_dir = out_dir)
+                                      facet = facet, out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
 }
 
@@ -501,6 +604,11 @@ bae_auswertung_grafiken <- function(data, master_id,
 # # Modus-Matrix (Skizze 2) über Klimaläufe gezählt, Vergangenheit vs. Zukunft:
 # bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
 #                           trennung = "zeit")
+#
+# # Modus-Matrix als EINE facettierte Grafik (alle Gruppen nebeneinander,
+# # wie die Kurvengrafik) statt einzelner PNGs:
+# bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
+#                           trennung = "zeit", facet = TRUE)
 #
 # # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 # bae_modus_matrix_function(
