@@ -758,15 +758,16 @@ bae_auswertung_grafiken <- function(data, master_id,
 #'
 #' @param stufen_paar Länge-2-Vektor c(links, rechts); Default c("bin", "4st").
 #' @param order_ref   Referenz-Stufe für die GEMEINSAME Achsen-Sortierung beider
-#'                    Seiten (Default "4st" – feinste Skala, sauberster Gradient;
-#'                    "3st" = wie im 3st-Verfahrensvergleich). So liegen dieselbe
-#'                    TV-Zeile / Baumart-Spalte links wie rechts an gleicher Stelle.
+#'                    Seiten (Default "bin" – robusteste Abdeckung, da manche
+#'                    Standorte 3st/4st gar nicht haben; "4st"/"3st" ebenfalls
+#'                    möglich). So liegen dieselbe TV-Zeile / Baumart-Spalte links
+#'                    wie rechts an gleicher Stelle.
 #' @param facet_ncol,legend_pos,trennung,rcp_zukunft_ab,obs_alle,szen_rename,
 #'   szenarien,hinweis_row,werte_anzeigen,out_dir wie bei bae_modus_matrix_function().
 #' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
 bae_modus_facet_paar <- function(data, master_id,
                                  stufen_paar    = c("bin", "4st"),
-                                 order_ref      = "4st",
+                                 order_ref      = "bin",
                                  trennung       = c("klimalauf", "zeit", "szenario", "keine"),
                                  rcp_zukunft_ab = 2021,
                                  obs_alle       = TRUE,
@@ -886,16 +887,16 @@ bae_modus_facet_paar <- function(data, master_id,
 #                           facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
 #
 # # Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift, GEMEINSAME
-# # Achsen-Sortierung nach 4st (order_ref) -> beide Seiten direkt vergleichbar
-# # (die beiden Einzel-Facets werden dabei auch separat gespeichert):
+# # Achsen-Sortierung nach binär (order_ref, robusteste Abdeckung) -> beide Seiten
+# # direkt vergleichbar (die beiden Einzel-Facets werden dabei auch separat gespeichert):
 # bae_modus_facet_paar(data, master_id = "NR_130_08_66519",
-#                      stufen_paar = c("bin", "4st"), order_ref = "4st",
+#                      stufen_paar = c("bin", "4st"), order_ref = "bin",
 #                      szenarien = c("OBS", "RCP85"),
 #                      trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
 #
-# # Feste Achsen-Sortierung (nach 4st) auch für einzelne Matrizen erzwingen:
+# # Feste Achsen-Sortierung (nach binär) auch für einzelne Matrizen erzwingen:
 # bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
-#                           stufen = c("bin", "4st"), order_ref = "4st")
+#                           stufen = c("bin", "4st"), order_ref = "bin")
 #
 # # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 # bae_modus_matrix_function(
