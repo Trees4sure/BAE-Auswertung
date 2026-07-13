@@ -71,20 +71,20 @@ library(stringr)
 )
 
 # Code -> Kategorie je Stufigkeit (Code 1 = beste Bewertung)
-# "bin" = binär aus der 5-stufigen Spalte (BAE_5ST): NUR Code 5 = "nicht
-# empfohlen", jeder andere gültige Code (1-4) = "empfohlen". pBv / leer / NA
-# fallen (wie bei den anderen Stufen) auf pBv bzw. Keine Datengrundlage.
+# "bin" = binär aus der 3-stufigen Spalte (BAE_3ST – bei 5st fehlen vielerorts
+# die Daten): NUR der schlechteste Code 3 = "nicht empfohlen", die übrigen
+# gültigen Codes (1-2) = "empfohlen". pBv / leer / NA fallen (wie bei den
+# anderen Stufen) auf pBv bzw. Keine Datengrundlage.
 .bae_maps <- list(
   "3st" = c("1" = "sehr empfohlen", "2" = "mäßig empfohlen", "3" = "nicht empfohlen"),
   "4st" = c("1" = "sehr empfohlen", "2" = "empfohlen", "3" = "mäßig empfohlen",
             "4" = "nicht empfohlen"),
   "5st" = c("1" = "sehr empfohlen", "2" = "empfohlen", "3" = "mäßig empfohlen",
             "4" = "wenig empfohlen", "5" = "nicht empfohlen"),
-  "bin" = c("1" = "empfohlen", "2" = "empfohlen", "3" = "empfohlen",
-            "4" = "empfohlen", "5" = "nicht empfohlen")
+  "bin" = c("1" = "empfohlen", "2" = "empfohlen", "3" = "nicht empfohlen")
 )
 .bae_col <- c("3st" = "BAE_3ST", "4st" = "BAE_4ST", "5st" = "BAE_5ST",
-              "bin" = "BAE_5ST")
+              "bin" = "BAE_3ST")
 
 # Kategorien je Stufe von "schlecht" (Stufe 1, unten/rot) nach "gut"
 # (Stufe n, oben/grün). Index in diesem Vektor = numerische Empfehlungsstufe
@@ -631,7 +631,7 @@ bae_auswertung_grafiken <- function(data, master_id,
 # # Nur die Kurven (Skizze 1), nur 4-stufig:
 # bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
 #
-# # Nur die binäre Stufe (5 = nicht empfohlen, sonst empfohlen):
+# # Nur die binäre Stufe (aus 3st: Code 3 = nicht empfohlen, sonst empfohlen):
 # bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "bin")
 #
 # # Modus-Matrix (Skizze 2) über Klimaläufe gezählt, Vergangenheit vs. Zukunft:
