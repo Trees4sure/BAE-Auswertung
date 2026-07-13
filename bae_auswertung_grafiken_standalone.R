@@ -343,8 +343,7 @@ bae_kurven_function <- function(data,
       ggplot2::scale_colour_manual(values = tv_cols, drop = FALSE) +
       ggplot2::labs(
         title    = paste0("BAE-Empfehlungskurven – ", master_id),
-        subtitle = paste0(st, "-stufig  |  Modell: ", modelle_str,
-                          "  |  Kurven je TV (Mittel über Hinweis-Varianten); Überlappung = Einigkeit"),
+        subtitle = paste0(st, "-stufig  |  Modell: ", modelle_str),
         x = NULL, y = "Empfehlung", colour = "TV") +
       ggplot2::theme_minimal(base_size = 11) +
       ggplot2::theme(
@@ -392,8 +391,13 @@ bae_kurven_function <- function(data,
 #'                       mehrere Klimaläufe zusammenfasst).
 #' @param facet          TRUE = alle Gruppen in EINE facettierte Grafik (facet_wrap,
 #'                       gemeinsame, global sortierte Achsen); FALSE = je Gruppe eine PNG.
+#' @param facet_ncol     Spaltenzahl der Facetten (nur bei facet = TRUE). NULL =
+#'                       automatisch (~Wurzel). z. B. 1 = alle Gruppen untereinander.
+#' @param legend_pos     Legendenposition ("right", "bottom", "none", …).
+#' @param excel          TRUE = zusätzlich eine Excel-Datei mit den ROH-Auszählungen
+#'                       (je Zelle die Anzahl pro Kategorie) zum Nachvollziehen schreiben.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
-#' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
+#' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs + optional Excel).
 bae_modus_matrix_function <- function(data,
                                       master_id,
                                       stufen         = c("3st", "4st", "5st", "bin"),
@@ -405,6 +409,9 @@ bae_modus_matrix_function <- function(data,
                                       hinweis_row    = .bae_hinweis_row,
                                       werte_anzeigen = TRUE,     # Anzahl je Zelle beschriften
                                       facet          = FALSE,    # TRUE: alle Gruppen in EINE facettierte Grafik
+                                      facet_ncol     = NULL,     # Spaltenzahl der Facetten (NULL = auto)
+                                      legend_pos     = "right",  # Legendenposition
+                                      excel          = TRUE,     # Roh-Auszählungen als Excel mitschreiben
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
@@ -441,7 +448,8 @@ bae_modus_matrix_function <- function(data,
 
   gruppen <- sort(unique(d0$Gruppe))   # alphabetisch: OBS… vor RCP…, chronologisch
 
-  plots <- list()
+  plots        <- list()
+  excel_sheets <- list()   # je Stufe die Roh-Auszählungen (für den Excel-Export)
   for (st in stufen) {
     d_st <- .bae_add_stufe(d0, st)
     if (is.null(d_st)) {
@@ -453,6 +461,19 @@ bae_modus_matrix_function <- function(data,
     kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
     kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
     dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
+
+    # ROH-Auszählung (identisch zur Kachel-Zählung, nur unaggregiert und mit
+    # allen Kategorien je Zelle) für den Excel-Export -> Zählungen nachvollziehbar.
+    # n_max = häufigste Anzahl in der Zelle, ist_haeufigste = diese Kategorie(n)
+    # wären die Kachelfarbe, tie = Gleichstand.
+    excel_sheets[[st]] <- d_st %>%
+      dplyr::mutate(Baumart = as.character(Baumart), TV_M = as.character(TV_M)) %>%
+      dplyr::count(Gruppe, TV_M, Baumart, Kategorie, name = "n") %>%
+      dplyr::group_by(Gruppe, TV_M, Baumart) %>%
+      dplyr::mutate(n_max = max(n), ist_haeufigste = n == n_max,
+                    tie = sum(n == n_max) > 1) %>%
+      dplyr::ungroup() %>%
+      dplyr::arrange(Gruppe, TV_M, Baumart, dplyr::desc(n))
 
     # --------------------------------------------------------------------
     #  facet = TRUE: ALLE Gruppen in EINE facettierte Grafik (wie die
@@ -504,7 +525,7 @@ bae_modus_matrix_function <- function(data,
       n_ba     <- length(levels(kachel$Baumart))
       n_tv     <- length(levels(kachel$TV_M))
       n_grp    <- length(gruppen)
-      fac_ncol <- ceiling(sqrt(n_grp))
+      fac_ncol <- if (!is.null(facet_ncol)) facet_ncol else ceiling(sqrt(n_grp))
       fac_nrow <- ceiling(n_grp / fac_ncol)
 
       p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
@@ -519,11 +540,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(st, "-stufig  |  facettiert je Gruppe (", trennung,
-                            ")  |  Modell: ", modelle_str,
-                            "  |  global gewichtet sortiert: beste Zeile oben, beste Baumart rechts",
-                            if (zahl_zeigen)
-                              "  |  Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"
-                            else ""),
+                            ")  |  Modell: ", modelle_str),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV × Methode  (meiste Empfehlungen oben ↑)",
           fill = "häufigste Kategorie") +
@@ -537,7 +554,7 @@ bae_modus_matrix_function <- function(data,
                                                    face = "bold", size = 9),
           axis.text.y      = ggplot2::element_text(face = "bold", size = 9),
           panel.grid       = ggplot2::element_blank(),
-          legend.position  = "right",
+          legend.position  = legend_pos,
           plot.background  = ggplot2::element_rect(fill = "white", color = NA))
 
       f <- file.path(mid_dir, paste0("ModusMatrix_facet_", st, "_",
@@ -605,7 +622,10 @@ bae_modus_matrix_function <- function(data,
       # Modell + enthaltene Szenarien/Zeiträume NUR aus dieser Gruppe (nicht global –
       # sonst steht z. B. bei "Zukunft" fälschlich das OBS-Modell DWD mit dabei).
       modelle_grp <- .bae_modell_str(gew)
-      szen_grp    <- paste(sort(unique(as.character(gew$Szen_label))), collapse = "/")
+      # Szenarien der Gruppe: Referenz (OBS) zuerst, dann RCP; OBS als "Referenz".
+      sz          <- gew %>% dplyr::distinct(Szen_label, ist_rcp) %>%
+                       dplyr::arrange(ist_rcp, Szen_label)
+      szen_grp    <- paste(sub("^OBS", "Referenz", as.character(sz$Szen_label)), collapse = "/")
       zeit_grp    <- paste(sort(unique(as.character(gew$Zeitraum))),   collapse = ", ")
       grp_info    <- switch(trennung,
         "zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
@@ -623,11 +643,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::scale_colour_identity() +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
-          subtitle = paste0(st, "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp,
-                            "  |  gewichtet sortiert: beste Zeile oben, beste Baumart rechts",
-                            if (zahl_zeigen)
-                              "  |  Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"
-                            else ""),
+          subtitle = paste0(st, "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV × Methode  (meiste Empfehlungen oben ↑)",
           fill = "häufigste Kategorie") +
@@ -638,7 +654,7 @@ bae_modus_matrix_function <- function(data,
                                                   face = "bold", size = 9),
           axis.text.y     = ggplot2::element_text(face = "bold", size = 9),
           panel.grid      = ggplot2::element_blank(),
-          legend.position = "right",
+          legend.position = legend_pos,
           plot.background = ggplot2::element_rect(fill = "white", color = NA))
 
       n_ba <- length(levels(kachel$Baumart))
@@ -654,6 +670,29 @@ bae_modus_matrix_function <- function(data,
       plots[[paste0(st, "_", grp_tag)]] <- p
     }
   }
+
+  # Roh-Auszählungen als Excel (eine Tabelle je Stufe) zum Nachvollziehen der
+  # Zählungen. Fällt auf CSV zurück, falls weder writexl noch openxlsx da sind.
+  if (excel && length(excel_sheets)) {
+    xlsx_f <- file.path(mid_dir, paste0("ModusMatrix_Auszaehlung_", master_id,
+                                        "_", modelle_str, ".xlsx"))
+    if (requireNamespace("writexl", quietly = TRUE)) {
+      writexl::write_xlsx(excel_sheets, xlsx_f)
+      message("Gespeichert: ", xlsx_f)
+    } else if (requireNamespace("openxlsx", quietly = TRUE)) {
+      openxlsx::write.xlsx(excel_sheets, xlsx_f)
+      message("Gespeichert: ", xlsx_f)
+    } else {
+      for (st_i in names(excel_sheets)) {
+        csv_f <- file.path(mid_dir, paste0("ModusMatrix_Auszaehlung_", st_i, "_",
+                                           master_id, "_", modelle_str, ".csv"))
+        utils::write.csv(excel_sheets[[st_i]], csv_f, row.names = FALSE,
+                         fileEncoding = "UTF-8")
+        message("writexl/openxlsx fehlen -> CSV gespeichert: ", csv_f)
+      }
+    }
+  }
+
   invisible(plots)
 }
 
@@ -666,7 +705,8 @@ bae_modus_matrix_function <- function(data,
 #'
 #' @param data,master_id,stufen,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
 #'   wie bei bae_kurven_function().
-#' @param trennung,hinweis_row,facet wie bei bae_modus_matrix_function().
+#' @param trennung,hinweis_row,facet,facet_ncol,legend_pos,excel wie bei
+#'   bae_modus_matrix_function().
 #' @return unsichtbar list(kurven = ..., matrix = ...) der ggplot-Objekte.
 bae_auswertung_grafiken <- function(data, master_id,
                                     stufen         = c("3st", "4st", "5st", "bin"),
@@ -677,6 +717,9 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     szenarien      = c("OBS", "RCP45", "RCP85"),
                                     hinweis_row    = .bae_hinweis_row,
                                     facet          = FALSE,
+                                    facet_ncol     = NULL,
+                                    legend_pos     = "right",
+                                    excel          = TRUE,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   kurven <- bae_kurven_function(data, master_id, stufen = stufen,
@@ -687,7 +730,9 @@ bae_auswertung_grafiken <- function(data, master_id,
                                       rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                                       szen_rename = szen_rename, szenarien = szenarien,
                                       hinweis_row = hinweis_row,
-                                      facet = facet, out_dir = out_dir)
+                                      facet = facet, facet_ncol = facet_ncol,
+                                      legend_pos = legend_pos, excel = excel,
+                                      out_dir = out_dir)
   invisible(list(kurven = kurven, matrix = matrix))
 }
 
@@ -715,6 +760,12 @@ bae_auswertung_grafiken <- function(data, master_id,
 # # wie die Kurvengrafik) statt einzelner PNGs:
 # bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
 #                           trennung = "zeit", facet = TRUE)
+#
+# # Facet 1-spaltig, 3 Zeilen (Referenz oben, dann RCP85 2021-2050 & 2071-2100),
+# # Legende unten – nur OBS + RCP85, je Klimalauf ein Panel:
+# bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "4st",
+#                           szenarien = c("OBS", "RCP85"), trennung = "klimalauf",
+#                           facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
 #
 # # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
 # bae_modus_matrix_function(
