@@ -810,23 +810,8 @@ bae_modus_facet_paar <- function(data, master_id,
   lab_l <- if (identical(stufen_paar[1], "bin")) "binär" else paste0(stufen_paar[1], "-stufig")
   lab_r <- if (identical(stufen_paar[2], "bin")) "binär" else paste0(stufen_paar[2], "-stufig")
 
-  # Gemeinsame Legende: BEIDEN Seiten dieselbe Fill-Skala geben (volle
-  # Kategorienmenge beider Stufen, feste Reihenfolge schlecht -> gut). Dann
-  # sammelt patchwork sie unten zu EINER Legende -> nichts laeuft ueber den Rand,
-  # und die 4st-Kategorien (maessig/sehr) stehen mit in der einen Legende.
-  kanon    <- c("nicht empfohlen", "wenig empfohlen", "mäßig empfohlen",
-                "empfohlen", "sehr empfohlen", "pBv", "Keine Datengrundlage")
-  lv_beide <- union(c(.bae_kat_order[[stufen_paar[1]]], "pBv", "Keine Datengrundlage"),
-                    c(.bae_kat_order[[stufen_paar[2]]], "pBv", "Keine Datengrundlage"))
-  shared_lv <- kanon[kanon %in% lv_beide]
-  gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL) +
-    ggplot2::scale_fill_manual(values = .bae_palette, limits = shared_lv,
-                               drop = FALSE, name = "häufigste Kategorie",
-                               guide = ggplot2::guide_legend(nrow = 1))
-  gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL) +
-    ggplot2::scale_fill_manual(values = .bae_palette, limits = shared_lv,
-                               drop = FALSE, name = "häufigste Kategorie",
-                               guide = ggplot2::guide_legend(nrow = 1))
+  gl <- gl + ggplot2::labs(title = lab_l, subtitle = NULL)
+  gr <- gr + ggplot2::labs(title = lab_r, subtitle = NULL)
 
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   modelle_str <- if (is.null(d0)) "NA" else .bae_modell_str(d0)
@@ -840,14 +825,13 @@ bae_modus_facet_paar <- function(data, master_id,
     axis.text.y  = ggplot2::element_text(size = 25, face = "bold"),
     axis.text.x  = ggplot2::element_text(size = 25, face = "bold", angle = 45, hjust = 1),
     legend.text  = ggplot2::element_text(size = 20),
-    legend.title = ggplot2::element_text(size = 25),
-    legend.position = "bottom")
+    legend.title = ggplot2::element_text(size = 25))
 
-  # guides = "collect": beide (nun identischen) Legenden zu EINER zusammenfassen,
-  # unten zentriert unter der Gesamtgrafik. WICHTIG: Legende (Position + guide)
-  # oben an gl/gr setzen, NICHT hier per '&' nachtraeglich guides(...) anhaengen –
-  # das reaktiviert je Teilplot eine eigene Legende und hebt das collect wieder auf.
-  comb <- patchwork::wrap_plots(gl, gr, ncol = 2, guides = "collect") & groesser
+  # Legende in 2 Zeilen umbrechen, sonst laeuft die 6-teilige 4st-Legende
+  # (nicht empfohlen / maessig / empfohlen / sehr / pBv / Keine Datengrundlage)
+  # bei der grossen Schrift ueber den rechten Rand hinaus.
+  comb <- patchwork::wrap_plots(gl, gr, ncol = 2) & groesser &
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE))
   comb <- comb +
     patchwork::plot_annotation(
       title    = paste0("BAE – häufigste Empfehlung – ", master_id),
@@ -881,49 +865,49 @@ bae_modus_facet_paar <- function(data, master_id,
 }
 
 # ----  6  BEISPIEL-AUFRUF (auskommentiert) ----
-# data <- data.table::fread("meine_bae_daten.csv")
+data <- heatmap_data_filter %>% filter(Klimalauf != "OBS_DWD_1961-1990")
 #
-# # Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default).
-# # Szenarien-Default = OBS (Beobachtung 1991-2020) + RCP45 + RCP85, RCP ab 2021:
-# bae_auswertung_grafiken(data, master_id = "NR_130_08_66519")
-#
-# # Alle Szenarien behalten (kein Szenarien-Filter):
-# bae_auswertung_grafiken(data, master_id = "NR_130_08_66519", szenarien = NULL)
-#
-# # Nur die Kurven (Skizze 1), nur 4-stufig:
-# bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
-#
-# # Nur die binäre Stufe (aus 3st: Code 3 = nicht empfohlen, sonst empfohlen):
-# bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "bin")
-#
-# # Modus-Matrix (Skizze 2) über Klimaläufe gezählt, Vergangenheit vs. Zukunft:
-# bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
-#                           trennung = "zeit")
-#
-# # Modus-Matrix als EINE facettierte Grafik (alle Gruppen nebeneinander,
-# # wie die Kurvengrafik) statt einzelner PNGs:
-# bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
-#                           trennung = "zeit", facet = TRUE)
-#
-# # Facet 1-spaltig, 3 Zeilen (Referenz oben, dann RCP85 2021-2050 & 2071-2100),
-# # Legende unten – nur OBS + RCP85, je Klimalauf ein Panel:
-# bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "4st",
-#                           szenarien = c("OBS", "RCP85"), trennung = "klimalauf",
-#                           facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
-#
-# # Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift, GEMEINSAME
-# # Achsen-Sortierung nach binär (order_ref, robusteste Abdeckung) -> beide Seiten
-# # direkt vergleichbar (die beiden Einzel-Facets werden dabei auch separat gespeichert):
-# bae_modus_facet_paar(data, master_id = "NR_130_08_66519",
-#                      stufen_paar = c("bin", "4st"), order_ref = "bin",
-#                      szenarien = c("OBS", "RCP85"),
-#                      trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
-#
-# # Feste Achsen-Sortierung (nach binär) auch für einzelne Matrizen erzwingen:
-# bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
-#                           stufen = c("bin", "4st"), order_ref = "bin")
-#
-# # Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
-# bae_modus_matrix_function(
-#   data, master_id = "NR_130_08_66519", trennung = "keine",
-#   szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
+# Beide Grafiken je Stufe (Modus-Matrix UNAGGREGIERT je Klimalauf = Default).
+# Szenarien-Default = OBS (Beobachtung 1991-2020) + RCP45 + RCP85, RCP ab 2021:
+bae_auswertung_grafiken(data, master_id = "NR_130_08_66519")
+
+# Alle Szenarien behalten (kein Szenarien-Filter):
+bae_auswertung_grafiken(data, master_id = "NR_130_08_66519", szenarien = NULL)
+
+# Nur die Kurven (Skizze 1), nur 4-stufig:
+bae_kurven_function(data, master_id = "NR_130_08_66519", stufen = "4st")
+
+# Nur die binäre Stufe (aus 3st: Code 3 = nicht empfohlen, sonst empfohlen):
+bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "bin")
+
+# Modus-Matrix (Skizze 2) über Klimaläufe gezählt, Vergangenheit vs. Zukunft:
+bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
+                          trennung = "zeit")
+
+# Modus-Matrix als EINE facettierte Grafik (alle Gruppen nebeneinander,
+# wie die Kurvengrafik) statt einzelner PNGs:
+bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
+                          trennung = "zeit", facet = TRUE)
+
+# Facet 1-spaltig, 3 Zeilen (Referenz oben, dann RCP85 2021-2050 & 2071-2100),
+# Legende unten – nur OBS + RCP85, je Klimalauf ein Panel:
+bae_modus_matrix_function(data, master_id = "NR_130_08_66519", stufen = "4st",
+                          szenarien = c("OBS", "RCP85"), trennung = "klimalauf",
+                          facet = TRUE, facet_ncol = 1, legend_pos = "bottom")
+
+# Facet-PAAR: links binär, rechts 4-stufig unter EINER Überschrift, GEMEINSAME
+# Achsen-Sortierung nach binär (order_ref, robusteste Abdeckung) -> beide Seiten
+# direkt vergleichbar (die beiden Einzel-Facets werden dabei auch separat gespeichert):
+bae_modus_facet_paar(data, master_id = "NR_130_08_66519",
+                     stufen_paar = c("bin", "4st"), order_ref = "bin",
+                     szenarien = c("OBS", "RCP85"),
+                     trennung = "klimalauf", facet_ncol = 1, legend_pos = "bottom")
+
+# Feste Achsen-Sortierung (nach binär) auch für einzelne Matrizen erzwingen:
+bae_modus_matrix_function(data, master_id = "NR_130_08_66519",
+                          stufen = c("bin", "4st"), order_ref = "bin")
+
+# Modus-Matrix ungetrennt (alles in einer Matrix), Labels umbenennen:
+bae_modus_matrix_function(
+  data, master_id = "NR_130_08_66519", trennung = "keine",
+  szen_rename = c("OBS" = "Referenz", "RCP45_v3" = "RCP45_real"))
