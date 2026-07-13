@@ -577,6 +577,17 @@ bae_modus_matrix_function <- function(data,
       n_laeufe <- dplyr::n_distinct(gew$Klimalauf)
       zahl_zeigen <- werte_anzeigen && n_laeufe > 1
 
+      # Modell + enthaltene Szenarien/Zeiträume NUR aus dieser Gruppe (nicht global –
+      # sonst steht z. B. bei "Zukunft" fälschlich das OBS-Modell DWD mit dabei).
+      modelle_grp <- .bae_modell_str(gew)
+      szen_grp    <- paste(sort(unique(as.character(gew$Szen_label))), collapse = "/")
+      zeit_grp    <- paste(sort(unique(as.character(gew$Zeitraum))),   collapse = ", ")
+      grp_info    <- switch(trennung,
+        "zeit"      = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+        "keine"     = paste0(" (", szen_grp, "; ", zeit_grp, ")"),
+        "szenario"  = paste0(" (", zeit_grp, ")"),
+        "klimalauf" = "")
+
       p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
         ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
         ggplot2::geom_tile(data = dplyr::filter(kachel, tie),
@@ -587,7 +598,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::scale_colour_identity() +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
-          subtitle = paste0(st, "-stufig  |  ", grp, "  |  Modell: ", modelle_str,
+          subtitle = paste0(st, "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp,
                             "  |  gewichtet sortiert: beste Zeile oben, beste Baumart rechts",
                             if (zahl_zeigen)
                               "  |  Zahl = Anzahl; * / Rahmen = Gleichstand (bessere gezeigt)"
@@ -609,7 +620,7 @@ bae_modus_matrix_function <- function(data,
       n_tv <- length(levels(kachel$TV_M))
       grp_tag <- gsub("[^A-Za-z0-9]+", "-", grp)
       f <- file.path(mid_dir, paste0("ModusMatrix_", st, "_", grp_tag, "_",
-                                     master_id, "_", modelle_str, ".png"))
+                                     master_id, "_", modelle_grp, ".png"))
       ggplot2::ggsave(f, plot = p, device = "png",
                       width  = 700 + n_ba * 95,
                       height = 500 + n_tv * 95,
