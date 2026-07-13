@@ -10,7 +10,7 @@
 #
 #   .bae_prep()                 -> Abschnitte 4–10  (filtern, zerlegen, filtern, ordnen)
 #   .bae_add_stufe()/.map_val() -> Abschnitt 12     (Kategorie + Stufe je Stufigkeit)
-#   bae_kurven_function()       -> Abschnitt 13     (Skizze 1)
+#   bae_konsens_function()      -> Abschnitte 13/13b (Skizze 1a Balken / 1b Kurve)
 #   bae_modus_matrix_function() -> Abschnitte 14/15 (je Gruppe / facettiert)
 #   .bae_ref_levels()           -> Abschnitt 16     (feste Achsen-Sortierung)
 #   bae_modus_facet_paar()      -> Abschnitt 17     (zwei Stufen nebeneinander)
@@ -233,48 +233,90 @@ d <- d %>%
 #   table(d$Kategorie, useNA = "ifany")
 
 
-# ----  13  SKIZZE 1 – EMPFEHLUNGS-KURVEN je TV (glatt) ----
-# Idee: pro Panel (Szenario × Zeitraum) für jede TV eine glatte Kurve über die
-# Baumarten. y = Stufe (unten "nicht empfohlen", oben "sehr empfohlen"). Wo sich
-# die Kurven decken, sind sich die TVs einig.
+# ----  13  SKIZZE 1a – KONSENS-BALKEN je Baumart (Anteil der TVs) ----
+# ERSETZT die alten TV-Spline-Kurven: ein Spline über die kategoriale Baumart-
+# Achse interpoliert Werte, die es nicht gibt (Baumarten sind ungeordnet, es gibt
+# nichts "zwischen" GBI und GDG) -> unlesbares Kurven-Wirrwarr. Stattdessen die
+# eigentliche Frage direkt: wie viele TVs empfehlen eine Baumart, und wie einig
+# sind sie sich?  Pro (Panel, Baumart) auszählen, wie viele TVs in jeder Kategorie
+# landen, als GESTAPELTER ANTEILSBALKEN. Großer grüner Block = breit empfohlen;
+# gemischte Farben = TVs uneinig.
 ba_levels <- levels(droplevels(d$Baumart))
-tv_levels <- levels(droplevels(d$TV))
-tv_farben <- setNames(tv_colors[seq_along(tv_levels)], tv_levels)
+kat_lv    <- c(ordn, "pBv", "Keine Datengrundlage")   # Fill-/Legenden-Reihenfolge
 
-# 13a. ein Wert je (Panel, TV, Baumart): Mittel der Stufe über die Hinweis-
-#      Varianten (sonst mehrere y an einer x-Position -> vertikale Zacken).
-kurv <- d %>%
+# eine Kategorie je (Panel, Baumart, TV): häufigste (Modus) über die Hinweis-Methoden
+tv_kat <- d %>%
+  count(Szen_label, Zeitraum, Baumart, TV, Kategorie, name = "n") %>%
+  group_by(Szen_label, Zeitraum, Baumart, TV) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup()
+# ansehen:  tv_kat
+
+# je (Panel, Baumart) die TVs pro Kategorie auszählen
+konsens <- tv_kat %>%
+  count(Szen_label, Zeitraum, Baumart, Kategorie, name = "n_tv") %>%
+  mutate(Kategorie = factor(Kategorie, levels = kat_lv))
+# ansehen:  konsens
+
+p_balken <-
+  ggplot(konsens, aes(x = Baumart, y = n_tv, fill = Kategorie)) +
+  geom_col(position = "fill", width = 0.9) +
+  facet_grid(Szen_label ~ Zeitraum) +
+  scale_fill_manual(values = custom_palette, limits = kat_lv, drop = FALSE) +
+  scale_y_continuous(labels = function(v) paste0(round(v * 100), "%")) +
+  labs(title    = paste0("BAE – Konsens der TVs je Baumart – ", master_id),
+       subtitle = paste0(sub("st$", "", stufe),
+                         "-stufig  |  Anteil der TVs je Empfehlung  |  Modell: ", modelle_str),
+       x = NULL, y = "Anteil der TVs", fill = "Empfehlung") +
+  theme_minimal(base_size = 11) +
+  theme(strip.text       = element_text(face = "bold", size = 9),
+        strip.background = element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
+        axis.text.x      = element_text(angle = 45, hjust = 1, size = 8),
+        panel.grid.minor = element_blank(),
+        legend.position  = "bottom",
+        plot.background  = element_rect(fill = "white", color = NA))
+
+p_balken                                   # im Plot-Fenster ansehen
+# ggsave(paste0("KonsensBalken_", stufe, "_", master_id, "_", modelle_str, ".png"),
+#        p_balken, width = 34, height = 22, units = "cm", dpi = 150)
+
+
+# ----  13b  SKIZZE 1b – KONSENS-KURVE (Median-Stufe + Spannband der TVs) ----
+# Ehrliche Variante der alten Kurven: KEIN Spline, gerade Segmente. Statt 12
+# verschlungener TV-Linien pro (Panel, Baumart) EINE Konsens-Linie (Median der
+# TV-Stufen) + graues Band (min..max über die TVs). Schmales Band = TVs einig,
+# breites Band = uneinig. Graue Punkte = die einzelnen TV-Werte (Streuung).
+
+# ein Stufen-Wert je (Panel, TV, Baumart): Mittel über die Hinweis-Methoden
+tv_val <- d %>%
   group_by(Szen_label, Zeitraum, TV, Baumart) %>%
   summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
   filter(!is.nan(y)) %>%
   mutate(x = as.integer(factor(Baumart, levels = ba_levels)))
-# ansehen:  kurv
+# ansehen:  tv_val
 
-# 13b. glatte Spline-Kurve je (Panel, TV) durch diese Punkte (auf [1,n] geklammert)
-kurv_smooth <- kurv %>%
-  group_by(Szen_label, Zeitraum, TV) %>%
-  filter(n() >= 2) %>%
-  group_modify(~ {
-    s <- stats::spline(.x$x, .x$y, n = 200)
-    data.frame(x = s$x, y = pmin(pmax(s$y, 1), length(ordn)))
-  }) %>%
-  ungroup()
-# ansehen:  kurv_smooth
+# je (Panel, Baumart): Median + Spannweite über die TVs
+konsens_band <- tv_val %>%
+  group_by(Szen_label, Zeitraum, Baumart, x) %>%
+  summarise(y_med = median(y), y_min = min(y), y_max = max(y), .groups = "drop")
+# ansehen:  konsens_band
 
-# 13c. EIN durchgehender ggplot-Aufruf – Linie (glatt) + Punkte (echte Werte):
-p_kurven <-
+p_konsens <-
   ggplot() +
-  geom_line(data = kurv_smooth, aes(x = x, y = y, colour = TV, group = TV),
-            linewidth = 0.8, alpha = 0.85) +
-  geom_point(data = kurv, aes(x = x, y = y, colour = TV), size = 1.4, alpha = 0.9) +
+  geom_ribbon(data = konsens_band, aes(x = x, ymin = y_min, ymax = y_max),
+              fill = "grey70", alpha = 0.35) +
+  geom_point(data = tv_val, aes(x = x, y = y), color = "grey45", size = 0.8, alpha = 0.5) +
+  geom_line(data = konsens_band, aes(x = x, y = y_med), color = "#1A9850", linewidth = 1) +
+  geom_point(data = konsens_band, aes(x = x, y = y_med), color = "#1A9850", size = 1.6) +
   facet_grid(Szen_label ~ Zeitraum) +
   scale_x_continuous(breaks = seq_along(ba_levels), labels = ba_levels) +
   scale_y_continuous(breaks = seq_along(ordn), labels = ordn,
                      limits = c(1, length(ordn)), expand = expansion(mult = 0.05)) +
-  scale_colour_manual(values = tv_farben, drop = FALSE) +
-  labs(title    = paste0("BAE-Empfehlungskurven – ", master_id),
-       subtitle = paste0(sub("st$", "", stufe), "-stufig  |  Modell: ", modelle_str),
-       x = NULL, y = "Empfehlung", colour = "TV") +
+  labs(title    = paste0("BAE – Konsens-Kurve der TVs – ", master_id),
+       subtitle = paste0(sub("st$", "", stufe),
+                         "-stufig  |  Linie = Median, Band = Spannweite über die TVs  |  Modell: ",
+                         modelle_str),
+       x = NULL, y = "Empfehlung") +
   theme_minimal(base_size = 11) +
   theme(strip.text        = element_text(face = "bold", size = 9),
         strip.background   = element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
@@ -282,12 +324,11 @@ p_kurven <-
         axis.text.x        = element_text(angle = 45, hjust = 1, size = 8),
         panel.grid.minor   = element_blank(),
         panel.grid.major.x = element_line(color = "grey92"),
-        legend.position    = "bottom",
         plot.background    = element_rect(fill = "white", color = NA))
 
-p_kurven                                   # im Plot-Fenster ansehen
-# ggsave(paste0("Kurven_", stufe, "_", master_id, "_", modelle_str, ".png"),
-#        p_kurven, width = 34, height = 22, units = "cm", dpi = 150)
+p_konsens                                  # im Plot-Fenster ansehen
+# ggsave(paste0("KonsensKurve_", stufe, "_", master_id, "_", modelle_str, ".png"),
+#        p_konsens, width = 34, height = 22, units = "cm", dpi = 150)
 
 
 # ----  14  SKIZZE 2 – HÄUFIGSTE EMPFEHLUNG je Gruppe (trennung) ----

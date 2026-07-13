@@ -4,12 +4,14 @@
 # BAE-Heatmap zu zwei übersichtlicheren Auswertungsgrafiken pro
 # Bewertungsstufe und MASTER_ID:
 #
-#   1) bae_kurven_function()      -> "Empfehlungs-Kurven" (Skizze 1)
-#      Pro Szenario×Zeitraum-Panel (wie die Heatmap) eine Linie je TV über
-#      die Baumarten. y-Achse = Empfehlungsstufe (unten "nicht empfohlen",
-#      oben "sehr empfohlen"). Wo die TV-Kurven zusammenfallen, sind sich
-#      die TVs einig; wo sie auseinanderlaufen, sind sie uneinig.
-#      Datei: Kurven_<st>_<MID>_<Modell>.png
+#   1) bae_konsens_function()     -> "Konsens der TVs" (Skizze 1, je Stufe 2 PNGs)
+#      Ersetzt die alten TV-Spline-Kurven (Spline über die kategoriale Baumart-
+#      Achse = irreführend, unlesbar). Pro Szenario×Zeitraum-Panel:
+#        1a Konsens-Balken – gestapelter Anteil der TVs je Empfehlungskategorie
+#           (einfarbig = TVs einig, gemischt = uneinig).
+#        1b Konsens-Kurve  – Median-Stufe (Linie) + Spannband (min..max über die
+#           TVs), gerade Segmente statt Spline.
+#      Dateien: KonsensBalken_<st>_<MID>_<Modell>.png, KonsensKurve_<st>_<MID>_<Modell>.png
 #
 #   2) bae_modus_matrix_function() -> "Häufigste Empfehlung" (Skizze 2)
 #      DATENGETRIEBEN SORTIERTE Matrix (Zeile TV × Methode) × Baumart. KEIN Score
@@ -292,14 +294,26 @@ library(stringr)
   list(tv = as.character(tv$TV_M), ba = as.character(ba$Baumart))
 }
 
-# ----  2  SKIZZE 1 – Empfehlungs-Kurven ----
+# ----  2  SKIZZE 1 – Konsens der TVs (Balken + Kurve) ----
 
-#' Empfehlungs-Kurven je TV über die Baumarten (Skizze 1)
+#' Konsens der TVs je Baumart (Skizze 1) – ersetzt die alten Spline-Kurven
+#'
+#' Die früheren TV-Kurven zogen einen glatten Spline über die KATEGORIALE
+#' Baumart-Achse und interpolierten damit Werte, die es nicht gibt (Baumarten
+#' sind ungeordnet). Bei 2–5 y-Stufen und bis zu 12 TVs war das Ergebnis ein
+#' unlesbares Kurven-Wirrwarr. Diese Funktion beantwortet die eigentliche Frage
+#' (wie breit wird eine Baumart empfohlen, wie einig sind die TVs?) mit ZWEI
+#' Grafiken je Stufe:
+#'   1a Konsens-Balken: pro (Panel, Baumart) gestapelter Anteilsbalken der TVs je
+#'      Empfehlungskategorie. Einfarbig = TVs einig; gemischt = uneinig.
+#'   1b Konsens-Kurve: pro (Panel, Baumart) Median-Stufe (Linie) + Spannband
+#'      (min..max über die TVs), gerade Segmente, KEIN Spline. Schmales Band =
+#'      einig, breites Band = uneinig; graue Punkte = einzelne TVs.
 #'
 #' @param data          data.frame mit MASTER_ID, Baumart, TV, Klimalauf sowie
 #'                       BAE_3ST / BAE_4ST / BAE_5ST (wie im Heatmap-Skript).
 #' @param master_id     ID des Standorts, auf den gefiltert wird.
-#' @param stufen        Bewertungsstufen, je eine PNG: "3st","4st","5st","2st".
+#' @param stufen        Bewertungsstufen, je Stufe zwei PNGs: "3st","4st","5st","2st".
 #' @param rcp_zukunft_ab RCP-Läufe erst ab diesem Startjahr behalten (Default 2021).
 #' @param obs_alle       TRUE = OBS-Läufe unabhängig vom Zeitraum behalten.
 #' @param szen_rename    benannter Vektor c("<intern>" = "<Anzeige>") zum
@@ -307,26 +321,34 @@ library(stringr)
 #' @param szenarien      zu behaltende Basis-Szenarien (Default OBS+RCP45+RCP85);
 #'                       NULL = alle Szenarien.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
-#' @return unsichtbar eine Liste der ggplot-Objekte je Stufe (Nebeneffekt: PNGs).
-bae_kurven_function <- function(data,
-                                master_id,
-                                stufen         = c("3st", "4st", "5st", "2st"),
-                                rcp_zukunft_ab = 2021,
-                                obs_alle       = TRUE,
-                                szen_rename    = character(0),
-                                szenarien      = c("OBS", "RCP45", "RCP85"),
-                                out_dir        = "04_results/BAE_Auswertung/auswertung") {
-  
+#' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
+bae_konsens_function <- function(data,
+                                 master_id,
+                                 stufen         = c("3st", "4st", "5st", "2st"),
+                                 rcp_zukunft_ab = 2021,
+                                 obs_alle       = TRUE,
+                                 szen_rename    = character(0),
+                                 szenarien      = c("OBS", "RCP45", "RCP85"),
+                                 out_dir        = "04_results/BAE_Auswertung/auswertung") {
+
   d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
   if (is.null(d0)) return(invisible(NULL))
-  
+
   modelle_str <- .bae_modell_str(d0)
   mid_dir     <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
-  
+
   n_spalten <- length(levels(droplevels(d0$Zeitraum)))
   n_zeilen  <- length(levels(droplevels(d0$Szen_label)))
-  
+  breite    <- 1200 + n_spalten * 850
+  hoehe     <-  650 + n_zeilen  * 480
+
+  strip_theme <- ggplot2::theme(
+    strip.text       = ggplot2::element_text(face = "bold", size = 9),
+    strip.background = ggplot2::element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
+    panel.grid.minor = ggplot2::element_blank(),
+    plot.background  = ggplot2::element_rect(fill = "white", color = NA))
+
   plots <- list()
   for (st in stufen) {
     d_st <- .bae_add_stufe(d0, st)
@@ -334,69 +356,88 @@ bae_kurven_function <- function(data,
       message("Spalte für Stufe '", st, "' nicht vorhanden – übersprungen.")
       next
     }
-    
-    ordn    <- .bae_kat_order[[st]]
-    ba_lv   <- levels(droplevels(d_st$Baumart))
-    tv_lv   <- levels(droplevels(d_st$TV))
-    tv_cols <- setNames(.bae_tv_colors[seq_along(tv_lv)], tv_lv)
-    
-    # 1) ein Wert je (Panel, TV, Baumart): Mittel der Stufe über die Hinweis-
-    #    Varianten (sonst mehrere y an einer x-Position -> vertikale Zacken).
-    kurv <- d_st %>%
+
+    ordn   <- .bae_kat_order[[st]]
+    kat_lv <- c(ordn, "pBv", "Keine Datengrundlage")
+    ba_lv  <- levels(droplevels(d_st$Baumart))
+
+    # ---- 1a Konsens-Balken: je (Panel, Baumart) Anteil der TVs je Kategorie ----
+    # eine Kategorie je (Panel, Baumart, TV): häufigste (Modus) über die Hinweis-Methoden
+    tv_kat <- d_st %>%
+      dplyr::count(Szen_label, Zeitraum, Baumart, TV, Kategorie, name = "n") %>%
+      dplyr::group_by(Szen_label, Zeitraum, Baumart, TV) %>%
+      dplyr::slice_max(n, n = 1, with_ties = FALSE) %>%
+      dplyr::ungroup()
+    konsens <- tv_kat %>%
+      dplyr::count(Szen_label, Zeitraum, Baumart, Kategorie, name = "n_tv") %>%
+      dplyr::mutate(Kategorie = factor(Kategorie, levels = kat_lv))
+
+    p_bal <- ggplot2::ggplot(konsens, ggplot2::aes(x = Baumart, y = n_tv, fill = Kategorie)) +
+      ggplot2::geom_col(position = "fill", width = 0.9) +
+      ggplot2::facet_grid(Szen_label ~ Zeitraum) +
+      ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
+      ggplot2::scale_y_continuous(labels = function(v) paste0(round(v * 100), "%")) +
+      ggplot2::labs(
+        title    = paste0("BAE – Konsens der TVs je Baumart – ", master_id),
+        subtitle = paste0(sub("st$", "", st),
+                          "-stufig  |  Anteil der TVs je Empfehlung  |  Modell: ", modelle_str),
+        x = NULL, y = "Anteil der TVs", fill = "Empfehlung") +
+      ggplot2::theme_minimal(base_size = 11) + strip_theme +
+      ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+                     legend.position = "bottom")
+
+    f_bal <- file.path(mid_dir, paste0("KonsensBalken_", st, "_", master_id, "_",
+                                       modelle_str, ".png"))
+    ggplot2::ggsave(f_bal, plot = p_bal, device = "png",
+                    width = breite, height = hoehe, units = "px", dpi = 150, limitsize = FALSE)
+    message("Gespeichert: ", f_bal)
+    plots[[paste0(st, "_balken")]] <- p_bal
+
+    # ---- 1b Konsens-Kurve: Median-Stufe + Spannband über die TVs ----
+    # ein Stufen-Wert je (Panel, TV, Baumart): Mittel über die Hinweis-Methoden
+    tv_val <- d_st %>%
       dplyr::group_by(Szen_label, Zeitraum, TV, Baumart) %>%
       dplyr::summarise(y = mean(Stufe, na.rm = TRUE), .groups = "drop") %>%
       dplyr::filter(!is.nan(y)) %>%
       dplyr::mutate(x = as.integer(factor(Baumart, levels = ba_lv)))
-    
-    # 2) glatte Spline-Kurve je (Panel, TV) durch diese Punkte, auf [1,n]
-    #    geklammert, damit sie nicht über die Kategorien hinausschwingt.
-    kurv_smooth <- kurv %>%
-      dplyr::group_by(Szen_label, Zeitraum, TV) %>%
-      dplyr::filter(dplyr::n() >= 2) %>%
-      dplyr::group_modify(~ {
-        s <- stats::spline(.x$x, .x$y, n = 200)
-        data.frame(x = s$x, y = pmin(pmax(s$y, 1), length(ordn)))
-      }) %>%
-      dplyr::ungroup()
-    
-    p <- ggplot2::ggplot() +
-      ggplot2::geom_line(data = kurv_smooth,
-                         ggplot2::aes(x = x, y = y, colour = TV, group = TV),
-                         linewidth = 0.8, alpha = 0.85) +
-      ggplot2::geom_point(data = kurv,
-                          ggplot2::aes(x = x, y = y, colour = TV),
-                          size = 1.4, alpha = 0.9) +
+    konsens_band <- tv_val %>%
+      dplyr::group_by(Szen_label, Zeitraum, Baumart, x) %>%
+      dplyr::summarise(y_med = stats::median(y), y_min = min(y), y_max = max(y),
+                       .groups = "drop")
+
+    p_kur <- ggplot2::ggplot() +
+      ggplot2::geom_ribbon(data = konsens_band,
+                           ggplot2::aes(x = x, ymin = y_min, ymax = y_max),
+                           fill = "grey70", alpha = 0.35) +
+      ggplot2::geom_point(data = tv_val, ggplot2::aes(x = x, y = y),
+                          color = "grey45", size = 0.8, alpha = 0.5) +
+      ggplot2::geom_line(data = konsens_band, ggplot2::aes(x = x, y = y_med),
+                         color = "#1A9850", linewidth = 1) +
+      ggplot2::geom_point(data = konsens_band, ggplot2::aes(x = x, y = y_med),
+                          color = "#1A9850", size = 1.6) +
       ggplot2::facet_grid(Szen_label ~ Zeitraum) +
       ggplot2::scale_x_continuous(breaks = seq_along(ba_lv), labels = ba_lv) +
       ggplot2::scale_y_continuous(
         breaks = seq_along(ordn), labels = ordn,
         limits = c(1, length(ordn)), expand = ggplot2::expansion(mult = 0.05)) +
-      ggplot2::scale_colour_manual(values = tv_cols, drop = FALSE) +
       ggplot2::labs(
-        title    = paste0("BAE-Empfehlungskurven – ", master_id),
-        subtitle = paste0(sub("st$", "", st), "-stufig  |  Modell: ", modelle_str),
-        x = NULL, y = "Empfehlung", colour = "TV") +
-      ggplot2::theme_minimal(base_size = 11) +
+        title    = paste0("BAE – Konsens-Kurve der TVs – ", master_id),
+        subtitle = paste0(sub("st$", "", st),
+                          "-stufig  |  Linie = Median, Band = Spannweite über die TVs  |  Modell: ",
+                          modelle_str),
+        x = NULL, y = "Empfehlung") +
+      ggplot2::theme_minimal(base_size = 11) + strip_theme +
       ggplot2::theme(
-        strip.text      = ggplot2::element_text(face = "bold", size = 9),
-        strip.background = ggplot2::element_rect(fill = "grey95", color = "grey70",
-                                                 linewidth = 0.6),
-        panel.border    = ggplot2::element_rect(color = "grey80", fill = NA,
-                                                linewidth = 0.5),
-        axis.text.x     = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
-        panel.grid.minor = ggplot2::element_blank(),
-        panel.grid.major.x = ggplot2::element_line(color = "grey92"),
-        legend.position = "bottom",
-        plot.background = ggplot2::element_rect(fill = "white", color = NA))
-    
-    f <- file.path(mid_dir, paste0("Kurven_", st, "_", master_id, "_",
-                                   modelle_str, ".png"))
-    ggplot2::ggsave(f, plot = p, device = "png",
-                    width  = 1200 + n_spalten * 850,
-                    height =  650 + n_zeilen  * 480,
-                    units = "px", dpi = 150, limitsize = FALSE)
-    message("Gespeichert: ", f)
-    plots[[st]] <- p
+        panel.border       = ggplot2::element_rect(color = "grey80", fill = NA, linewidth = 0.5),
+        axis.text.x        = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+        panel.grid.major.x = ggplot2::element_line(color = "grey92"))
+
+    f_kur <- file.path(mid_dir, paste0("KonsensKurve_", st, "_", master_id, "_",
+                                       modelle_str, ".png"))
+    ggplot2::ggsave(f_kur, plot = p_kur, device = "png",
+                    width = breite, height = hoehe, units = "px", dpi = 150, limitsize = FALSE)
+    message("Gespeichert: ", f_kur)
+    plots[[paste0(st, "_kurve")]] <- p_kur
   }
   invisible(plots)
 }
@@ -405,7 +446,7 @@ bae_kurven_function <- function(data,
 
 #' Häufigste Empfehlung als ausgezählte, gewichtet sortierte Matrix (Skizze 2)
 #'
-#' @param data          data.frame wie bei bae_kurven_function (zusätzlich
+#' @param data          data.frame wie bei bae_konsens_function (zusätzlich
 #'                       optional Spalte Hinweis = Rechenmethode).
 #' @param master_id     ID des Standorts, auf den gefiltert wird.
 #' @param stufen        Bewertungsstufen: "3st","4st","5st","2st".
@@ -711,16 +752,16 @@ bae_modus_matrix_function <- function(data,
 
 # ----  4  Bequemer Wrapper: beide Grafiken erzeugen ----
 
-#' Beide Auswertungsgrafiken (Kurven + Modus-Matrix) nacheinander erzeugen
+#' Beide Auswertungsgrafiken (Konsens + Modus-Matrix) nacheinander erzeugen
 #'
-#' Ruft bae_kurven_function() und bae_modus_matrix_function() mit denselben
+#' Ruft bae_konsens_function() und bae_modus_matrix_function() mit denselben
 #' Argumenten auf. Parameter siehe dort.
 #'
 #' @param data,master_id,stufen,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
-#'   wie bei bae_kurven_function().
+#'   wie bei bae_konsens_function().
 #' @param trennung,hinweis_row,facet,facet_ncol,legend_pos,order_ref wie bei
 #'   bae_modus_matrix_function().
-#' @return unsichtbar list(kurven = ..., matrix = ...) der ggplot-Objekte.
+#' @return unsichtbar list(konsens = ..., matrix = ...) der ggplot-Objekte.
 bae_auswertung_grafiken <- function(data, master_id,
                                     stufen         = c("3st", "4st", "5st", "2st"),
                                     trennung       = c("klimalauf", "zeit", "szenario", "keine"),
@@ -735,10 +776,10 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     order_ref      = NULL,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
-  kurven <- bae_kurven_function(data, master_id, stufen = stufen,
-                                rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
-                                szen_rename = szen_rename, szenarien = szenarien,
-                                out_dir = out_dir)
+  konsens <- bae_konsens_function(data, master_id, stufen = stufen,
+                                  rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
+                                  szen_rename = szen_rename, szenarien = szenarien,
+                                  out_dir = out_dir)
   matrix <- bae_modus_matrix_function(data, master_id, stufen = stufen, trennung = trennung,
                                       rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                                       szen_rename = szen_rename, szenarien = szenarien,
@@ -746,7 +787,7 @@ bae_auswertung_grafiken <- function(data, master_id,
                                       facet = facet, facet_ncol = facet_ncol,
                                       legend_pos = legend_pos, order_ref = order_ref,
                                       out_dir = out_dir)
-  invisible(list(kurven = kurven, matrix = matrix))
+  invisible(list(konsens = konsens, matrix = matrix))
 }
 
 # ----  5  Facet-Paar: zwei Stufen nebeneinander (z. B. binär + 4-stufig) ----
@@ -877,9 +918,9 @@ bae_auswertung_grafiken(data, master_id = master_id.choose)
 # Alle Szenarien behalten (kein Szenarien-Filter):
 bae_auswertung_grafiken(data, master_id = master_id.choose, szenarien = NULL)
 
-# Nur die Kurven (Skizze 1), nur 4-stufig:
-bae_kurven_function(data, master_id = master_id.choose, stufen = "4st")
-bae_kurven_function(data, master_id = master_id.choose, stufen = "2st")
+# Nur die Konsens-Grafiken (Skizze 1: Balken + Kurve), nur 4-stufig:
+bae_konsens_function(data, master_id = master_id.choose, stufen = "4st")
+bae_konsens_function(data, master_id = master_id.choose, stufen = "2st")
 
 # Nur die binäre Stufe (aus 3st: Code 3 = nicht empfohlen, sonst empfohlen):
 bae_modus_matrix_function(data, master_id = master_id.choose, stufen = "2st")
