@@ -322,6 +322,8 @@ library(stringr)
 #'                       Umbenennen der Szenario-Labels (optional).
 #' @param szenarien      zu behaltende Basis-Szenarien (Default OBS+RCP45+RCP85);
 #'                       NULL = alle Szenarien.
+#' @param facet_ncol     Spaltenzahl der Facetten (Default 3). NULL = automatisch
+#'                       (ceiling(sqrt(Anzahl Gruppen))).
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_konsens_function <- function(data,
@@ -332,6 +334,7 @@ bae_konsens_function <- function(data,
                                  obs_alle       = TRUE,
                                  szen_rename    = character(0),
                                  szenarien      = c("OBS", "RCP45", "RCP85"),
+                                 facet_ncol     = 3,
                                  out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   trennung <- match.arg(trennung)
@@ -352,13 +355,13 @@ bae_konsens_function <- function(data,
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
 
   n_grp    <- length(gruppen)
-  fac_ncol <- ceiling(sqrt(n_grp))
+  fac_ncol <- if (!is.null(facet_ncol)) facet_ncol else ceiling(sqrt(n_grp))
   fac_nrow <- ceiling(n_grp / fac_ncol)
   breite   <- 500 + fac_ncol * 900
   hoehe    <- 400 + fac_nrow * 650
 
   strip_theme <- ggplot2::theme(
-    strip.text       = ggplot2::element_text(face = "bold", size = 9),
+    strip.text       = ggplot2::element_text(face = "bold", size = 15),
     strip.background = ggplot2::element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
     panel.grid.minor = ggplot2::element_blank(),
     plot.background  = ggplot2::element_rect(fill = "white", color = NA))
@@ -407,8 +410,8 @@ bae_konsens_function <- function(data,
                           "  |  Anteil der TVs je Empfehlung  |  empfohlene Baumarten rechts →  |  Modell: ",
                           modelle_str),
         x = "Baumart  (bestempfohlene →)", y = "Anteil der TVs", fill = "Empfehlung") +
-      ggplot2::theme_minimal(base_size = 11) + strip_theme +
-      ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+      ggplot2::theme_minimal(base_size = 15) + strip_theme +
+      ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 15),
                      legend.position = "bottom")
 
     f_bal <- file.path(mid_dir, paste0("KonsensBalken_", st, "_", master_id, "_",
@@ -455,7 +458,7 @@ bae_konsens_function <- function(data,
       ggplot2::theme_minimal(base_size = 11) + strip_theme +
       ggplot2::theme(
         panel.border       = ggplot2::element_rect(color = "grey80", fill = NA, linewidth = 0.5),
-        axis.text.x        = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.x        = ggplot2::element_text(angle = 45, hjust = 1, size = 15),
         panel.grid.major.x = ggplot2::element_line(color = "grey92"))
 
     f_kur <- file.path(mid_dir, paste0("KonsensKurve_", st, "_", master_id, "_",
