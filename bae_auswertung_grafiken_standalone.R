@@ -599,6 +599,11 @@ bae_modus_matrix_function <- function(data,
   # Dateinamen-Kürzel für die Referenz-Sortierung (nur wenn wirklich angewandt)
   ord_tag <- if (!is.null(ref_lv)) paste0("_", order_ref, "ord") else ""
 
+  # Ordnungs-Quelle für die PER-FACETTE-Sortierung (nur facet = TRUE): mit order_ref
+  # die Referenz-Stufe (damit z. B. binär und 4-stufig je Facette gleich sortiert
+  # sind), sonst die jeweils aktuelle Stufe. d0 trägt hier bereits TV_M/Gruppe.
+  d_ref_mod <- if (!is.null(order_ref)) .bae_add_stufe(d0, order_ref) else NULL
+
   gruppen <- sort(unique(d0$Gruppe))   # alphabetisch: OBS… vor RCP…, chronologisch
 
   plots <- list()
@@ -639,25 +644,34 @@ bae_modus_matrix_function <- function(data,
         next
       }
 
-      # GLOBAL gewichtet sortiert (gemeinsame Achsen über alle Facetten):
-      # Summe der Stufe je Zeile (TV×Methode) bzw. Baumart über ALLE Gruppen.
-      # Mit order_ref: stattdessen die feste Referenz-Reihenfolge (present-Werte
-      # angehängt, damit nichts verloren geht).
-      gew <- d_st %>% dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
-      tv_ord <- gew %>% dplyr::group_by(TV_M) %>%
+      # PER FACETTE gewichtet sortiert: je Gruppe eine EIGENE Zeilen- (TV×Methode)
+      # und Spalten- (Baumart) Reihenfolge -> in JEDEM Panel beste Zeile oben, beste
+      # Baumart rechts. Ordnungs-Quelle = Referenz-Stufe (order_ref, damit binär und
+      # 4-stufig je Facette gleich liegen) oder die aktuelle Stufe. Umsetzung über
+      # "…___Gruppe"-Schlüssel (reorder_within-Muster) + facet scales = "free"; die
+      # Achsen-Labels blenden den Gruppen-Teil wieder aus.
+      ord_dat <- if (!is.null(d_ref_mod)) d_ref_mod else d_st
+      gew <- ord_dat %>% dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
+      tv_grp <- gew %>% dplyr::group_by(Gruppe, TV_M) %>%
         dplyr::summarise(s = sum(w), .groups = "drop") %>%
-        dplyr::arrange(s, TV_M)
-      ba_ord <- gew %>% dplyr::group_by(Baumart) %>%
+        dplyr::arrange(Gruppe, s, TV_M) %>%
+        dplyr::mutate(y_key = paste(as.character(TV_M), as.character(Gruppe), sep = "___"))
+      ba_grp <- gew %>% dplyr::group_by(Gruppe, Baumart) %>%
         dplyr::summarise(s = sum(w), .groups = "drop") %>%
-        dplyr::arrange(s, Baumart)
-      tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, as.character(tv_ord$TV_M)) else as.character(tv_ord$TV_M)
-      ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
+        dplyr::arrange(Gruppe, s, Baumart) %>%
+        dplyr::mutate(x_key = paste(as.character(Baumart), as.character(Gruppe), sep = "___"))
 
       kachel <- kachel %>%
         dplyr::mutate(
-          TV_M    = factor(as.character(TV_M),    levels = tv_lv),
-          Baumart = factor(as.character(Baumart), levels = ba_lv),
-          Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
+          Gruppe  = factor(as.character(Gruppe), levels = gruppen),
+          # TV_M/Baumart als (einfache) Faktoren behalten, damit die Größen-Ableitung
+          # in bae_modus_facet_paar (nlevels/droplevels) weiter funktioniert.
+          TV_M    = factor(as.character(TV_M)),
+          Baumart = factor(as.character(Baumart)),
+          x_key   = factor(paste(as.character(Baumart), as.character(Gruppe), sep = "___"),
+                           levels = ba_grp$x_key),
+          y_key   = factor(paste(as.character(TV_M), as.character(Gruppe), sep = "___"),
+                           levels = tv_grp$y_key))
 
       # Zahl nur zeigen, wenn mind. eine Gruppe mehrere Klimaläufe zusammenfasst
       # (bei trennung = "Klimalauf" hat jede Gruppe genau 1 Lauf -> alles 1 -> weg).
@@ -665,29 +679,34 @@ bae_modus_matrix_function <- function(data,
         dplyr::count(Gruppe)
       zahl_zeigen   <- werte_anzeigen && any(laeufe_je_grp$n > 1)
 
-      n_ba     <- length(levels(kachel$Baumart))
-      n_tv     <- length(levels(kachel$TV_M))
+      # Kachelzahl je Panel (in jedem Panel gleich, nur die Reihenfolge variiert)
+      n_ba     <- dplyr::n_distinct(kachel$Baumart)
+      n_tv     <- dplyr::n_distinct(kachel$TV_M)
       n_grp    <- length(gruppen)
       fac_ncol <- if (!is.null(facet_ncol)) facet_ncol else ceiling(sqrt(n_grp))
       fac_nrow <- ceiling(n_grp / fac_ncol)
 
-      p <- ggplot2::ggplot(kachel, ggplot2::aes(x = Baumart, y = TV_M)) +
+      # coord_equal() entfällt hier: es ist mit facet scales = "free" nicht möglich.
+      # Die Kacheln bleiben trotzdem ~quadratisch, weil die PNG-Größe unten mit
+      # n_ba × n_tv skaliert und jede Facette gleich viele Kacheln hat.
+      p <- ggplot2::ggplot(kachel, ggplot2::aes(x = x_key, y = y_key)) +
         ggplot2::geom_tile(ggplot2::aes(fill = Kategorie), color = "white", linewidth = 0.6) +
         ggplot2::geom_tile(data = dplyr::filter(kachel, tie),
                            fill = NA, color = "grey15", linewidth = 1.1) +
         { if (zahl_zeigen)
           ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
-        ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
+        ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol, scales = "free") +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
+        ggplot2::scale_x_discrete(labels = function(k) sub("___.*$", "", k)) +
+        ggplot2::scale_y_discrete(labels = function(k) sub("___.*$", "", k)) +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(sub("st$", "", st), "-stufig  |  facettiert je Gruppe (", trennung,
-                            ")  |  Modell: ", modelle_str),
+                            ")  |  je Facette eigene Sortierung  |  Modell: ", modelle_str),
           x = "Baumart  (beste Empfehlungen →)",
           y = "TV × Methode  (meiste Empfehlungen oben ↑)",
           fill = "häufigste Kategorie") +
-        ggplot2::coord_equal() +
         ggplot2::theme_minimal(base_size = 11) +
         ggplot2::theme(
           strip.text       = ggplot2::element_text(face = "bold", size = 9),
@@ -869,11 +888,13 @@ bae_auswertung_grafiken <- function(data, master_id,
 #' einzeln als PNG gespeichert (bleiben also erhalten).
 #'
 #' @param stufen_paar Länge-2-Vektor c(links, rechts); Default c("2st", "4st").
-#' @param order_ref   Referenz-Stufe für die GEMEINSAME Achsen-Sortierung beider
-#'                    Seiten (Default "2st" – robusteste Abdeckung, da manche
-#'                    Standorte 3st/4st gar nicht haben; "4st"/"3st" ebenfalls
-#'                    möglich). So liegen dieselbe TV-Zeile / Baumart-Spalte links
-#'                    wie rechts an gleicher Stelle.
+#' @param order_ref   Referenz-Stufe für die Achsen-Sortierung (Default "2st" –
+#'                    robusteste Abdeckung, da manche Standorte 3st/4st gar nicht
+#'                    haben; "4st"/"3st" ebenfalls möglich). Sortiert wird PRO
+#'                    FACETTE (je Klimalauf/Zeit/Szenario eine eigene TV- und
+#'                    Baumart-Reihenfolge); order_ref sorgt dafür, dass links und
+#'                    rechts JE FACETTE gleich liegen (dieselbe TV-Zeile / Baumart-
+#'                    Spalte an gleicher Stelle).
 #' @param facet_ncol,legend_pos,trennung,rcp_zukunft_ab,obs_alle,szen_rename,
 #'   szenarien,hinweis_row,werte_anzeigen,out_dir wie bei bae_modus_matrix_function().
 #' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
