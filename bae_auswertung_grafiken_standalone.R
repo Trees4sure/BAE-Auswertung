@@ -269,6 +269,25 @@ library(stringr)
   if (length(m)) paste(m, collapse = "-") else "NA"
 }
 
+# Y-Achsen-Labeller der Modus-Matrix: die TV×Methode-Zeilen NUR ANZEIGE-seitig auf
+# Buchstaben umstellen (A = oberste Zeile, dann B, C, … nach unten). Ausnahme:
+# "TV2" behält seinen Namen und verbraucht KEINEN Buchstaben. Ändert nur die
+# Tick-Beschriftung, nicht die Sortierung/Daten. `lv` = Faktor-Level in
+# Achsenreihenfolge (aufsteigend -> unterste Zeile zuerst), deshalb von hinten.
+.bae_tv_labeller <- function(lv) {
+  out <- character(length(lv))
+  i   <- 0
+  for (k in rev(seq_along(lv))) {            # oben (letztes Level) -> unten
+    if (identical(as.character(lv[k]), "TV2")) {
+      out[k] <- "TV2"
+    } else {
+      i <- i + 1
+      out[k] <- if (i <= length(LETTERS)) LETTERS[i] else paste0("Z", i)
+    }
+  }
+  out
+}
+
 # Referenz-Sortierung (feste Achsen für Vergleiche): liefert die TV×Methode- und
 # Baumart-Reihenfolge EINER Referenz-Stufe (gewichtete Summe der Stufe, schlecht
 # -> gut) als Level-Vektoren. So können mehrere Grafiken (z. B. binär + 4-stufig
@@ -680,6 +699,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
+        ggplot2::scale_y_discrete(labels = .bae_tv_labeller) +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(sub("st$", "", st), "-stufig  |  facettiert je Gruppe (", trennung,
@@ -797,6 +817,7 @@ bae_modus_matrix_function <- function(data,
           ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
+        ggplot2::scale_y_discrete(labels = .bae_tv_labeller) +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(sub("st$", "", st), "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
