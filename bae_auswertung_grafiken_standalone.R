@@ -934,6 +934,92 @@ bae_modus_facet_paar <- function(data, master_id,
   invisible(comb)
 }
 
+# ----  5b  Facet-Paar Konsens: zwei Stufen übereinander (z. B. 4-stufig + binär) ----
+
+#' Zwei Konsens-Balken-Grafiken (zwei Stufen) untereinander in EINE Grafik
+#'
+#' Erzeugt die Konsens-Balken für zwei Stufen (oben/unten, Default 4-stufig +
+#' binär) und legt sie mit patchwork unter einer GEMEINSAMEN Überschrift
+#' zusammen – untereinander, wie im Screenshot (oben 4-stufig, unten 2-stufig).
+#' Der beschreibende Untertitel je Stufe ("… -stufig | je Klimalauf | Anteil der
+#' TVs …") bleibt erhalten, damit jede Stufe ihre eigene Legende erklärt. Die
+#' beiden Einzelgrafiken werden dabei wie gewohnt AUCH einzeln als PNG
+#' gespeichert (bleiben also erhalten).
+#'
+#' @param stufen_paar Länge-2-Vektor c(oben, unten); Default c("4st", "2st").
+#' @param facet_ncol,trennung,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
+#'   wie bei bae_konsens_function().
+#' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
+bae_konsens_facet_paar <- function(data, master_id,
+                                   stufen_paar    = c("4st", "2st"),
+                                   trennung       = c("Klimalauf", "Zeit", "Szenario", "Keine"),
+                                   rcp_zukunft_ab = 2021,
+                                   obs_alle       = TRUE,
+                                   szen_rename    = character(0),
+                                   szenarien      = c("OBS", "RCP45", "RCP85"),
+                                   facet_ncol     = 3,
+                                   out_dir        = "04_results/BAE_Auswertung/auswertung") {
+  trennung <- match.arg(trennung)
+  stopifnot(length(stufen_paar) == 2)
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    message("Paket 'patchwork' fehlt: install.packages(\"patchwork\").")
+    return(invisible(NULL))
+  }
+
+  # Beide Stufen als Konsens-Balken erzeugen. Nebeneffekt: sie werden dabei AUCH
+  # einzeln als PNG gespeichert -> Einzelgrafiken bleiben erhalten.
+  args <- list(data = data, master_id = master_id, trennung = trennung,
+               rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
+               szen_rename = szen_rename, szenarien = szenarien,
+               facet_ncol = facet_ncol, out_dir = out_dir)
+  po <- do.call(bae_konsens_function, c(args, list(stufen = stufen_paar[1])))
+  pu <- do.call(bae_konsens_function, c(args, list(stufen = stufen_paar[2])))
+
+  go <- po[[paste0(stufen_paar[1], "_balken")]]
+  gu <- pu[[paste0(stufen_paar[2], "_balken")]]
+  if (is.null(go) || is.null(gu)) {
+    message("Facet-Paar Konsens: mindestens eine Stufe ohne Daten – übersprungen.")
+    return(invisible(NULL))
+  }
+
+  # Der Einzel-Titel ("BAE – Konsens der TVs …") stünde sonst dreimal (je Stufe +
+  # gemeinsame Überschrift). Deshalb je Stufe nur den Untertitel behalten und die
+  # gemeinsame Überschrift EINMAL oben über plot_annotation setzen.
+  go <- go + ggplot2::labs(title = NULL)
+  gu <- gu + ggplot2::labs(title = NULL)
+
+  d0 <- .bae_prep(data, master_id, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
+  modelle_str <- if (is.null(d0)) "NA" else .bae_modell_str(d0)
+
+  # zwei Stufen UNTEREINANDER (ncol = 1), gemeinsame Überschrift oben.
+  comb <- patchwork::wrap_plots(go, gu, ncol = 1) +
+    patchwork::plot_annotation(
+      title = paste0("BAE – Konsens der TVs je Baumart – ", master_id,
+                     "   (oben: ", sub("st$", "", stufen_paar[1]), "-stufig, unten: ",
+                     sub("st$", "", stufen_paar[2]), "-stufig  |  Modell: ", modelle_str, ")"),
+      theme = ggplot2::theme(
+        plot.title      = ggplot2::element_text(size = 20, face = "bold"),
+        plot.background = ggplot2::element_rect(fill = "white", color = NA)))
+
+  # Größe: Breite wie Einzelgrafik, Höhe ~ zwei Einzelgrafiken + Überschrift.
+  # Gruppenzahl aus dem oberen Plot (Gruppe ist dort Faktor über alle Gruppen).
+  n_grp    <- nlevels(droplevels(go$data$Gruppe))
+  fac_ncol <- if (!is.null(facet_ncol)) facet_ncol else ceiling(sqrt(n_grp))
+  fac_nrow <- ceiling(n_grp / fac_ncol)
+  breite   <- 500 + fac_ncol * 900
+  hoehe    <- 400 + fac_nrow * 650
+
+  mid_dir <- file.path(out_dir, as.character(master_id))
+  dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
+  f <- file.path(mid_dir, paste0("KonsensBalken_facetpaar_", stufen_paar[1], "-",
+                                 stufen_paar[2], "_", master_id, "_", modelle_str, ".png"))
+  ggplot2::ggsave(f, plot = comb, device = "png",
+                  width = breite, height = 2 * hoehe + 250, units = "px",
+                  dpi = 150, limitsize = FALSE)
+  message("Gespeichert: ", f)
+  invisible(comb)
+}
+
 # ----  6  BEISPIEL-AUFRUF (auskommentiert) ----
 data <- heatmap_data_filter %>% filter(Klimalauf != "OBS_DWD_1961-1990")
 heatmap_data_filter$MASTER_ID %>% unique
@@ -950,6 +1036,11 @@ bae_auswertung_grafiken(data, master_id = master_id.choose, szenarien = NULL)
 # Nur die Konsens-Grafiken (Skizze 1: Balken + Kurve), nur 4-stufig:
 bae_konsens_function(data, master_id = master_id.choose, stufen = "4st")
 bae_konsens_function(data, master_id = master_id.choose, stufen = "2st")
+
+# Beide Stufen als EINE Konsens-Balken-Grafik (oben 4-stufig, unten 2-stufig):
+bae_konsens_facet_paar(data, master_id = master_id.choose)
+# andere Reihenfolge / anderes Paar möglich, z. B.:
+# bae_konsens_facet_paar(data, master_id = master_id.choose, stufen_paar = c("4st", "3st"))
 
 # Nur die binäre Stufe (aus 3st: Code 3 = nicht empfohlen, sonst empfohlen):
 bae_modus_matrix_function(data, master_id = master_id.choose, stufen = "2st")
