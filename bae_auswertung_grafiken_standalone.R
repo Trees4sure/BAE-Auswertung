@@ -71,8 +71,11 @@ library(stringr)
   "mäßig empfohlen"       = "#FEE08B",
   "wenig empfohlen"       = "#FDAE61",
   "nicht empfohlen"            = "#A50026",
-  # pBv (früher schwarz) UND Keine Datengrundlage (früher grau) sind zu EINER
-  # Kategorie zusammengelegt: "keine Einschätzung möglich" in Hellgrau.
+  # Original-Grautöne (grau_zusammen = FALSE) …
+  "pBv"                        = "#404040",
+  "Keine Datengrundlage"       = "#B0B0B0",
+  # … und die zusammengefasste Sammelkategorie (grau_zusammen = TRUE, Default):
+  # pBv + Keine Datengrundlage + leere Zellen -> hellgrau.
   "keine Einschätzung möglich" = "#D9D9D9"
 )
 
@@ -110,14 +113,23 @@ library(stringr)
   "#A6761D", "#666666", "#1F78B4", "#B2182B", "#33A02C", "#6A3D9A"
 )
 
-# Code -> Kategorie. Alles Nicht-Empfohlene (pBv, leer, NA, nicht-numerisch) fällt
-# in EINE Sammelkategorie "keine Einschätzung möglich" (hellgrau).
+# Code -> Kategorie (Originaldefinition aus den Daten: pBv bzw. Keine
+# Datengrundlage getrennt). Das optionale Zusammenfassen zu "keine Einschätzung
+# möglich" macht .bae_grau_merge() bei grau_zusammen = TRUE.
 .bae_map_val <- function(val, mapping) {
   val <- as.character(val)
   dplyr::case_when(
     val %in% names(mapping) ~ unname(mapping[val]),
-    TRUE                    ~ "keine Einschätzung möglich"
+    val == "pBv"            ~ "pBv",
+    TRUE                    ~ "Keine Datengrundlage"
   )
+}
+
+# pBv + Keine Datengrundlage -> "keine Einschätzung möglich" (hellgrau).
+# Nur bei grau_zusammen = TRUE angewandt; sonst bleiben beide Kategorien getrennt.
+.bae_grau_merge <- function(kat) {
+  ifelse(as.character(kat) %in% c("pBv", "Keine Datengrundlage"),
+         "keine Einschätzung möglich", as.character(kat))
 }
 
 # Hinweis (= Rechenmethode) -> Zeilen-Label in der Matrix (Skizze 2). Jede
@@ -354,6 +366,10 @@ library(stringr)
 #'                       FACETTE (je Klimalauf/Zeit/Szenario eine eigene
 #'                       Reihenfolge, bestempfohlene rechts); die Kurve (1b) nutzt
 #'                       eine globale Reihenfolge über alle Gruppen.
+#' @param grau_zusammen  TRUE (Default) = pBv + Keine Datengrundlage zu EINER
+#'                       Kategorie "keine Einschätzung möglich" (hellgrau)
+#'                       zusammenfassen. FALSE = Originaldefinition aus den Daten
+#'                       (pBv schwarz, Keine Datengrundlage grau getrennt).
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_konsens_function <- function(data,
@@ -366,6 +382,7 @@ bae_konsens_function <- function(data,
                                  szenarien      = c("OBS", "RCP45", "RCP85"),
                                  facet_ncol     = NULL,
                                  order_ref      = NULL,
+                                 grau_zusammen  = TRUE,
                                  out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   trennung <- match.arg(trennung)
@@ -415,8 +432,12 @@ bae_konsens_function <- function(data,
       next
     }
 
+    # grau_zusammen: pBv + Keine Datengrundlage zu "keine Einschätzung möglich".
+    if (grau_zusammen) d_st <- d_st %>% dplyr::mutate(Kategorie = .bae_grau_merge(Kategorie))
+
     ordn   <- .bae_kat_order[[st]]
-    kat_lv <- c(ordn, "keine Einschätzung möglich")
+    kat_lv <- if (grau_zusammen) c(ordn, "keine Einschätzung möglich")
+              else                c(ordn, "pBv", "Keine Datengrundlage")
 
     # Baumart-Sortierung GEWICHTET (Summe der Stufe = Nennungen × Empfehlungsstufe):
     # schwächster Konsens links, bestempfohlene rechts. Ordnungs-Quelle = Referenz-
@@ -558,6 +579,13 @@ bae_konsens_function <- function(data,
 #'                       eine Referenz-Stufe (z. B. "4st"): deren gewichtete TV- und
 #'                       Baumart-Reihenfolge wird für ALLE Grafiken dieses Aufrufs
 #'                       fest übernommen -> Achsen vergleichbar.
+#' @param grau_zusammen  TRUE (Default) = pBv + Keine Datengrundlage + leere Zellen
+#'                       zu EINER hellgrauen Kategorie "keine Einschätzung möglich"
+#'                       (leere Zellen werden aufgefüllt). FALSE = Originalanzeige
+#'                       aus den Daten (pBv schwarz, Keine Datengrundlage grau,
+#'                       leere Zellen bleiben weiß).
+#' @param tv_letters     TRUE (Default) = y-Achse als A, B, C, … (TV2 zählt mit,
+#'                       behält aber den Namen). FALSE = echte TV×Methode-Namen.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_modus_matrix_function <- function(data,
@@ -574,6 +602,8 @@ bae_modus_matrix_function <- function(data,
                                       facet_ncol     = NULL,     # Spaltenzahl der Facetten (NULL = auto)
                                       legend_pos     = "right",  # Legendenposition
                                       order_ref      = NULL,     # Referenz-Stufe für feste Achsen (z. B. "4st")
+                                      grau_zusammen  = TRUE,     # pBv+Keine Datengrundlage+leer -> "keine Einschätzung möglich" (hellgrau)
+                                      tv_letters     = TRUE,     # y-Achse als A,B,C,… (außer TV2); FALSE = echte TV-Namen
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
@@ -628,10 +658,15 @@ bae_modus_matrix_function <- function(data,
       next
     }
 
+    # grau_zusammen: pBv + Keine Datengrundlage zu "keine Einschätzung möglich".
+    if (grau_zusammen) d_st <- d_st %>% dplyr::mutate(Kategorie = .bae_grau_merge(Kategorie))
+
     ordn     <- .bae_kat_order[[st]]                        # schlecht -> gut
-    kat_lv   <- c(ordn, "keine Einschätzung möglich")       # Legenden-/Fill-Reihenfolge
-    kat_pref <- c(rev(ordn), "keine Einschätzung möglich")  # best -> schlecht (Gleichstand: bessere gewinnt)
-    dunkel   <- c("sehr empfohlen", "nicht empfohlen")      # Kacheln mit weißer Schrift (hellgrau -> dunkle Schrift)
+    grau_lv  <- if (grau_zusammen) "keine Einschätzung möglich" else c("pBv", "Keine Datengrundlage")
+    kat_lv   <- c(ordn, grau_lv)                            # Legenden-/Fill-Reihenfolge
+    kat_pref <- c(rev(ordn), grau_lv)                       # best -> schlecht (Gleichstand: bessere gewinnt)
+    dunkel   <- if (grau_zusammen) c("sehr empfohlen", "nicht empfohlen")      # hellgrau -> dunkle Schrift
+                else                c("sehr empfohlen", "nicht empfohlen", "pBv")  # pBv schwarz -> weiße Schrift
 
     # --------------------------------------------------------------------
     #  facet = TRUE: ALLE Gruppen in EINE facettierte Grafik (wie die
@@ -679,8 +714,9 @@ bae_modus_matrix_function <- function(data,
           Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
 
       # Leere (sonst WEISSE) Zellen als "keine Einschätzung möglich" auffüllen ->
-      # lückenlose, hellgraue Matrix statt weißer Löcher (complete über alle Level).
-      kachel <- kachel %>%
+      # lückenlose, hellgraue Matrix statt weißer Löcher. Nur bei grau_zusammen;
+      # sonst bleiben leere Zellen weiß (Originalanzeige).
+      if (grau_zusammen) kachel <- kachel %>%
         tidyr::complete(Gruppe, TV_M, Baumart) %>%
         dplyr::mutate(
           Kategorie = factor(dplyr::coalesce(as.character(Kategorie), "keine Einschätzung möglich"),
@@ -710,7 +746,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
-        ggplot2::scale_y_discrete(labels = .bae_tv_labeller) +
+        ggplot2::scale_y_discrete(labels = if (tv_letters) .bae_tv_labeller else ggplot2::waiver()) +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(sub("st$", "", st), "-stufig  |  facettiert je Gruppe (", trennung,
@@ -801,8 +837,9 @@ bae_modus_matrix_function <- function(data,
           Baumart = factor(as.character(Baumart), levels = ba_lv))
 
       # Leere (sonst WEISSE) Zellen als "keine Einschätzung möglich" auffüllen ->
-      # lückenlose, hellgraue Matrix statt weißer Löcher (complete über alle Level).
-      kachel <- kachel %>%
+      # lückenlose, hellgraue Matrix statt weißer Löcher. Nur bei grau_zusammen;
+      # sonst bleiben leere Zellen weiß (Originalanzeige).
+      if (grau_zusammen) kachel <- kachel %>%
         tidyr::complete(TV_M, Baumart) %>%
         dplyr::mutate(
           Kategorie = factor(dplyr::coalesce(as.character(Kategorie), "keine Einschätzung möglich"),
@@ -839,7 +876,7 @@ bae_modus_matrix_function <- function(data,
           ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
-        ggplot2::scale_y_discrete(labels = .bae_tv_labeller) +
+        ggplot2::scale_y_discrete(labels = if (tv_letters) .bae_tv_labeller else ggplot2::waiver()) +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(sub("st$", "", st), "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
@@ -896,18 +933,21 @@ bae_auswertung_grafiken <- function(data, master_id,
                                     facet_ncol     = NULL,
                                     legend_pos     = "right",
                                     order_ref      = NULL,
+                                    grau_zusammen  = TRUE,
+                                    tv_letters     = TRUE,
                                     out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   konsens <- bae_konsens_function(data, master_id, stufen = stufen, trennung = trennung,
                                   rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                                   szen_rename = szen_rename, szenarien = szenarien,
-                                  out_dir = out_dir)
+                                  grau_zusammen = grau_zusammen, out_dir = out_dir)
   matrix <- bae_modus_matrix_function(data, master_id, stufen = stufen, trennung = trennung,
                                       rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                                       szen_rename = szen_rename, szenarien = szenarien,
                                       hinweis_row = hinweis_row,
                                       facet = facet, facet_ncol = facet_ncol,
                                       legend_pos = legend_pos, order_ref = order_ref,
+                                      grau_zusammen = grau_zusammen, tv_letters = tv_letters,
                                       out_dir = out_dir)
   invisible(list(konsens = konsens, matrix = matrix))
 }
@@ -942,6 +982,8 @@ bae_modus_facet_paar <- function(data, master_id,
                                  werte_anzeigen = TRUE,
                                  facet_ncol     = 1,
                                  legend_pos     = "bottom",
+                                 grau_zusammen  = TRUE,
+                                 tv_letters     = TRUE,
                                  out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   stopifnot(length(stufen_paar) == 2)
@@ -958,7 +1000,8 @@ bae_modus_facet_paar <- function(data, master_id,
                szen_rename = szen_rename, szenarien = szenarien,
                hinweis_row = hinweis_row, werte_anzeigen = werte_anzeigen,
                facet = TRUE, facet_ncol = facet_ncol, legend_pos = legend_pos,
-               order_ref = order_ref, out_dir = out_dir)
+               order_ref = order_ref, grau_zusammen = grau_zusammen,
+               tv_letters = tv_letters, out_dir = out_dir)
   pl <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[1])))
   pr <- do.call(bae_modus_matrix_function, c(args, list(stufen = stufen_paar[2])))
 
@@ -1061,6 +1104,7 @@ bae_konsens_facet_paar <- function(data, master_id,
                                    szen_rename    = character(0),
                                    szenarien      = c("OBS", "RCP45", "RCP85"),
                                    facet_ncol     = 3,
+                                   grau_zusammen  = TRUE,
                                    out_dir        = "04_results/BAE_Auswertung/auswertung") {
   trennung <- match.arg(trennung)
   stopifnot(length(stufen_paar) == 2)
@@ -1075,7 +1119,8 @@ bae_konsens_facet_paar <- function(data, master_id,
   args <- list(data = data, master_id = master_id, trennung = trennung,
                rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                szen_rename = szen_rename, szenarien = szenarien,
-               facet_ncol = facet_ncol, order_ref = order_ref, out_dir = out_dir)
+               facet_ncol = facet_ncol, order_ref = order_ref,
+               grau_zusammen = grau_zusammen, out_dir = out_dir)
   po <- do.call(bae_konsens_function, c(args, list(stufen = stufen_paar[1])))
   pu <- do.call(bae_konsens_function, c(args, list(stufen = stufen_paar[2])))
 
@@ -1203,6 +1248,14 @@ bae_modus_facet_paar(data, master_id = master_id.choose,
                      stufen_paar = c("2st", "4st"), order_ref = "2st",
                      szenarien = c("OBS", "RCP45","RCP85"), #"RCP45",
                      trennung = "Klimalauf", facet_ncol = 1, legend_pos = "bottom")
+
+# Original-Anzeige erzwingen: echte TV-Namen statt A,B,C UND pBv / Keine
+# Datengrundlage getrennt (schwarz/grau, leere Zellen bleiben weiß):
+bae_modus_facet_paar(data, master_id = master_id.choose,
+                     stufen_paar = c("2st", "4st"), order_ref = "2st",
+                     szenarien = c("OBS", "RCP45","RCP85"),
+                     trennung = "Klimalauf", facet_ncol = 1, legend_pos = "bottom",
+                     grau_zusammen = FALSE, tv_letters = FALSE)
 
 bae_modus_facet_paar(data, master_id = master_id.choose,
                      stufen_paar = c("2st", "4st"), order_ref = "3st",
