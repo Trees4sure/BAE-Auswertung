@@ -36,6 +36,48 @@
   `make_test_data.R`. Real liegen sie nicht vor → Empfehlungs-Leisten
   (`combine_climate_recommendation` etc.) sind ohne diese Daten nicht nutzbar.
 
+### Auswertungs-Grafiken (`bae_auswertung_grafiken_standalone.R`)
+
+- **Konsens-Balken** (`bae_konsens_function`, Skizze 1a): sortieren die Baumart-
+  Achse **PRO FACETTE** (je Klimalauf/Zeit/Szenario eigene Reihenfolge, best-
+  empfohlene rechts). Technik: `Baumart___Gruppe`-Schlüssel (reorder_within von
+  Hand, KEIN tidytext) + `facet_wrap(scales = "free_x")`, Label strippt den
+  Gruppen-Teil. `order_ref` (Default = obere Stufe) macht, dass zwei Stufen je
+  Facette gleich liegen. Das ist so GEWOLLT (nur Baumarten ranken, unabhängig vom
+  TV). Die Konsens-Kurve (1b) bleibt global sortiert.
+- **`bae_konsens_facet_paar()`**: legt zwei Konsens-Stufen (Default oben 4st,
+  unten 2st) mit patchwork UNTEREINANDER unter eine Überschrift. Analog zu
+  `bae_modus_facet_paar` (das die Modus-Matrix zweier Stufen nebeneinander legt).
+- **Modus-Matrix** (`bae_modus_matrix_function`, Skizze 2): Sortierung ist
+  **GEWICHTET** (Summe der Empfehlungsstufe, `sum(Stufe)`) und **GLOBAL über alle
+  Facetten** (eine einheitliche Zeilen-/Spalten-Reihenfolge, via `order_ref` /
+  `.bae_ref_levels`). **Beides bewusst so – NICHT ändern:**
+  - „Stumpf auszählen" statt gewichten wurde probiert und vom Nutzer **verworfen**
+    („das ist schlechter"). Nicht wieder vorschlagen/umbauen.
+  - Per-Facette-Sortierung (wie bei Konsens) wurde probiert und **verworfen** –
+    der Nutzer will hier EINE einheitliche Reihenfolge über alle Facetten.
+- **Folge der globalen Modus-Sortierung (WICHTIG, war ein langes Missverständnis):**
+  Die Reihenfolge hängt von ALLEN einbezogenen Klimaläufen ab. Ändert man den
+  `data <-` Filter bzw. `szenarien` (welche RCP-Läufe drin sind), verschiebt sich
+  die Zeilen-/Spalten-Reihenfolge in **JEDEM** Panel – auch in OBS, obwohl dessen
+  eigene Daten/Farben gleich bleiben. Das ist KEIN Bug, sondern Folge von „global".
+- **Beschriftungsgrößen:** `bae_modus_facet_paar` und der `facet = TRUE`-Zweig der
+  Modus-Matrix nutzen große Labels (Streifen/Achsen/Titel 25, Legende 20/25,
+  Legende in 2 Zeilen). Der `facet = FALSE`-Zweig ebenfalls (auf Wunsch angeglichen).
+- **Modus-y-Achse = Buchstaben:** `.bae_tv_labeller()` zeigt die TV×Methode-Zeilen
+  als A (oberste Zeile), B, C … nach unten – **außer „TV2"** (behält den Namen,
+  verbraucht keinen Buchstaben). Reine Anzeige (`scale_y_discrete(labels=…)`),
+  Sortierung/Daten unberührt.
+
+### Zusammenarbeit / Missverständnisse vermeiden
+
+- Nach JEDEM Commit **sowohl** `BAE_Auswertung_Grafiken` per Fast-Forward setzen
+  **als auch pushen**. Einmal nur committet, nicht gepusht → der Nutzer arbeitete
+  mit einer veralteten Version und suchte lange den „Fehler".
+- Wenn der Nutzer seine „aktuelle Standalone" pastet, kann sie ÄLTER sein als der
+  Branch (z. B. ohne `bae_konsens_facet_paar`). NICHT blind die ganze Datei damit
+  überschreiben – gezielt nur die gemeinte Änderung übernehmen und darauf hinweisen.
+
 ### Doppelte Sidebar / doppelte Element-IDs (WICHTIG bei UI-Änderungen)
 
 - `karte_sidebar` wird in **zwei** Tabs eingebaut (Tab „Karte" **und** Tab
