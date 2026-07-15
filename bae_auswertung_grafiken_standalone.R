@@ -327,6 +327,11 @@ library(stringr)
 #'                       NULL = alle Szenarien.
 #' @param facet_ncol     Spaltenzahl der Facetten (Default 3). NULL = automatisch
 #'                       (ceiling(sqrt(Anzahl Gruppen))).
+#' @param order_ref      NULL = jede Stufe sortiert ihre Baumart-Achse selbst
+#'                       (gewichtet). Sonst eine Referenz-Stufe (z. B. "3st"):
+#'                       deren gewichtete Baumart-Reihenfolge wird für ALLE
+#'                       Stufen dieses Aufrufs fest übernommen -> gleiche x-Achse
+#'                       (gleiches Baumart-Ranking) in allen Stufen.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_konsens_function <- function(data,
@@ -338,6 +343,7 @@ bae_konsens_function <- function(data,
                                  szen_rename    = character(0),
                                  szenarien      = c("OBS", "RCP45", "RCP85"),
                                  facet_ncol     = NULL,
+                                 order_ref      = NULL,
                                  out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   trennung <- match.arg(trennung)
@@ -363,6 +369,25 @@ bae_konsens_function <- function(data,
   breite   <- 500 + fac_ncol * 900
   hoehe    <- 400 + fac_nrow * 650
 
+  # Feste Baumart-Reihenfolge (order_ref): EINMAL aus der Referenz-Stufe gewichtet
+  # sortiert -> alle Stufen dieses Aufrufs nutzen dieselbe x-Achse. NULL = jede
+  # Stufe sortiert sich selbst (bisheriges Verhalten). ord_tag markiert die PNGs,
+  # damit die fest sortierten die selbst sortierten nicht überschreiben.
+  ba_ref <- NULL
+  if (!is.null(order_ref)) {
+    d_ref <- .bae_add_stufe(d0, order_ref)
+    if (is.null(d_ref)) {
+      message("order_ref '", order_ref, "' ohne Daten – Sortierung fällt je Stufe selbst.")
+    } else {
+      ba_ref <- d_ref %>%
+        dplyr::group_by(Baumart) %>%
+        dplyr::summarise(s = sum(dplyr::coalesce(as.numeric(Stufe), 0)), .groups = "drop") %>%
+        dplyr::arrange(s, Baumart) %>%
+        dplyr::pull(Baumart) %>% as.character()
+    }
+  }
+  ord_tag <- if (!is.null(ba_ref)) paste0("_", order_ref, "ord") else ""
+
   strip_theme <- ggplot2::theme(
     strip.text       = ggplot2::element_text(face = "bold", size = 15),
     strip.background = ggplot2::element_rect(fill = "grey95", color = "grey70", linewidth = 0.6),
@@ -382,11 +407,13 @@ bae_konsens_function <- function(data,
 
     # Baumarten GEWICHTET sortieren (Summe der Stufe = Nennungen × Empfehlungsstufe,
     # global über alle Gruppen): schwächster Konsens links, bestempfohlene rechts.
+    # Mit order_ref: stattdessen die feste Referenz-Reihenfolge (fehlende Baumarten
+    # dieser Stufe hinten angehängt, damit nichts verloren geht).
     ba_ord <- d_st %>%
       dplyr::group_by(Baumart) %>%
       dplyr::summarise(s = sum(dplyr::coalesce(as.numeric(Stufe), 0)), .groups = "drop") %>%
       dplyr::arrange(s, Baumart)
-    ba_lv <- as.character(ba_ord$Baumart)
+    ba_lv <- if (!is.null(ba_ref)) union(ba_ref, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
 
     # ---- 1a Konsens-Balken: je (Gruppe, Baumart) Anteil der TVs je Kategorie ----
     # eine Kategorie je (Gruppe, Baumart, TV): Modus über Hinweis-Methoden (und
@@ -418,7 +445,7 @@ bae_konsens_function <- function(data,
                      legend.position = "bottom")
 
     f_bal <- file.path(mid_dir, paste0("KonsensBalken_", st, "_", master_id, "_",
-                                       modelle_str, ".png"))
+                                       modelle_str, ord_tag, ".png"))
     ggplot2::ggsave(f_bal, plot = p_bal, device = "png",
                     width = breite, height = hoehe, units = "px", dpi = 150, limitsize = FALSE)
     message("Gespeichert: ", f_bal)
@@ -465,7 +492,7 @@ bae_konsens_function <- function(data,
         panel.grid.major.x = ggplot2::element_line(color = "grey92"))
 
     f_kur <- file.path(mid_dir, paste0("KonsensKurve_", st, "_", master_id, "_",
-                                       modelle_str, ".png"))
+                                       modelle_str, ord_tag, ".png"))
     ggplot2::ggsave(f_kur, plot = p_kur, device = "png",
                     width = breite, height = hoehe, units = "px", dpi = 150, limitsize = FALSE)
     message("Gespeichert: ", f_kur)
@@ -951,12 +978,18 @@ bae_modus_facet_paar <- function(data, master_id,
 #' gespeichert (bleiben also erhalten).
 #'
 #' @param stufen_paar Länge-2-Vektor c(oben, unten); Default c("4st", "2st").
+#' @param order_ref   Referenz-Stufe für die GEMEINSAME Baumart-Sortierung beider
+#'                    Grafiken (Default = obere Stufe stufen_paar[1]). So hat die
+#'                    untere Grafik dieselbe x-Achse (dasselbe Baumart-Ranking)
+#'                    wie die obere – nur eben binär eingefärbt. NULL = jede Stufe
+#'                    sortiert sich selbst (dann laufen die Achsen auseinander).
 #' @param facet_ncol,trennung,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
 #'   wie bei bae_konsens_function(). facet_ncol hier Default 3 (drei Panels je
 #'   Zeile: OBS / RCP45 / RCP85 wie im Screenshot).
 #' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
 bae_konsens_facet_paar <- function(data, master_id,
                                    stufen_paar    = c("4st", "2st"),
+                                   order_ref      = stufen_paar[1],
                                    trennung       = c("Klimalauf", "Zeit", "Szenario", "Keine"),
                                    rcp_zukunft_ab = 2021,
                                    obs_alle       = TRUE,
@@ -971,12 +1004,13 @@ bae_konsens_facet_paar <- function(data, master_id,
     return(invisible(NULL))
   }
 
-  # Beide Stufen als Konsens-Balken erzeugen. Nebeneffekt: sie werden dabei AUCH
-  # einzeln als PNG gespeichert -> Einzelgrafiken bleiben erhalten.
+  # Beide Stufen als Konsens-Balken erzeugen. order_ref gibt für BEIDE dieselbe
+  # Baumart-Reihenfolge (Default = obere Stufe) -> untere x-Achse == obere. Neben-
+  # effekt: sie werden dabei AUCH einzeln als PNG gespeichert -> Einzel bleiben.
   args <- list(data = data, master_id = master_id, trennung = trennung,
                rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
                szen_rename = szen_rename, szenarien = szenarien,
-               facet_ncol = facet_ncol, out_dir = out_dir)
+               facet_ncol = facet_ncol, order_ref = order_ref, out_dir = out_dir)
   po <- do.call(bae_konsens_function, c(args, list(stufen = stufen_paar[1])))
   pu <- do.call(bae_konsens_function, c(args, list(stufen = stufen_paar[2])))
 
@@ -1016,8 +1050,10 @@ bae_konsens_facet_paar <- function(data, master_id,
 
   mid_dir <- file.path(out_dir, as.character(master_id))
   dir.create(mid_dir, showWarnings = FALSE, recursive = TRUE)
+  ord_tag <- if (!is.null(order_ref)) paste0("_", order_ref, "ord") else ""
   f <- file.path(mid_dir, paste0("KonsensBalken_facetpaar_", stufen_paar[1], "-",
-                                 stufen_paar[2], "_", master_id, "_", modelle_str, ".png"))
+                                 stufen_paar[2], "_", master_id, "_", modelle_str,
+                                 ord_tag, ".png"))
   ggplot2::ggsave(f, plot = comb, device = "png",
                   width = breite, height = 2 * hoehe + 250, units = "px",
                   dpi = 150, limitsize = FALSE)
@@ -1051,7 +1087,9 @@ bae_konsens_function(data, master_id = master_id.choose, stufen = "3st", facet_n
 bae_konsens_function(data, master_id = master_id.choose, stufen = "2st",  facet_ncol = 3)
 
 # Konsens-PAAR: zwei Stufen als EINE Grafik, oben 4-stufig, unten binär (wie der
-# Screenshot). Die beiden Einzel-Balken werden dabei auch separat gespeichert:
+# Screenshot). Die untere Grafik nutzt DIESELBE Baumart-Sortierung wie die obere
+# (order_ref = obere Stufe = Default) -> gleiches Baumart-Ranking, nur binär
+# eingefärbt. Die beiden Einzel-Balken werden dabei auch separat gespeichert:
 bae_konsens_facet_paar(data, master_id = master_id.choose,
                        stufen_paar = c("4st", "2st"),
                        szenarien = c("OBS", "RCP45", "RCP85"),
@@ -1060,6 +1098,12 @@ bae_konsens_facet_paar(data, master_id = master_id.choose,
 # andere Paare/Reihenfolgen möglich, z. B. 3-stufig oben, binär unten:
 bae_konsens_facet_paar(data, master_id = master_id.choose,
                        stufen_paar = c("3st", "2st"),
+                       szenarien = c("OBS", "RCP45", "RCP85"),
+                       trennung = "Klimalauf", facet_ncol = 3)
+
+# Referenz-Sortierung frei wählbar (z. B. beide nach der binären Achse):
+bae_konsens_facet_paar(data, master_id = master_id.choose,
+                       stufen_paar = c("4st", "2st"), order_ref = "2st",
                        szenarien = c("OBS", "RCP45", "RCP85"),
                        trennung = "Klimalauf", facet_ncol = 3)
 
