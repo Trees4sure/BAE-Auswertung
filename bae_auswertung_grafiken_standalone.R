@@ -1175,6 +1175,110 @@ bae_konsens_facet_paar <- function(data, master_id,
   invisible(comb)
 }
 
+# ----  5c  Standort-Paar Modus: zwei Standorte (MASTER_IDs) nebeneinander ----
+
+#' Zwei facettierte Modus-Matrizen ZWEIER STANDORTE nebeneinander in EINE Grafik
+#'
+#' Wie bae_modus_facet_paar, aber statt zweier Stufen werden zwei MASTER_IDs
+#' (Standorte) für DIESELBE Stufe nebeneinander gelegt: je Standort EIGENE
+#' Baumart-Spalten (jeder sortiert sich selbst) und eigene y-Achse, aber EINE
+#' gemeinsame Legende (guides = "collect"). Ablage in einem EIGENEN Ordner
+#' (out_dir). Die beiden Einzel-Facets werden dabei wie gewohnt AUCH einzeln als
+#' PNG gespeichert (im selben Ordner, je MASTER_ID ein Unterordner).
+#'
+#' @param master_ids Länge-2-Vektor c(links, rechts) der Standorte.
+#' @param stufe      EINE Bewertungsstufe (Default "4st").
+#' @param order_ref  wie bei bae_modus_matrix_function; NULL (Default) = jeder
+#'                   Standort sortiert seine Achsen selbst (eigene Spalten).
+#' @param trennung,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,hinweis_row,
+#'   werte_anzeigen,facet_ncol,legend_pos,grau_zusammen,tv_letters wie bei
+#'   bae_modus_matrix_function().
+#' @param out_dir    eigener Ausgabeordner (Default …/auswertung_standortpaar).
+#' @return unsichtbar das kombinierte patchwork-Objekt (Nebeneffekt: PNGs).
+bae_modus_standort_paar <- function(data, master_ids,
+                                    stufe          = "4st",
+                                    order_ref      = NULL,
+                                    trennung       = c("Klimalauf", "Zeit", "Szenario", "Keine"),
+                                    rcp_zukunft_ab = 2021,
+                                    obs_alle       = TRUE,
+                                    szen_rename    = character(0),
+                                    szenarien      = c("OBS", "RCP45", "RCP85"),
+                                    hinweis_row    = .bae_hinweis_row,
+                                    werte_anzeigen = TRUE,
+                                    facet_ncol     = 1,
+                                    legend_pos     = "bottom",
+                                    grau_zusammen  = TRUE,
+                                    tv_letters     = TRUE,
+                                    out_dir        = "04_results/BAE_Auswertung/auswertung_standortpaar") {
+  trennung <- match.arg(trennung)
+  stopifnot(length(master_ids) == 2)
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    message("Paket 'patchwork' fehlt: install.packages(\"patchwork\").")
+    return(invisible(NULL))
+  }
+
+  # Je Standort eine facettierte Modus-Matrix (facet = TRUE) für DIESELBE Stufe.
+  # order_ref = NULL -> jeder Standort sortiert seine Baumart-Spalten selbst.
+  # Nebeneffekt: sie werden dabei AUCH einzeln als PNG gespeichert (im out_dir).
+  args <- list(data = data, stufen = stufe, trennung = trennung,
+               rcp_zukunft_ab = rcp_zukunft_ab, obs_alle = obs_alle,
+               szen_rename = szen_rename, szenarien = szenarien,
+               hinweis_row = hinweis_row, werte_anzeigen = werte_anzeigen,
+               facet = TRUE, facet_ncol = facet_ncol, legend_pos = legend_pos,
+               order_ref = order_ref, grau_zusammen = grau_zusammen,
+               tv_letters = tv_letters, out_dir = out_dir)
+  pl <- do.call(bae_modus_matrix_function, c(args, list(master_id = master_ids[1])))
+  pr <- do.call(bae_modus_matrix_function, c(args, list(master_id = master_ids[2])))
+
+  gl <- pl[[paste0(stufe, "_facet")]]
+  gr <- pr[[paste0(stufe, "_facet")]]
+  if (is.null(gl) || is.null(gr)) {
+    message("Standort-Paar: mindestens ein Standort ohne Daten – übersprungen.")
+    return(invisible(NULL))
+  }
+
+  # Große Beschriftungen wie bei bae_modus_facet_paar; Titel etwas kleiner + über
+  # die volle Breite, damit die MASTER_ID im Seiten-Titel nicht abgeschnitten wird.
+  groesser <- ggplot2::theme(
+    plot.title.position = "plot",
+    plot.title   = ggplot2::element_text(size = 20, face = "bold"),
+    strip.text   = ggplot2::element_text(size = 25, face = "bold"),
+    axis.title   = ggplot2::element_text(size = 25),
+    axis.text.y  = ggplot2::element_text(size = 25, face = "bold"),
+    axis.text.x  = ggplot2::element_text(size = 25, face = "bold", angle = 45, hjust = 1),
+    legend.text  = ggplot2::element_text(size = 20),
+    legend.title = ggplot2::element_text(size = 25))
+
+  # ncol = 2 (Standorte nebeneinander), EINE gemeinsame Legende unten
+  # (guides = "collect"; beide Seiten haben dieselbe Fill-Skala -> identisch).
+  comb <- patchwork::wrap_plots(gl, gr, ncol = 2, guides = "collect") & groesser &
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE)) &
+    ggplot2::theme(legend.position = legend_pos)
+
+  # Größe aus BEIDEN Seiten (Baumarten/TV können je Standort leicht abweichen ->
+  # Maximum, damit nichts abgeschnitten wird).
+  n_ba  <- max(nlevels(droplevels(gl$data$Baumart)), nlevels(droplevels(gr$data$Baumart)))
+  n_tv  <- max(nlevels(droplevels(gl$data$TV_M)),    nlevels(droplevels(gr$data$TV_M)))
+  n_grp <- max(nlevels(droplevels(gl$data$Gruppe)),  nlevels(droplevels(gr$data$Gruppe)))
+  fc    <- if (!is.null(facet_ncol)) facet_ncol else ceiling(sqrt(n_grp))
+  fr    <- ceiling(n_grp / fc)
+  w1    <- (500 + n_ba * 95) * fc + 200
+  h1    <- (400 + n_tv * 95) * fr + 200
+
+  d0    <- .bae_prep(data, master_ids[1], rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
+  modelle_str <- if (is.null(d0)) "NA" else .bae_modell_str(d0)
+
+  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  ids_tag <- paste(gsub("[^A-Za-z0-9]+", "-", master_ids), collapse = "_")
+  f <- file.path(out_dir, paste0("ModusMatrix_standortpaar_", stufe, "_",
+                                 ids_tag, "_", modelle_str, ".png"))
+  ggplot2::ggsave(f, plot = comb, device = "png",
+                  width = 2 * w1, height = h1 + 250, units = "px",
+                  dpi = 150, limitsize = FALSE)
+  message("Gespeichert: ", f)
+  invisible(comb)
+}
+
 # ----  6  BEISPIEL-AUFRUF (auskommentiert) ----
 data <- heatmap_data_filter %>% filter(!Klimalauf %in% c("OBS_DWD_1961-1990",
                                                          "RCP45-v3_MPICLM_2021-2050",
@@ -1286,3 +1390,9 @@ bae_modus_matrix_function(data, master_id = master_id.choose,
 bae_modus_matrix_function(
   data, master_id = master_id.choose, trennung = "Keine",
   szen_rename = c("OBS" = "Referenz", "RCP45-v3" = "RCP45_real"))
+
+# STANDORT-PAAR: zwei Standorte nebeneinander (je eigene Baumart-Spalten,
+# gemeinsame Legende), Ablage im eigenen Ordner …/auswertung_standortpaar:
+bae_modus_standort_paar(data, master_ids = c("NR_130_08_6189", "NR_130_08_66519"),
+                        stufe = "4st", szenarien = c("OBS", "RCP85"),
+                        trennung = "Klimalauf", facet_ncol = 1, legend_pos = "bottom")
