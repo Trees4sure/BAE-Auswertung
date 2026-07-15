@@ -1077,7 +1077,8 @@ bae_konsens_facet_paar <- function(data, master_id,
 data <- heatmap_data_filter %>% filter(!Klimalauf %in% c("OBS_DWD_1961-1990",
                                                          "RCP45-v3_MPICLM_2021-2050",
                                                          "RCP45_MPICLM_2021-2050",
-                                                         "RCP85_MPICLM_2021-2050",
+                                                         "RCP45_MPICLM_2071-2100",
+                                                         #"RCP85_MPICLM_2021-2050",
                                                          "RCP45-v3_MPICLM_2071-2100")) #heatmap_data
 heatmap_data_filter$Klimalauf %>% unique
 data$Klimalauf %>% unique
