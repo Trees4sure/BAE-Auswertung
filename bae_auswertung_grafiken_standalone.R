@@ -283,21 +283,26 @@ library(stringr)
   if (length(m)) paste(m, collapse = "-") else "NA"
 }
 
-# Y-Achsen-Labeller der Modus-Matrix: die TV×Methode-Zeilen NUR ANZEIGE-seitig auf
-# Buchstaben umstellen (A = oberste Zeile, dann B, C, … nach unten). Ausnahme:
-# "TV2" behält seinen Namen und verbraucht KEINEN Buchstaben. Ändert nur die
-# Tick-Beschriftung, nicht die Sortierung/Daten. `lv` = Faktor-Level in
-# Achsenreihenfolge (aufsteigend -> unterste Zeile zuerst), deshalb von hinten.
-.bae_tv_labeller <- function(lv) {
-  out <- character(length(lv))
-  i   <- 0
-  for (k in rev(seq_along(lv))) {            # oben (letztes Level) -> unten
-    i <- i + 1                               # TV2 zählt MIT (verbraucht seinen Buchstaben)
-    out[k] <- if (identical(as.character(lv[k]), "TV2")) "TV2"
-              else if (i <= length(LETTERS)) LETTERS[i]
-              else paste0("Z", i)            # -> A, B, C, D, TV2, F, …
+# Y-Achsen-Labeller der Modus-Matrix (Factory): stellt die TV×Methode-Zeilen NUR
+# ANZEIGE-seitig auf FESTE Buchstaben um, damit A/B/C ZWISCHEN Grafiken/Standorten
+# denselben TV meinen (Vergleichbarkeit). A, B, C … werden in der KANONISCHEN
+# (alphabetisch sortierten) Reihenfolge der TV_M-Werte vergeben – NICHT nach
+# Achsenposition. "TV2" ist AUSGENOMMEN: behält seinen Namen und verbraucht KEINEN
+# Buchstaben. Ändert nur die Tick-Beschriftung, nicht Sortierung/Daten.
+#   canon = NULL -> Referenzreihenfolge aus den Levels der Grafik selbst
+#           (ok, solange alle Grafiken dieselben TV_M haben).
+#   canon = <Vektor> -> feste, GEMEINSAME Reihenfolge (z. B. Union zweier
+#           Standorte), damit A überall derselbe TV ist, auch wenn ein Standort
+#           einen TV nicht hat.
+# Rückgabe: eine labels-Funktion für scale_y_discrete(labels = …).
+.bae_tv_labeller <- function(canon = NULL) {
+  function(lv) {
+    lv  <- as.character(lv)
+    ref <- if (is.null(canon)) sort(unique(lv)) else as.character(canon)
+    ref <- ref[ref != "TV2"]                             # TV2 zählt NICHT mit
+    map <- stats::setNames(LETTERS[seq_along(ref)], ref) # A, B, C, … je TV
+    ifelse(lv == "TV2", "TV2", unname(map[lv]))
   }
-  out
 }
 
 # Referenz-Sortierung (feste Achsen für Vergleiche): liefert die TV×Methode- und
@@ -584,8 +589,13 @@ bae_konsens_function <- function(data,
 #'                       (leere Zellen werden aufgefüllt). FALSE = Originalanzeige
 #'                       aus den Daten (pBv schwarz, Keine Datengrundlage grau,
 #'                       leere Zellen bleiben weiß).
-#' @param tv_letters     TRUE (Default) = y-Achse als A, B, C, … (TV2 zählt mit,
-#'                       behält aber den Namen). FALSE = echte TV×Methode-Namen.
+#' @param tv_letters     TRUE (Default) = y-Achse als A, B, C, … (FESTE, identitäts-
+#'                       basierte Zuordnung nach kanonischer TV-Reihenfolge; TV2
+#'                       ausgenommen, behält seinen Namen). FALSE = echte TV×Methode-Namen.
+#' @param tv_canon       Feste TV_M->Buchstaben-Referenzreihenfolge (Vektor). NULL
+#'                       (Default) = aus den Levels der Grafik. Für Vergleiche über
+#'                       mehrere Standorte die Union der TV_M setzen, damit A überall
+#'                       denselben TV meint (macht bae_modus_standort_paar automatisch).
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_modus_matrix_function <- function(data,
@@ -604,6 +614,7 @@ bae_modus_matrix_function <- function(data,
                                       order_ref      = NULL,     # Referenz-Stufe für feste Achsen (z. B. "4st")
                                       grau_zusammen  = TRUE,     # pBv+Keine Datengrundlage+leer -> "keine Einschätzung möglich" (hellgrau)
                                       tv_letters     = TRUE,     # y-Achse als A,B,C,… (außer TV2); FALSE = echte TV-Namen
+                                      tv_canon       = NULL,     # feste TV->Buchstaben-Reihenfolge (NULL = aus den Levels)
                                       out_dir        = "04_results/BAE_Auswertung/auswertung") {
 
   # trennung: getrennte, JEWEILS EIGEN SORTIERTE Matrizen (eine PNG je Gruppe)
@@ -746,7 +757,7 @@ bae_modus_matrix_function <- function(data,
         ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
-        ggplot2::scale_y_discrete(labels = if (tv_letters) .bae_tv_labeller else ggplot2::waiver()) +
+        ggplot2::scale_y_discrete(labels = if (tv_letters) .bae_tv_labeller(tv_canon) else ggplot2::waiver()) +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(sub("st$", "", st), "-stufig  |  facettiert je Gruppe (", trennung,
@@ -880,7 +891,7 @@ bae_modus_matrix_function <- function(data,
           ggplot2::geom_text(ggplot2::aes(label = label, colour = txt_col), size = 3) } +
         ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
         ggplot2::scale_colour_identity() +
-        ggplot2::scale_y_discrete(labels = if (tv_letters) .bae_tv_labeller else ggplot2::waiver()) +
+        ggplot2::scale_y_discrete(labels = if (tv_letters) .bae_tv_labeller(tv_canon) else ggplot2::waiver()) +
         ggplot2::labs(
           title    = paste0("BAE – häufigste Empfehlung (Auszählung) – ", master_id),
           subtitle = paste0(sub("st$", "", st), "-stufig  |  ", grp, grp_info, "  |  Modell: ", modelle_grp),
@@ -1217,6 +1228,20 @@ bae_modus_standort_paar <- function(data, master_ids,
     return(invisible(NULL))
   }
 
+  # GEMEINSAME, feste TV -> Buchstaben-Reihenfolge über BEIDE Standorte (Union der
+  # TV_M, alphabetisch). So meint A/B/C auf beiden Seiten denselben TV, auch wenn
+  # ein Standort einen TV nicht hat. TV2 bleibt außen vor (im Labeller selbst).
+  tv_canon <- character(0)
+  for (mid in master_ids) {
+    dd <- .bae_prep(data, mid, rcp_zukunft_ab, obs_alle, szen_rename, szenarien)
+    if (is.null(dd)) next
+    hw <- if ("Hinweis" %in% names(dd)) dplyr::coalesce(as.character(dd$Hinweis), "") else rep("", nrow(dd))
+    me <- dplyr::coalesce(unname(hinweis_row[hw]), hw)               # Hinweis -> Methode
+    tv_canon <- c(tv_canon, ifelse(me == "", as.character(dd$TV),
+                                   paste0(as.character(dd$TV), " (", me, ")")))
+  }
+  tv_canon <- sort(unique(tv_canon))
+
   # Je Standort eine facettierte Modus-Matrix (facet = TRUE) für DIESELBE Stufe.
   # order_ref = NULL -> jeder Standort sortiert seine Baumart-Spalten selbst.
   # Nebeneffekt: sie werden dabei AUCH einzeln als PNG gespeichert (im out_dir).
@@ -1226,7 +1251,7 @@ bae_modus_standort_paar <- function(data, master_ids,
                hinweis_row = hinweis_row, werte_anzeigen = werte_anzeigen,
                facet = TRUE, facet_ncol = facet_ncol, legend_pos = legend_pos,
                order_ref = order_ref, grau_zusammen = grau_zusammen,
-               tv_letters = tv_letters, out_dir = out_dir)
+               tv_letters = tv_letters, tv_canon = tv_canon, out_dir = out_dir)
   pl <- do.call(bae_modus_matrix_function, c(args, list(master_id = master_ids[1])))
   pr <- do.call(bae_modus_matrix_function, c(args, list(master_id = master_ids[2])))
 

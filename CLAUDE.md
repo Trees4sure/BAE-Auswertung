@@ -64,10 +64,19 @@
 - **Beschriftungsgrößen:** `bae_modus_facet_paar` und der `facet = TRUE`-Zweig der
   Modus-Matrix nutzen große Labels (Streifen/Achsen/Titel 25, Legende 20/25,
   Legende in 2 Zeilen). Der `facet = FALSE`-Zweig ebenfalls (auf Wunsch angeglichen).
-- **Modus-y-Achse = Buchstaben:** `.bae_tv_labeller()` zeigt die TV×Methode-Zeilen
-  als A (oberste Zeile), B, C … nach unten – **außer „TV2"** (behält den Namen,
-  verbraucht keinen Buchstaben). Reine Anzeige (`scale_y_discrete(labels=…)`),
-  Sortierung/Daten unberührt.
+- **Modus-y-Achse = Buchstaben (FEST/identitätsbasiert):** `.bae_tv_labeller(canon)`
+  ist eine Factory; die Buchstaben A, B, C … werden in der **kanonischen
+  (sortierten) TV_M-Reihenfolge** vergeben, NICHT nach Achsenposition – damit A/B/C
+  über Grafiken/Standorte hinweg **denselben** TV meinen. **„TV2" ist AUS der
+  Zählung ausgenommen** (behält seinen Namen, verbraucht keinen Buchstaben).
+  `tv_letters = FALSE` zeigt die echten TV×Methode-Namen. Reine Anzeige, Daten
+  unberührt. (War erst positions-basiert + TV2-mitzählend – bewusst verworfen,
+  weil dann Standorte nicht vergleichbar sind.)
+- **`bae_modus_standort_paar()`**: legt die facettierte Modus-Matrix ZWEIER
+  Standorte (MASTER_IDs) für DIESELBE Stufe nebeneinander (patchwork ncol=2),
+  je Standort EIGENE Baumart-Spalten (order_ref=NULL), aber gemeinsame Legende
+  (`guides="collect"`) und gemeinsame TV→Buchstaben-Zuordnung (Union der TV_M via
+  `tv_canon`). Eigener Ordner (`…/auswertung_standortpaar`).
 
 ### Zusammenarbeit / Missverständnisse vermeiden
 
