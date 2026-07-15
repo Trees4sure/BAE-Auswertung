@@ -21,8 +21,9 @@
 #      Rechnungen; AltBA/BAE20/WKE sind baumart-spezifisch und werden in die
 #      Standardzeile "TVx" zusammengelegt (steuerbar über hinweis_row).
 #      Die Kachel zeigt die HÄUFIGSTE Kategorie (Modus):
-#        * Farbe = häufigste Kategorie (custom_palette, diskret; pBv / Keine
-#                  Datengrundlage erscheinen als graue Kacheln)
+#        * Farbe = häufigste Kategorie (custom_palette, diskret; pBv, fehlende
+#                  Daten und leere Zellen alle als "keine Einschätzung möglich"
+#                  = hellgraue Kacheln)
 #        * Zahl  = ABSOLUTE Anzahl dieser häufigsten Kategorie (je Klimalauf
 #                  meist 1; > 1 erst, wenn eine Gruppe mehrere Klimaläufe zählt).
 #                  Bei nur EINEM Klimalauf in der Gruppe (alles zwangsläufig 1)
@@ -69,16 +70,17 @@ library(stringr)
   "empfohlen"             = "#A6D96A",
   "mäßig empfohlen"       = "#FEE08B",
   "wenig empfohlen"       = "#FDAE61",
-  "nicht empfohlen"       = "#A50026",
-  "pBv"                   = "#404040",
-  "Keine Datengrundlage"  = "#B0B0B0"
+  "nicht empfohlen"            = "#A50026",
+  # pBv (früher schwarz) UND Keine Datengrundlage (früher grau) sind zu EINER
+  # Kategorie zusammengelegt: "keine Einschätzung möglich" in Hellgrau.
+  "keine Einschätzung möglich" = "#D9D9D9"
 )
 
 # Code -> Kategorie je Stufigkeit (Code 1 = beste Bewertung)
 # "2st" = binär aus der 3-stufigen Spalte (BAE_3ST – bei 5st fehlen vielerorts
 # die Daten): NUR der schlechteste Code 3 = "nicht empfohlen", die übrigen
 # gültigen Codes (1-2) = "empfohlen". pBv / leer / NA fallen (wie bei den
-# anderen Stufen) auf pBv bzw. Keine Datengrundlage.
+# anderen Stufen) auf "keine Einschätzung möglich".
 .bae_maps <- list(
   "3st" = c("1" = "sehr empfohlen", "2" = "mäßig empfohlen", "3" = "nicht empfohlen"),
   "4st" = c("1" = "sehr empfohlen", "2" = "empfohlen", "3" = "mäßig empfohlen",
@@ -108,13 +110,13 @@ library(stringr)
   "#A6761D", "#666666", "#1F78B4", "#B2182B", "#33A02C", "#6A3D9A"
 )
 
-# Code -> Kategorie (nicht-numerische Werte -> pBv / Keine Datengrundlage)
+# Code -> Kategorie. Alles Nicht-Empfohlene (pBv, leer, NA, nicht-numerisch) fällt
+# in EINE Sammelkategorie "keine Einschätzung möglich" (hellgrau).
 .bae_map_val <- function(val, mapping) {
   val <- as.character(val)
   dplyr::case_when(
     val %in% names(mapping) ~ unname(mapping[val]),
-    val == "pBv"            ~ "pBv",
-    TRUE                    ~ "Keine Datengrundlage"
+    TRUE                    ~ "keine Einschätzung möglich"
   )
 }
 
@@ -278,12 +280,10 @@ library(stringr)
   out <- character(length(lv))
   i   <- 0
   for (k in rev(seq_along(lv))) {            # oben (letztes Level) -> unten
-    if (identical(as.character(lv[k]), "TV2")) {
-      out[k] <- "TV2"
-    } else {
-      i <- i + 1
-      out[k] <- if (i <= length(LETTERS)) LETTERS[i] else paste0("Z", i)
-    }
+    i <- i + 1                               # TV2 zählt MIT (verbraucht seinen Buchstaben)
+    out[k] <- if (identical(as.character(lv[k]), "TV2")) "TV2"
+              else if (i <= length(LETTERS)) LETTERS[i]
+              else paste0("Z", i)            # -> A, B, C, D, TV2, F, …
   }
   out
 }
@@ -416,7 +416,7 @@ bae_konsens_function <- function(data,
     }
 
     ordn   <- .bae_kat_order[[st]]
-    kat_lv <- c(ordn, "pBv", "Keine Datengrundlage")
+    kat_lv <- c(ordn, "keine Einschätzung möglich")
 
     # Baumart-Sortierung GEWICHTET (Summe der Stufe = Nennungen × Empfehlungsstufe):
     # schwächster Konsens links, bestempfohlene rechts. Ordnungs-Quelle = Referenz-
@@ -629,9 +629,9 @@ bae_modus_matrix_function <- function(data,
     }
 
     ordn     <- .bae_kat_order[[st]]                        # schlecht -> gut
-    kat_lv   <- c(ordn, "pBv", "Keine Datengrundlage")      # Legenden-/Fill-Reihenfolge
-    kat_pref <- c(rev(ordn), "pBv", "Keine Datengrundlage") # best -> schlecht (Gleichstand: bessere gewinnt)
-    dunkel   <- c("sehr empfohlen", "nicht empfohlen", "pBv")      # Kacheln mit weißer Schrift
+    kat_lv   <- c(ordn, "keine Einschätzung möglich")       # Legenden-/Fill-Reihenfolge
+    kat_pref <- c(rev(ordn), "keine Einschätzung möglich")  # best -> schlecht (Gleichstand: bessere gewinnt)
+    dunkel   <- c("sehr empfohlen", "nicht empfohlen")      # Kacheln mit weißer Schrift (hellgrau -> dunkle Schrift)
 
     # --------------------------------------------------------------------
     #  facet = TRUE: ALLE Gruppen in EINE facettierte Grafik (wie die
@@ -677,6 +677,17 @@ bae_modus_matrix_function <- function(data,
           TV_M    = factor(as.character(TV_M),    levels = tv_lv),
           Baumart = factor(as.character(Baumart), levels = ba_lv),
           Gruppe  = factor(as.character(Gruppe),  levels = gruppen))
+
+      # Leere (sonst WEISSE) Zellen als "keine Einschätzung möglich" auffüllen ->
+      # lückenlose, hellgraue Matrix statt weißer Löcher (complete über alle Level).
+      kachel <- kachel %>%
+        tidyr::complete(Gruppe, TV_M, Baumart) %>%
+        dplyr::mutate(
+          Kategorie = factor(dplyr::coalesce(as.character(Kategorie), "keine Einschätzung möglich"),
+                             levels = kat_lv),
+          tie       = dplyr::coalesce(tie, FALSE),
+          label     = dplyr::coalesce(label, ""),
+          txt_col   = dplyr::coalesce(txt_col, "grey15"))
 
       # Zahl nur zeigen, wenn mind. eine Gruppe mehrere Klimaläufe zusammenfasst
       # (bei trennung = "Klimalauf" hat jede Gruppe genau 1 Lauf -> alles 1 -> weg).
@@ -788,6 +799,17 @@ bae_modus_matrix_function <- function(data,
         dplyr::mutate(
           TV_M    = factor(as.character(TV_M),    levels = tv_lv),
           Baumart = factor(as.character(Baumart), levels = ba_lv))
+
+      # Leere (sonst WEISSE) Zellen als "keine Einschätzung möglich" auffüllen ->
+      # lückenlose, hellgraue Matrix statt weißer Löcher (complete über alle Level).
+      kachel <- kachel %>%
+        tidyr::complete(TV_M, Baumart) %>%
+        dplyr::mutate(
+          Kategorie = factor(dplyr::coalesce(as.character(Kategorie), "keine Einschätzung möglich"),
+                             levels = kat_lv),
+          tie       = dplyr::coalesce(tie, FALSE),
+          label     = dplyr::coalesce(label, ""),
+          txt_col   = dplyr::coalesce(txt_col, "grey15"))
 
       # Nur EIN Klimalauf in der Gruppe -> jede Kachel ist zwangsläufig "1"
       # (keine Aggregation, kein Gleichstand) -> Zahl weglassen, sie trägt nichts
@@ -968,8 +990,8 @@ bae_modus_facet_paar <- function(data, master_id,
     legend.text  = ggplot2::element_text(size = 20),
     legend.title = ggplot2::element_text(size = 25))
 
-  # Legende in 2 Zeilen umbrechen, sonst laeuft die 6-teilige 4st-Legende
-  # (nicht empfohlen / maessig / empfohlen / sehr / pBv / Keine Datengrundlage)
+  # Legende in 2 Zeilen umbrechen, sonst laeuft die 5-teilige 4st-Legende
+  # (nicht empfohlen / maessig / empfohlen / sehr / keine Einschätzung möglich)
   # bei der grossen Schrift ueber den rechten Rand hinaus.
   comb <- patchwork::wrap_plots(gl, gr, ncol = 2) & groesser &
     ggplot2::guides(fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE))
