@@ -327,11 +327,14 @@ library(stringr)
 #'                       NULL = alle Szenarien.
 #' @param facet_ncol     Spaltenzahl der Facetten (Default 3). NULL = automatisch
 #'                       (ceiling(sqrt(Anzahl Gruppen))).
-#' @param order_ref      NULL = jede Stufe sortiert ihre Baumart-Achse selbst
-#'                       (gewichtet). Sonst eine Referenz-Stufe (z. B. "3st"):
-#'                       deren gewichtete Baumart-Reihenfolge wird für ALLE
-#'                       Stufen dieses Aufrufs fest übernommen -> gleiche x-Achse
-#'                       (gleiches Baumart-Ranking) in allen Stufen.
+#' @param order_ref      Steuert, WELCHE Stufe die Baumart-Reihenfolge vorgibt.
+#'                       NULL = jede Stufe sortiert selbst; sonst eine Referenz-
+#'                       Stufe (z. B. "4st"), deren Gewichtung ALLE Stufen dieses
+#'                       Aufrufs übernehmen -> 4st oben und 2st unten je Facette
+#'                       gleich sortiert. Die Balken (1a) sortieren IMMER PRO
+#'                       FACETTE (je Klimalauf/Zeit/Szenario eine eigene
+#'                       Reihenfolge, bestempfohlene rechts); die Kurve (1b) nutzt
+#'                       eine globale Reihenfolge über alle Gruppen.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
 #' @return unsichtbar eine Liste der ggplot-Objekte (Nebeneffekt: PNGs).
 bae_konsens_function <- function(data,
@@ -369,24 +372,15 @@ bae_konsens_function <- function(data,
   breite   <- 500 + fac_ncol * 900
   hoehe    <- 400 + fac_nrow * 650
 
-  # Feste Baumart-Reihenfolge (order_ref): EINMAL aus der Referenz-Stufe gewichtet
-  # sortiert -> alle Stufen dieses Aufrufs nutzen dieselbe x-Achse. NULL = jede
-  # Stufe sortiert sich selbst (bisheriges Verhalten). ord_tag markiert die PNGs,
-  # damit die fest sortierten die selbst sortierten nicht überschreiben.
-  ba_ref <- NULL
-  if (!is.null(order_ref)) {
-    d_ref <- .bae_add_stufe(d0, order_ref)
-    if (is.null(d_ref)) {
-      message("order_ref '", order_ref, "' ohne Daten – Sortierung fällt je Stufe selbst.")
-    } else {
-      ba_ref <- d_ref %>%
-        dplyr::group_by(Baumart) %>%
-        dplyr::summarise(s = sum(dplyr::coalesce(as.numeric(Stufe), 0)), .groups = "drop") %>%
-        dplyr::arrange(s, Baumart) %>%
-        dplyr::pull(Baumart) %>% as.character()
-    }
-  }
-  ord_tag <- if (!is.null(ba_ref)) paste0("_", order_ref, "ord") else ""
+  # Ordnungs-Quelle für die Baumart-Sortierung: mit order_ref die Referenz-Stufe
+  # (feste, gemeinsame Reihenfolge über alle Stufen des Aufrufs -> z. B. 4st oben
+  # und 2st unten je Facette gleich sortiert), sonst je Stufe die Stufe selbst.
+  # ord_tag markiert die PNGs, damit fest sortierte die selbst sortierten nicht
+  # überschreiben.
+  d_ref <- if (!is.null(order_ref)) .bae_add_stufe(d0, order_ref) else NULL
+  if (!is.null(order_ref) && is.null(d_ref))
+    message("order_ref '", order_ref, "' ohne Daten – Sortierung fällt je Stufe selbst.")
+  ord_tag <- if (!is.null(d_ref)) paste0("_", order_ref, "ord") else ""
 
   strip_theme <- ggplot2::theme(
     strip.text       = ggplot2::element_text(face = "bold", size = 15),
@@ -405,15 +399,29 @@ bae_konsens_function <- function(data,
     ordn   <- .bae_kat_order[[st]]
     kat_lv <- c(ordn, "pBv", "Keine Datengrundlage")
 
-    # Baumarten GEWICHTET sortieren (Summe der Stufe = Nennungen × Empfehlungsstufe,
-    # global über alle Gruppen): schwächster Konsens links, bestempfohlene rechts.
-    # Mit order_ref: stattdessen die feste Referenz-Reihenfolge (fehlende Baumarten
-    # dieser Stufe hinten angehängt, damit nichts verloren geht).
-    ba_ord <- d_st %>%
+    # Baumart-Sortierung GEWICHTET (Summe der Stufe = Nennungen × Empfehlungsstufe):
+    # schwächster Konsens links, bestempfohlene rechts. Ordnungs-Quelle = Referenz-
+    # Stufe (order_ref) oder die aktuelle Stufe selbst.
+    ord_dat <- if (!is.null(d_ref)) d_ref else d_st
+
+    # GLOBAL (für die Kurve 1b, EINE Achse über alle Gruppen)
+    ba_lv <- ord_dat %>%
       dplyr::group_by(Baumart) %>%
       dplyr::summarise(s = sum(dplyr::coalesce(as.numeric(Stufe), 0)), .groups = "drop") %>%
-      dplyr::arrange(s, Baumart)
-    ba_lv <- if (!is.null(ba_ref)) union(ba_ref, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
+      dplyr::arrange(s, Baumart) %>%
+      dplyr::pull(Baumart) %>% as.character()
+
+    # PER FACETTE (für die Balken 1a): je Gruppe (Klimalauf/Zeit/Szenario) eine
+    # EIGENE Reihenfolge -> in JEDEM Panel steht die dort bestempfohlene Baumart
+    # rechts. Umsetzung über einen "Baumart___Gruppe"-Schlüssel (reorder_within-
+    # Muster) + facet scales = "free_x"; das Achsen-Label blendet den Gruppen-Teil
+    # wieder aus. Level-Reihenfolge = je Gruppe aufsteigend gewichtet.
+    ba_grp <- ord_dat %>%
+      dplyr::group_by(Gruppe, Baumart) %>%
+      dplyr::summarise(s = sum(dplyr::coalesce(as.numeric(Stufe), 0)), .groups = "drop") %>%
+      dplyr::arrange(Gruppe, s, Baumart) %>%
+      dplyr::mutate(x_key = paste(as.character(Baumart), as.character(Gruppe), sep = "___"))
+    key_lv <- ba_grp$x_key
 
     # ---- 1a Konsens-Balken: je (Gruppe, Baumart) Anteil der TVs je Kategorie ----
     # eine Kategorie je (Gruppe, Baumart, TV): Modus über Hinweis-Methoden (und
@@ -426,13 +434,15 @@ bae_konsens_function <- function(data,
     konsens <- tv_kat %>%
       dplyr::count(Gruppe, Baumart, Kategorie, name = "n_tv") %>%
       dplyr::mutate(Kategorie = factor(Kategorie, levels = kat_lv),
-                    Baumart   = factor(as.character(Baumart), levels = ba_lv),
-                    Gruppe    = factor(as.character(Gruppe),  levels = gruppen))
+                    Gruppe    = factor(as.character(Gruppe),  levels = gruppen),
+                    x_key     = factor(paste(as.character(Baumart), as.character(Gruppe), sep = "___"),
+                                       levels = key_lv))
 
-    p_bal <- ggplot2::ggplot(konsens, ggplot2::aes(x = Baumart, y = n_tv, fill = Kategorie)) +
+    p_bal <- ggplot2::ggplot(konsens, ggplot2::aes(x = x_key, y = n_tv, fill = Kategorie)) +
       ggplot2::geom_col(position = "fill", width = 0.9) +
-      ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol) +
+      ggplot2::facet_wrap(~ Gruppe, ncol = fac_ncol, scales = "free_x") +
       ggplot2::scale_fill_manual(values = .bae_palette, limits = kat_lv, drop = FALSE) +
+      ggplot2::scale_x_discrete(labels = function(k) sub("___.*$", "", k)) +
       ggplot2::scale_y_continuous(labels = function(v) paste0(round(v * 100), "%")) +
       ggplot2::labs(
         title    = paste0("BAE – Konsens der TVs je Baumart – ", master_id),
@@ -978,11 +988,13 @@ bae_modus_facet_paar <- function(data, master_id,
 #' gespeichert (bleiben also erhalten).
 #'
 #' @param stufen_paar Länge-2-Vektor c(oben, unten); Default c("4st", "2st").
-#' @param order_ref   Referenz-Stufe für die GEMEINSAME Baumart-Sortierung beider
-#'                    Grafiken (Default = obere Stufe stufen_paar[1]). So hat die
-#'                    untere Grafik dieselbe x-Achse (dasselbe Baumart-Ranking)
-#'                    wie die obere – nur eben binär eingefärbt. NULL = jede Stufe
-#'                    sortiert sich selbst (dann laufen die Achsen auseinander).
+#' @param order_ref   Referenz-Stufe für die gemeinsame Baumart-Sortierung beider
+#'                    Grafiken (Default = obere Stufe stufen_paar[1]). Sortiert
+#'                    wird PRO FACETTE (je Klimalauf/Zeit/Szenario eigene
+#'                    Reihenfolge); order_ref sorgt dafür, dass die untere
+#'                    (binäre) Grafik je Facette DIESELBE Reihenfolge hat wie die
+#'                    obere – nur binär eingefärbt. NULL = jede Stufe sortiert je
+#'                    Facette selbst (dann können obere/untere abweichen).
 #' @param facet_ncol,trennung,rcp_zukunft_ab,obs_alle,szen_rename,szenarien,out_dir
 #'   wie bei bae_konsens_function(). facet_ncol hier Default 3 (drei Panels je
 #'   Zeile: OBS / RCP45 / RCP85 wie im Screenshot).
@@ -1087,8 +1099,9 @@ bae_konsens_function(data, master_id = master_id.choose, stufen = "3st", facet_n
 bae_konsens_function(data, master_id = master_id.choose, stufen = "2st",  facet_ncol = 3)
 
 # Konsens-PAAR: zwei Stufen als EINE Grafik, oben 4-stufig, unten binär (wie der
-# Screenshot). Die untere Grafik nutzt DIESELBE Baumart-Sortierung wie die obere
-# (order_ref = obere Stufe = Default) -> gleiches Baumart-Ranking, nur binär
+# Screenshot). Sortiert wird PRO FACETTE (je Klimalauf eigene Reihenfolge,
+# bestempfohlene rechts); order_ref = obere Stufe (Default) sorgt dafür, dass die
+# untere Grafik je Facette dieselbe Reihenfolge hat wie die obere, nur binär
 # eingefärbt. Die beiden Einzel-Balken werden dabei auch separat gespeichert:
 bae_konsens_facet_paar(data, master_id = master_id.choose,
                        stufen_paar = c("4st", "2st"),
