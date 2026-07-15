@@ -688,16 +688,26 @@ bae_modus_matrix_function <- function(data,
           y = "TV × Methode  (meiste Empfehlungen oben ↑)",
           fill = "häufigste Kategorie") +
         ggplot2::coord_equal() +
+        # Beschriftungs-Größen wie in bae_modus_facet_paar (groesser-Theme): große
+        # Streifen/Achsen/Titel/Legende, damit die facettierte Einzel-Matrix genauso
+        # gut lesbar ist. Legende in 2 Zeilen, sonst laeuft die 6-teilige 4st-Legende
+        # bei der großen Schrift über den Rand.
+        ggplot2::guides(fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE)) +
         ggplot2::theme_minimal(base_size = 11) +
         ggplot2::theme(
-          strip.text       = ggplot2::element_text(face = "bold", size = 9),
+          plot.title       = ggplot2::element_text(size = 25, face = "bold"),
+          plot.subtitle    = ggplot2::element_text(size = 16),
+          strip.text       = ggplot2::element_text(face = "bold", size = 25),
           strip.background = ggplot2::element_rect(fill = "grey95", color = "grey70",
                                                    linewidth = 0.6),
+          axis.title       = ggplot2::element_text(size = 25),
           axis.text.x      = ggplot2::element_text(angle = 45, hjust = 1,
-                                                   face = "bold", size = 9),
-          axis.text.y      = ggplot2::element_text(face = "bold", size = 9),
+                                                   face = "bold", size = 25),
+          axis.text.y      = ggplot2::element_text(face = "bold", size = 25),
           panel.grid       = ggplot2::element_blank(),
           legend.position  = legend_pos,
+          legend.text      = ggplot2::element_text(size = 20),
+          legend.title     = ggplot2::element_text(size = 25),
           plot.background  = ggplot2::element_rect(fill = "white", color = NA))
 
       f <- file.path(mid_dir, paste0("ModusMatrix_facet_", st, "_",
