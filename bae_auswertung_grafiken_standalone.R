@@ -762,8 +762,12 @@ bae_modus_matrix_function <- function(data,
         ggplot2::guides(fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE)) +
         ggplot2::theme_minimal(base_size = 11) +
         ggplot2::theme(
-          plot.title       = ggplot2::element_text(size = 25, face = "bold"),
-          plot.subtitle    = ggplot2::element_text(size = 16),
+          # Titel über die VOLLE Breite (sonst beginnt er erst hinter den breiten
+          # y-Achsen-Labels und wird bei schmalem facet_ncol = 1 rechts abgeschnitten)
+          # und etwas kleiner als die Streifen, damit lange MASTER_IDs reinpassen.
+          plot.title.position = "plot",
+          plot.title       = ggplot2::element_text(size = 20, face = "bold"),
+          plot.subtitle    = ggplot2::element_text(size = 14),
           strip.text       = ggplot2::element_text(face = "bold", size = 25),
           strip.background = ggplot2::element_rect(fill = "grey95", color = "grey70",
                                                    linewidth = 0.6),
