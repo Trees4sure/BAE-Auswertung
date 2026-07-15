@@ -33,16 +33,13 @@
 #      wie die Heatmap. Alternativ über Zeit/Szenario zählbar.
 #      facet = TRUE legt ALLE Gruppen in EINE facettierte Grafik (facet_wrap,
 #      wie die Kurvengrafik) statt einzelner PNGs; die Achsen sind dann gemeinsam
-#      und GLOBAL (über alle Gruppen) ausgezählt sortiert. facet = FALSE (Default)
+#      und GLOBAL (über alle Gruppen) gewichtet sortiert. facet = FALSE (Default)
 #      = wie bisher: je Gruppe eine eigene, eigen sortierte PNG.
-#      Sortierung AUSGEZÄHLT (NICHT gewichtet): lexikografisch nach Häufigkeit der
-#      Empfehlungskategorien – beste zuerst (sehr empfohlen / dunkelgrün), dann
-#      hellgrün, gelb, zuletzt rot; pBv / Keine Datengrundlage zählen nicht mit.
-#      Mehr Nennungen einer BESSEREN Kategorie ziehen die Achse nach rechts/oben,
-#      mehr rot nach links/unten (keine Summe, damit viele "mäßig" nicht ein paar
-#      "sehr empfohlen" überstimmen):
-#        * Zeilen (TV × Methode): am meisten dunkelgrün -> beste Zeile oben
-#        * Spalten (Baumart):     am meisten dunkelgrün -> beste Baumart rechts
+#      Sortierung GEWICHTET (dunkelgrün zählt am meisten) über die Summe der
+#      Empfehlungsstufe (sehr empfohlen = max … nicht empfohlen = 1; pBv / Keine
+#      Datengrundlage = 0):
+#        * Zeilen (TV × Methode): höchste Summe -> beste Zeile oben
+#        * Spalten (Baumart):     höchste Summe -> beste Baumart rechts
 #      Datei: ModusMatrix_<st>_<grp>_<MID>_<Modell>.png
 #
 #   bae_auswertung_grafiken() ruft beide nacheinander auf.
@@ -272,38 +269,11 @@ library(stringr)
   if (length(m)) paste(m, collapse = "-") else "NA"
 }
 
-# Achsen-Reihenfolge der Modus-Matrix NUR durch AUSZÄHLEN der Empfehlungs-
-# kategorien – KEINE Gewichtung/Summe (die Summe ließe viele "mäßig" ein paar
-# "sehr empfohlen" überstimmen, was hier keinen Sinn ergibt). Lexikografisch von
-# der besten Kategorie (sehr empfohlen / dunkelgrün) zur schlechtesten (nicht
-# empfohlen / rot): mehr Nennungen einer BESSEREN Kategorie ziehen die Achse nach
-# rechts (Baumart) bzw. oben (TV); die SCHLECHTESTE Kategorie zählt umgekehrt
-# (mehr rot -> weiter links/unten). pBv / Keine Datengrundlage zählen nicht mit.
-# Rückgabe: Level-Vektor aufsteigend (schlechteste zuerst) für factor(levels=).
-# `key` = Spaltenname der Achse ("TV_M" oder "Baumart"); `ordn` = .bae_kat_order.
-.bae_count_levels <- function(df, key, ordn) {
-  good  <- rev(ordn)[-length(ordn)]   # beste ... zweitschlechteste (mehr -> rechts/oben)
-  worst <- ordn[1]                    # schlechteste Kategorie (mehr -> links/unten)
-  cnt <- df %>%
-    dplyr::mutate(.kat = factor(as.character(Kategorie), levels = ordn)) %>%
-    dplyr::filter(!is.na(.kat)) %>%   # pBv / Keine Datengrundlage raus
-    dplyr::group_by(dplyr::across(dplyr::all_of(key)), .kat, .drop = FALSE) %>%
-    dplyr::summarise(.n = dplyr::n(), .groups = "drop") %>%
-    tidyr::pivot_wider(names_from = .kat, values_from = .n, values_fill = 0)
-  # Sonderfall: nur pBv / Keine Datengrundlage -> nichts auszuzählen -> alphabetisch
-  if (nrow(cnt) == 0) return(sort(unique(as.character(df[[key]]))))
-  cnt <- cnt %>%
-    dplyr::arrange(dplyr::across(dplyr::all_of(good)),
-                   dplyr::desc(.data[[worst]]),
-                   dplyr::across(dplyr::all_of(key)))
-  as.character(cnt[[key]])   # Spalte per Namen holen (kein tidy-eval von `key`)
-}
-
 # Referenz-Sortierung (feste Achsen für Vergleiche): liefert die TV×Methode- und
-# Baumart-Reihenfolge EINER Referenz-Stufe (ausgezählt, schlecht -> gut) als
-# Level-Vektoren. So können mehrere Grafiken (z. B. binär + 4-stufig nebeneinander)
-# dieselbe Achsenaufteilung nutzen, statt jede für sich zu sortieren. Liefert NULL,
-# wenn die Stufe keine Daten hat.
+# Baumart-Reihenfolge EINER Referenz-Stufe (gewichtete Summe der Stufe, schlecht
+# -> gut) als Level-Vektoren. So können mehrere Grafiken (z. B. binär + 4-stufig
+# nebeneinander) dieselbe Achsenaufteilung nutzen, statt jede für sich zu
+# sortieren. Liefert NULL, wenn die Stufe keine Daten hat.
 .bae_ref_levels <- function(data, master_id, stufe, hinweis_row = .bae_hinweis_row,
                             rcp_zukunft_ab = 2021, obs_alle = TRUE,
                             szen_rename = character(0),
@@ -319,9 +289,12 @@ library(stringr)
                        paste0(as.character(TV), " (", Methode, ")")))
   d_st <- .bae_add_stufe(d0, stufe)
   if (is.null(d_st)) return(NULL)
-  ordn <- .bae_kat_order[[stufe]]
-  list(tv = .bae_count_levels(d_st, "TV_M", ordn),
-       ba = .bae_count_levels(d_st, "Baumart", ordn))
+  gew <- d_st %>% dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
+  tv <- gew %>% dplyr::group_by(TV_M) %>%
+    dplyr::summarise(s = sum(w), .groups = "drop") %>% dplyr::arrange(s, TV_M)
+  ba <- gew %>% dplyr::group_by(Baumart) %>%
+    dplyr::summarise(s = sum(w), .groups = "drop") %>% dplyr::arrange(s, Baumart)
+  list(tv = as.character(tv$TV_M), ba = as.character(ba$Baumart))
 }
 
 # ----  2  SKIZZE 1 – Konsens der TVs (Balken + Kurve) ----
@@ -540,7 +513,7 @@ bae_konsens_function <- function(data,
 
 # ----  3  SKIZZE 2 – Häufigste Empfehlung (ausgezählte, sortierte Matrix) ----
 
-#' Häufigste Empfehlung als ausgezählte, ausgezählt sortierte Matrix (Skizze 2)
+#' Häufigste Empfehlung als ausgezählte, gewichtet sortierte Matrix (Skizze 2)
 #'
 #' @param data          data.frame wie bei bae_konsens_function (zusätzlich
 #'                       optional Spalte Hinweis = Rechenmethode).
@@ -562,8 +535,8 @@ bae_konsens_function <- function(data,
 #' @param facet_ncol     Spaltenzahl der Facetten (nur bei facet = TRUE). NULL =
 #'                       automatisch (~Wurzel). z. B. 1 = alle Gruppen untereinander.
 #' @param legend_pos     Legendenposition ("right", "bottom", "none", …).
-#' @param order_ref      NULL = jede Grafik sortiert sich selbst (ausgezählt). Sonst
-#'                       eine Referenz-Stufe (z. B. "4st"): deren ausgezählte TV- und
+#' @param order_ref      NULL = jede Grafik sortiert sich selbst (gewichtet). Sonst
+#'                       eine Referenz-Stufe (z. B. "4st"): deren gewichtete TV- und
 #'                       Baumart-Reihenfolge wird für ALLE Grafiken dieses Aufrufs
 #'                       fest übernommen -> Achsen vergleichbar.
 #' @param out_dir        Ausgabeordner; je MASTER_ID entsteht ein Unterordner.
@@ -644,7 +617,7 @@ bae_modus_matrix_function <- function(data,
     # --------------------------------------------------------------------
     #  facet = TRUE: ALLE Gruppen in EINE facettierte Grafik (wie die
     #  Kurvengrafik, nur facet_wrap statt einzelner PNGs). Achsen sind
-    #  gemeinsam -> GLOBAL ausgezählt sortiert (nicht je Panel eigen). Eine
+    #  gemeinsam -> GLOBAL gewichtet sortiert (nicht je Panel eigen). Eine
     #  PNG je Stufe; die per-Gruppe-Schleife unten wird übersprungen.
     # --------------------------------------------------------------------
     if (facet) {
@@ -666,14 +639,19 @@ bae_modus_matrix_function <- function(data,
         next
       }
 
-      # GLOBAL AUSGEZÄHLT (gemeinsame Achsen über alle Facetten): lexikografisch
-      # nach Häufigkeit der Empfehlungskategorien (beste zuerst) über ALLE Gruppen –
-      # KEINE Gewichtung. Mit order_ref: stattdessen die feste Referenz-Reihenfolge
-      # (present-Werte angehängt, damit nichts verloren geht).
-      tv_cl <- .bae_count_levels(d_st, "TV_M", ordn)
-      ba_cl <- .bae_count_levels(d_st, "Baumart", ordn)
-      tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, tv_cl) else tv_cl
-      ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, ba_cl) else ba_cl
+      # GLOBAL gewichtet sortiert (gemeinsame Achsen über alle Facetten):
+      # Summe der Stufe je Zeile (TV×Methode) bzw. Baumart über ALLE Gruppen.
+      # Mit order_ref: stattdessen die feste Referenz-Reihenfolge (present-Werte
+      # angehängt, damit nichts verloren geht).
+      gew <- d_st %>% dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
+      tv_ord <- gew %>% dplyr::group_by(TV_M) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, TV_M)
+      ba_ord <- gew %>% dplyr::group_by(Baumart) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, Baumart)
+      tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, as.character(tv_ord$TV_M)) else as.character(tv_ord$TV_M)
+      ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
 
       kachel <- kachel %>%
         dplyr::mutate(
@@ -759,16 +737,22 @@ bae_modus_matrix_function <- function(data,
           label     = ifelse(tie, paste0(n, "*"), as.character(n)),
           txt_col   = ifelse(as.character(Kategorie) %in% dunkel, "white", "grey15"))
 
-      # Sortierung AUSGEZÄHLT (nicht gewichtet): lexikografisch nach Häufigkeit der
-      # Empfehlungskategorien je Zeile (TV×Methode) bzw. Baumart – beste Kategorie
-      # (dunkelgrün) zuerst, dann hellgrün/gelb, zuletzt rot -> beste Zeile oben,
-      # beste Baumart rechts. Mit order_ref: feste Referenz-Reihenfolge statt der
-      # je-Gruppe-Sortierung. gew wird unten noch für Modell/Szenario/Läufe genutzt.
-      gew <- d_st %>% dplyr::filter(Gruppe == grp)
-      tv_cl <- .bae_count_levels(gew, "TV_M", ordn)
-      ba_cl <- .bae_count_levels(gew, "Baumart", ordn)
-      tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, tv_cl) else tv_cl
-      ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, ba_cl) else ba_cl
+      # Sortierung GEWICHTET (dunkelgrün zählt am meisten): Summe der Stufe je
+      # Zeile (TV×Methode) bzw. Baumart. Stufe = sehr empfohlen (max) … nicht
+      # empfohlen (1), grau/pBv (keine Stufe) = 0. Aufsteigend -> beste (höchste
+      # Summe) als letzter Faktor-Level -> beste Zeile oben, beste Baumart rechts.
+      gew <- d_st %>%
+        dplyr::filter(Gruppe == grp) %>%
+        dplyr::mutate(w = dplyr::coalesce(as.numeric(Stufe), 0))
+      tv_ord <- gew %>% dplyr::group_by(TV_M) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, TV_M)
+      ba_ord <- gew %>% dplyr::group_by(Baumart) %>%
+        dplyr::summarise(s = sum(w), .groups = "drop") %>%
+        dplyr::arrange(s, Baumart)
+      # Mit order_ref: feste Referenz-Reihenfolge statt der je-Gruppe-Sortierung.
+      tv_lv <- if (!is.null(ref_lv)) union(ref_lv$tv, as.character(tv_ord$TV_M)) else as.character(tv_ord$TV_M)
+      ba_lv <- if (!is.null(ref_lv)) union(ref_lv$ba, as.character(ba_ord$Baumart)) else as.character(ba_ord$Baumart)
 
       kachel <- kachel %>%
         dplyr::mutate(
