@@ -519,6 +519,12 @@ for (mod in future_models) {
 # Index 12*P/(T+10) je Lauf/Monat: Mittel ueber alle Laeufe als gruene
 # Mittellinie + min/max-Huelle.
 #
+# Statt (oder zusaetzlich zu) den duennen Einzellauf-Linien wird die Streuung
+# der Laeufe JE SZENARIO-FAMILIE als Band um die Mittelkurve gezeichnet
+# (rot = Temperatur, blau = Niederschlag). Welches Mass das Band zeigt, steuert
+# stf_band; alle Kennzahlen (n, sd, Quantile, min/max) stehen in fam und lassen
+# sich dort direkt ansehen.
+#
 # Punkte ueber MID_auswahl waehlen; je Punkt ein eigener ggplot im Loop.
 # ggplot hat nur EINE Zweitachse (hier: Niederschlag mm). Der De-Martonne wird
 # darum per einfachem Linear-Massstab (a/b) in die Mitte gelegt und mit echten
@@ -529,6 +535,17 @@ library(ggplot2)
 MID_auswahl <- c("NR_130_08_6189", "NR_130_08_66519")   # gewuenschte MASTER_IDs
 wl_stf_dir  <- file.path("04_results", "WL_staffel", wl_region)
 dir.create(wl_stf_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Streuband je Familie: welches Mass?  "q10_90" = 10-/90-Perzentil der Laeufe,
+# "minmax" = volle Spannweite, "sd" = Mittel +/- 1 SD, "ci95" = 95%-Konfidenz-
+# intervall des Mittelwerts (+/- 1.96 * SD / sqrt(n), also viel schmaler als die
+# Streuung der Laeufe selbst). Familien mit nur EINEM Lauf (OBS_DWD) bekommen
+# ein Band der Breite 0 - die Linie bleibt sichtbar, es fehlt nur die Flaeche.
+stf_band      <- "q10_90"
+stf_band_T    <- TRUE    # rotes Band (Temperatur) zeichnen?
+stf_band_P    <- TRUE    # blaues Band (Niederschlag) zeichnen?
+stf_buendel_T <- TRUE    # zusaetzlich die duennen Einzellauf-Linien rot?
+stf_buendel_P <- FALSE   # zusaetzlich die duennen Einzellauf-Linien blau?
 
 # ALLE Lauf-CSVs der Region (wl_csvs aus 6.10) einlesen und auf die gewaehlten
 # IDs stapeln. Spalten je CSV: MASTER_ID | Monat | T_mean | P_sum; Lauf = Stamm.
@@ -555,15 +572,37 @@ for (mid in MID_auswahl) {
                 ifelse(grepl("^RCP45", pt$Zeitlauf), "RCP45",
                 ifelse(grepl("^RCP85", pt$Zeitlauf), "RCP85", "andere")))
 
-  # Mittelkurven JE FAMILIE (fett) je Monat, fuer T und P.
-  fam     <- aggregate(cbind(T_mean, P_temp) ~ Familie + Monat, pt, mean)
+  # Mittelkurve + Streuung JE FAMILIE und Monat, fuer T und P. Erst alle Masse
+  # rechnen (ansehbar in fam), dann per stf_band das Band daraus waehlen.
+  fam <- pt %>%
+    group_by(Familie, Monat) %>%
+    summarise(n     = n(),
+              T_m   = mean(T_mean),  T_sd  = sd(T_mean),
+              T_q10 = unname(quantile(T_mean, 0.10)),
+              T_q90 = unname(quantile(T_mean, 0.90)),
+              T_min = min(T_mean),   T_max = max(T_mean),
+              P_m   = mean(P_temp),  P_sd  = sd(P_temp),
+              P_q10 = unname(quantile(P_temp, 0.10)),
+              P_q90 = unname(quantile(P_temp, 0.90)),
+              P_min = min(P_temp),   P_max = max(P_temp),
+              .groups = "drop") %>%
+    mutate(T_sd = ifelse(is.na(T_sd), 0, T_sd),   # n = 1 -> sd ist NA
+           P_sd = ifelse(is.na(P_sd), 0, P_sd),
+           T_lo = switch(stf_band, q10_90 = T_q10, minmax = T_min,
+                         sd = T_m - T_sd, ci95 = T_m - 1.96 * T_sd / sqrt(n)),
+           T_hi = switch(stf_band, q10_90 = T_q90, minmax = T_max,
+                         sd = T_m + T_sd, ci95 = T_m + 1.96 * T_sd / sqrt(n)),
+           P_lo = switch(stf_band, q10_90 = P_q10, minmax = P_min,
+                         sd = P_m - P_sd, ci95 = P_m - 1.96 * P_sd / sqrt(n)),
+           P_hi = switch(stf_band, q10_90 = P_q90, minmax = P_max,
+                         sd = P_m + P_sd, ci95 = P_m + 1.96 * P_sd / sqrt(n)))
   fam_lab <- fam[fam$Monat == 12, ]               # Labels am Dezember-Ende
 
   # De-Martonne je Lauf/Monat -> Mittel + min/max ueber alle Laeufe je Monat.
   pt$dm <- 12 * pt$P_sum / (pt$T_mean + 10)
-  dm <- aggregate(dm ~ Monat, pt, function(x) c(m = mean(x), lo = min(x), hi = max(x)))
-  dm <- data.frame(Monat = dm$Monat, m = dm$dm[, "m"],
-                   lo = dm$dm[, "lo"], hi = dm$dm[, "hi"])
+  dm <- pt %>%
+    group_by(Monat) %>%
+    summarise(m = mean(dm), lo = min(dm), hi = max(dm), .groups = "drop")
   # De-Martonne in die Plot-Mitte legen: Index [0, max] -> Achsen-Band [a, b].
   a <- 8; b <- 34
   to_axis <- function(x) a + (b - a) * x / max(dm$hi)
@@ -572,21 +611,28 @@ for (mid in MID_auswahl) {
   p <- ggplot() +
     geom_hline(yintercept = 50, colour = "grey80", linetype = "dashed") +  # WL-Bruchlinie
     # duenne Buendel: rot = Temperatur, blau = Niederschlag (P/2)
-    geom_line(data = pt, aes(Monat, T_mean, group = Zeitlauf),
-              colour = "#c0392b", alpha = 0.10, linewidth = 0.5) +
-    geom_line(data = pt, aes(Monat, P_temp, group = Zeitlauf),
-              colour = "#2c5fa8", alpha = 0.10, linewidth = 0.5) +
+    {if (stf_buendel_T) geom_line(data = pt, aes(Monat, T_mean, group = Zeitlauf),
+                                  colour = "#c0392b", alpha = 0.10, linewidth = 0.5)} +
+    {if (stf_buendel_P) geom_line(data = pt, aes(Monat, P_temp, group = Zeitlauf),
+                                  colour = "#2c5fa8", alpha = 0.10, linewidth = 0.5)} +
+    # Streubaender je Familie (Mass siehe stf_band)
+    {if (stf_band_T) geom_ribbon(data = fam, aes(Monat, ymin = T_lo, ymax = T_hi,
+                                                 group = Familie),
+                                 fill = "#c0392b", alpha = 0.13)} +
+    {if (stf_band_P) geom_ribbon(data = fam, aes(Monat, ymin = P_lo, ymax = P_hi,
+                                                 group = Familie),
+                                 fill = "#2c5fa8", alpha = 0.13)} +
     # De-Martonne: min/max-Huelle + Mittellinie
     geom_ribbon(data = dm, aes(Monat, ymin = lo_y, ymax = hi_y),
                 fill = "#2e7d32", alpha = 0.13) +
     geom_line(data = dm, aes(Monat, m_y), colour = "#2e7d32", linewidth = 1) +
     # Familien-Mittel: Farbe = Variable (rot/blau), Linientyp = Szenario-Familie
-    geom_line(data = fam, aes(Monat, T_mean, linetype = Familie),
+    geom_line(data = fam, aes(Monat, T_m, linetype = Familie),
               colour = "#c0392b", linewidth = 1.1) +
-    geom_line(data = fam, aes(Monat, P_temp, linetype = Familie),
+    geom_line(data = fam, aes(Monat, P_m, linetype = Familie),
               colour = "#2c5fa8", linewidth = 1.1) +
     # rechts daneben: welche Familie wo liegt (am T-Mittel-Ende)
-    geom_text(data = fam_lab, aes(Monat, T_mean, label = Familie),
+    geom_text(data = fam_lab, aes(Monat, T_m, label = Familie),
               colour = "#c0392b", hjust = -0.1, size = 2.9) +
     scale_linetype_manual(values = c(OBS_DWD = "solid", RCP45 = "dashed",
                                      RCP85 = "dotted", andere = "12"),
@@ -599,7 +645,11 @@ for (mid in MID_auswahl) {
     labs(title = paste0("Gestaffelter WL-Vergleich \u00b7 ", mid),
          subtitle = paste0(length(unique(pt$Zeitlauf)),
            " Klimal\u00e4ufe  \u00b7  rot = Temperatur, blau = Niederschlag  \u00b7  ",
-           "gr\u00fcn: De-Martonne 12P/(T+10), Mittel + min/max"),
+           "B\u00e4nder je Szenario: ",
+           switch(stf_band, q10_90 = "10.-90. Perzentil der L\u00e4ufe",
+                  minmax = "min/max der L\u00e4ufe", sd = "Mittel \u00b1 1 SD",
+                  ci95 = "95%-Konfidenzintervall des Mittels"),
+           "  \u00b7  gr\u00fcn: De-Martonne 12P/(T+10), Mittel + min/max"),
          x = "Monat") +
     theme_minimal(base_size = 11) +
     theme(
