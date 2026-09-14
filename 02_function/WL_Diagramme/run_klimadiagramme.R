@@ -667,6 +667,225 @@ for (mid in MID_auswahl) {
 #    04_results/WL_staffel/NR-08/
 
 
+## 6.12.a  De-Martonne OBEN UEBER dem WL-Diagramm, mit echter Index-Achse -----
+# Wie 6.12, aber der De-Martonne-Index liegt als eigener Streifen OBEN UEBER dem
+# WL-Diagramm - nicht mehr unbeschriftet mitten drin. Der Streifen hat eine
+# echte, beschriftete Index-Achse (Ticks rechts) und die de-Martonne-Klassen als
+# hinterlegte Baender (Namen links).
+#
+# WAS HIER KORREKT IST (das war der Mangel in 6.12):
+#  * Die Abbildung Index -> y ist LINEAR und FEST (dm_i_min .. dm_i_max), NICHT
+#    auf das Datenmaximum normiert. Zwei Standorte / zwei Laufsaetze sind damit
+#    direkt vergleichbar, und die Klassengrenzen liegen immer an derselben Stelle.
+#  * Es wird NICHTS abgeschnitten: liegt ein Wert ueber dm_i_max, wird die
+#    Index-Achse automatisch hochgesetzt (mit Meldung) statt still zu kappen.
+#    Genauso rutscht der Streifen nach oben, falls die WL-Kurven ihn erreichen.
+#  * Die Klassengrenzen (10/20/24/28/35/55) sind fuer den JAHRESINDEX
+#    P_Jahr/(T_Jahr+10) definiert. Der Monatsindex 12*p/(t+10) ist per Faktor 12
+#    auf dieselbe Skala gebracht - in KALTEN Monaten wird er aber rechnerisch
+#    gross (der Nenner t+10 geht gegen 10), ohne dass der Standort feuchter
+#    waere. Diese Monate sind als offene Punkte markiert, und die belastbaren
+#    Standort-Kennzahlen (Jahr, Vegetationszeit Mai-Sep) stehen als ZAHLEN in
+#    der Caption - die sind mit den Klassen vergleichbar, die Wintermonate nicht.
+#  * t <= -9.9 degC macht die Formel unbrauchbar (Nenner -> 0); solche Monate
+#    werden auf NA gesetzt und gemeldet, statt einen Ausreisser zu erzeugen.
+#
+# Klassengrenzen nach de Martonne (Fassung wie bei Baltas 2007 gebraeuchlich):
+#   <10 arid | 10-20 semiarid | 20-24 mediterran | 24-28 semihumid |
+#   28-35 humid | 35-55 sehr humid | >55 perhumid
+
+library(ggplot2)
+
+dm_i_min   <- 0        # Untergrenze der Index-Achse (fest)
+dm_i_max   <- 80       # Obergrenze der Index-Achse (fest; wird nur ERHOEHT, nie gekappt)
+dm_y0      <- 36       # Unterkante des Streifens auf der Temperatur-Achse
+dm_y1      <- 66       # Oberkante des Streifens (Hoehe = Aufloesung der Index-Achse)
+dm_hull    <- "minmax" # Huelle ueber die Laeufe: "minmax" | "q10_90"
+dm_kalt_T  <- 0        # Monate markieren, sobald der kaelteste Lauf T <= diesem Wert hat
+dm_veg     <- 5:9      # Vegetationszeit fuer die Standort-Kennzahl (Mai-Sep)
+dm_wl_band <- TRUE     # WL-Streubaender (10./90. Perzentil je Familie) mitzeichnen?
+
+dm_klassen <- data.frame(
+  von  = c(  0,  10,  20,  24,  28,  35,  55),
+  bis  = c( 10,  20,  24,  28,  35,  55, Inf),
+  name = c("arid", "semiarid", "mediterran", "semihumid", "humid",
+           "sehr humid", "perhumid"))
+dm_farben <- c(arid = "#a6611a", semiarid = "#d8b365", mediterran = "#f6e8c3",
+               semihumid = "#c7eae5", humid = "#80cdc1", "sehr humid" = "#35978f",
+               perhumid = "#01665e")
+
+for (mid in MID_auswahl) {
+  pt <- stf[stf$MASTER_ID == mid, ]
+  if (nrow(pt) == 0) { warning(mid, ": keine Daten.", call. = FALSE); next }
+  pt$P_temp  <- pt$P_sum / 2                      # Niederschlag auf die Temp-Achse
+  pt$Familie <- ifelse(grepl("^OBS",   pt$Zeitlauf), "OBS_DWD",
+                ifelse(grepl("^RCP45", pt$Zeitlauf), "RCP45",
+                ifelse(grepl("^RCP85", pt$Zeitlauf), "RCP85", "andere")))
+
+  # De-Martonne je Lauf und Monat. Nenner t+10: unter -9.9 degC unbrauchbar -> NA.
+  pt$dm <- 12 * pt$P_sum / (pt$T_mean + 10)
+  n_kalt <- sum(pt$T_mean <= -9.9)
+  if (n_kalt > 0) {
+    pt$dm[pt$T_mean <= -9.9] <- NA_real_
+    message(mid, ": ", n_kalt, " Monatswerte mit T <= -9.9 degC -> De-Martonne NA.")
+  }
+
+  # WL-Mittelkurven + Streuung je Szenario-Familie (wie 6.12).
+  fam <- pt %>%
+    group_by(Familie, Monat) %>%
+    summarise(T_m   = mean(T_mean),
+              T_q10 = unname(quantile(T_mean, 0.10)),
+              T_q90 = unname(quantile(T_mean, 0.90)),
+              P_m   = mean(P_temp),
+              P_q10 = unname(quantile(P_temp, 0.10)),
+              P_q90 = unname(quantile(P_temp, 0.90)),
+              .groups = "drop")
+  fam_lab <- fam[fam$Monat == 12, ]
+
+  # De-Martonne je Monat ueber ALLE Laeufe: Mittel + Huelle + Kalt-Flag.
+  dm <- pt %>%
+    group_by(Monat) %>%
+    summarise(m   = mean(dm, na.rm = TRUE),
+              lo  = if (dm_hull == "minmax") min(dm, na.rm = TRUE)
+                    else unname(quantile(dm, 0.10, na.rm = TRUE)),
+              hi  = if (dm_hull == "minmax") max(dm, na.rm = TRUE)
+                    else unname(quantile(dm, 0.90, na.rm = TRUE)),
+              T_m = mean(T_mean), T_min = min(T_mean),
+              .groups = "drop") %>%
+    mutate(kalt = T_min <= dm_kalt_T)   # KAELTESTER Lauf, nicht das Mittel:
+  # sobald EIN Lauf kalt ist, ist die Huelle des Monats nach oben verzerrt.
+
+  # Index-Achse: fest - aber lieber hochsetzen als Werte abschneiden.
+  i_max <- dm_i_max
+  if (max(dm$hi) > i_max) {
+    i_max <- ceiling(max(dm$hi) / 10) * 10
+    message(mid, ": De-Martonne bis ", round(max(dm$hi), 1),
+            " -> Index-Achse auf ", i_max, " erhoeht.")
+  }
+  # Streifen: fest bei dm_y0/dm_y1 - ausser die WL-Kurven reichen so hoch, dann
+  # wandert der GANZE Streifen nach oben (Hoehe und damit der Massstab bleiben).
+  y0 <- dm_y0; y1 <- dm_y1
+  y_dat <- max(c(pt$T_mean, pt$P_temp))
+  if (y_dat > y0 - 2) {
+    schub <- ceiling(y_dat + 2 - y0)
+    y0 <- y0 + schub; y1 <- y1 + schub
+    message(mid, ": WL-Kurven bis ", round(y_dat, 1),
+            " -> De-Martonne-Streifen um ", schub, " nach oben geschoben.")
+  }
+  # LINEARE, feste Abbildung Index -> y. Nur die Lage im Plot, kein Massstabstrick:
+  # jeder Tick rechts am Streifen traegt seinen echten Indexwert.
+  to_y <- function(i) y0 + (y1 - y0) * (i - dm_i_min) / (i_max - dm_i_min)
+  dm$m_y <- to_y(dm$m); dm$lo_y <- to_y(dm$lo); dm$hi_y <- to_y(dm$hi)
+
+  # Klassen auf den sichtbaren Achsenausschnitt stutzen (Inf -> i_max).
+  kl <- dm_klassen %>%
+    mutate(von = pmax(von, dm_i_min), bis = pmin(bis, i_max)) %>%
+    filter(bis > von) %>%
+    mutate(y_von = to_y(von), y_bis = to_y(bis),
+           y_mid = (y_von + y_bis) / 2)
+
+  # Ticks der Index-Achse = Klassengrenzen + Achsenenden (echte Indexwerte).
+  ti <- sort(unique(c(dm_i_min, dm_klassen$von, i_max)))
+  ti <- data.frame(i = ti[ti >= dm_i_min & ti <= i_max])
+  ti$y <- to_y(ti$i)
+
+  # Belastbare Standort-Kennzahlen je Familie (Mittel der Laeufe):
+  #   Jahr:    P_Jahr / (T_Jahr + 10)
+  #   Mai-Sep: (12/n) * P_Veg / (T_Veg + 10)   -> gleiche Skala wie die Klassen
+  kz <- pt %>%
+    group_by(Familie, Zeitlauf) %>%
+    summarise(n_mon  = n(),
+              I_jahr = sum(P_sum) / (mean(T_mean) + 10),
+              I_veg  = (12 / length(dm_veg)) * sum(P_sum[Monat %in% dm_veg]) /
+                       (mean(T_mean[Monat %in% dm_veg]) + 10),
+              .groups = "drop")
+  if (any(kz$n_mon != 12)) warning(mid, ": nicht jeder Lauf hat 12 Monate - ",
+                                   "Jahreskennzahl pruefen!", call. = FALSE)
+  kz <- kz %>%
+    group_by(Familie) %>%
+    summarise(I_jahr = mean(I_jahr), I_veg = mean(I_veg), .groups = "drop")
+  kz_txt <- paste0(kz$Familie, " ", sprintf("%.1f", kz$I_jahr), " / ",
+                   sprintf("%.1f", kz$I_veg), collapse = "   \u00b7   ")
+
+  p <- ggplot() +
+    # ---- De-Martonne-Streifen: Klassen, Rahmen, Achse ----
+    geom_rect(data = kl, aes(xmin = 1, xmax = 12, ymin = y_von, ymax = y_bis,
+                             fill = name), alpha = 0.25) +
+    geom_label(data = kl, aes(x = 1, y = y_mid, label = name),
+               hjust = 0, size = 2.4, colour = "grey20", fill = "white",
+               alpha = 0.6, label.size = 0, label.padding = unit(0.6, "mm")) +
+    annotate("rect", xmin = 1, xmax = 12, ymin = y0, ymax = y1,
+             fill = NA, colour = "grey55", linewidth = 0.3) +
+    geom_segment(data = ti, aes(x = 12, xend = 12.12, y = y, yend = y),
+                 colour = "grey30", linewidth = 0.3) +
+    geom_text(data = ti, aes(x = 12.18, y = y, label = i),
+              hjust = 0, size = 2.6, colour = "grey30") +
+    annotate("text", x = 1, y = y1 + (y1 - y0) * 0.06, hjust = 0, size = 3.1,
+             colour = "#2e7d32",
+             label = "De-Martonne-Index  12p/(t+10)  \u2013 Mittel und Spannweite der Klimal\u00e4ufe") +
+    # ---- De-Martonne-Kurve im Streifen ----
+    geom_ribbon(data = dm, aes(Monat, ymin = lo_y, ymax = hi_y),
+                fill = "#2e7d32", alpha = 0.18) +
+    geom_line(data = dm, aes(Monat, m_y), colour = "#2e7d32", linewidth = 1) +
+    geom_point(data = dm[dm$kalt, ], aes(Monat, m_y), shape = 21, size = 1.9,
+               colour = "#2e7d32", fill = "white", stroke = 0.7) +
+    # ---- WL-Teil darunter (wie 6.12) ----
+    geom_line(data = pt, aes(Monat, T_mean, group = Zeitlauf),
+              colour = "#c0392b", alpha = 0.10, linewidth = 0.5) +
+    {if (dm_wl_band) geom_ribbon(data = fam, aes(Monat, ymin = T_q10, ymax = T_q90,
+                                                 group = Familie),
+                                 fill = "#c0392b", alpha = 0.13)} +
+    {if (dm_wl_band) geom_ribbon(data = fam, aes(Monat, ymin = P_q10, ymax = P_q90,
+                                                 group = Familie),
+                                 fill = "#2c5fa8", alpha = 0.13)} +
+    geom_line(data = fam, aes(Monat, T_m, linetype = Familie),
+              colour = "#c0392b", linewidth = 1.1) +
+    geom_line(data = fam, aes(Monat, P_m, linetype = Familie),
+              colour = "#2c5fa8", linewidth = 1.1) +
+    geom_text(data = fam_lab, aes(Monat, T_m, label = Familie),
+              colour = "#c0392b", hjust = -0.1, size = 2.9) +
+    scale_fill_manual(values = dm_farben, guide = "none") +
+    scale_linetype_manual(values = c(OBS_DWD = "solid", RCP45 = "dashed",
+                                     RCP85 = "dotted", andere = "12"),
+                          name = "Szenario") +
+    scale_x_continuous(breaks = 1:12, labels = stf_monlab,
+                       expand = expansion(mult = c(0.02, 0.18))) +
+    # Temperatur-/Niederschlagsticks NUR im Datenbereich - im Streifen oben gilt
+    # die Index-Achse, dort waeren Grad-/mm-Beschriftungen schlicht falsch.
+    scale_y_continuous("Temperatur [\u00b0C]",
+      breaks = seq(-10, floor((y0 - 3) / 5) * 5, 5),
+      sec.axis = sec_axis(~ . * 2, name = "Niederschlag [mm]",
+                          breaks = seq(0, floor((y0 - 3) / 5) * 10, 20))) +
+    coord_cartesian(clip = "off") +
+    labs(title = paste0("WL-Vergleich mit De-Martonne-Streifen \u00b7 ", mid),
+         subtitle = paste0(length(unique(pt$Zeitlauf)),
+           " Klimal\u00e4ufe  \u00b7  rot = Temperatur, blau = Niederschlag (B\u00e4nder: 10.\u201390. Perzentil je Szenario)",
+           "\nOffene Punkte: Monate mit mindestens einem Lauf T \u2264 ", dm_kalt_T,
+           " \u00b0C \u2013 dort ist der Monatsindex",
+           "\nrechnerisch \u00fcberh\u00f6ht (Nenner t+10), nicht der Standort feuchter."),
+         caption = paste0("Standort-Kennzahlen (Mittel der L\u00e4ufe), Jahresindex P/(T+10) / Vegetationszeit Mai\u2013Sep:   ",
+                          kz_txt,
+                          "\nNur diese Jahreswerte sind mit den Klassengrenzen (10/20/24/28/35/55) direkt vergleichbar."),
+         x = "Monat") +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.grid.minor   = element_blank(),
+      panel.grid.major.y = element_line(colour = "grey92"),
+      axis.title.y.left  = element_text(colour = "#c0392b"),
+      axis.text.y.left   = element_text(colour = "#c0392b"),
+      axis.title.y.right = element_text(colour = "#2c5fa8"),
+      axis.text.y.right  = element_text(colour = "#2c5fa8"),
+      plot.caption       = element_text(hjust = 0, size = 7.5, colour = "grey25"),
+      legend.position    = "bottom")
+
+  ggsave(file.path(wl_stf_dir, paste0(mid, "_staffel_dm.png")),
+         p, width = 10, height = 8.5, dpi = 200)
+}
+# -> je gewaehlter MASTER_ID eine PNG <MASTER_ID>_staffel_dm.png in
+#    04_results/WL_staffel/NR-08/  (oben De-Martonne mit echter Index-Achse
+#    und Klassenbaendern, darunter das WL-Diagramm)
+
+
 ## 6.13  DEBUG: Temperatur/Niederschlag-Verwechslung pruefen ------------------
 # Die NR-CSVs zeigen T_mean = Monatsniederschlag (Mittel = Jahressumme/12) -> in
 # die "1155"-Datei wird Niederschlag gelesen. Hier EINE 1155- und EINE 1157-Datei
